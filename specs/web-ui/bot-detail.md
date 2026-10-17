@@ -7,6 +7,7 @@
   - `Logs` — run history newest first: status, source (`schedule`/`manual`) and error or output text (see `runs/lifecycle.md`).
 - The active tab is marked; switching tabs changes nothing about the bot. Newly opened modals start on `General`.
 - The modal keeps the same size regardless of which tab is active or how much content it holds; tab content scrolls inside it.
+- Run now, Stop, Enable/Disable act immediately; Delete and Clear memory ask for confirmation first (see `confirm.md`).
 - The modal closes via its close button, Escape, or tapping outside; closing changes nothing about the bot.
 - Tapping another card switches the modal to that bot in place; on phones the modal spans the full screen.
 
