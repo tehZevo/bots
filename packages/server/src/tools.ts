@@ -1,9 +1,9 @@
-import { execFile } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "@earendil-works/pi-ai";
 import { dataDir } from "./config.ts";
+import { containerName, execInContainer } from "./sandbox.ts";
 
 const MAX_OUTPUT_CHARS = 8000;
 
@@ -68,32 +68,17 @@ export function buildTools(botId: string): AgentTool<any>[] {
   const shell: AgentTool<typeof shellSchema> = {
     name: "shell",
     label: "Shell",
-    description: `Run a shell command in the bot's workspace directory (${cwd}). Not sandboxed yet.`,
+    description: `Run a bash command inside the bot's sandbox container (${containerName(botId)}); cwd is /workspace.`,
     parameters: shellSchema,
     execute: async (_id, params, signal) => {
-      const result = await new Promise<{
-        stdout: string;
-        stderr: string;
-        code: number;
-      }>((resolvePromise, reject) => {
-        execFile(
-          "bash",
-          ["-lc", params.command],
-          { cwd, timeout: 60_000, signal, maxBuffer: 1024 * 1024 },
-          (err, stdout, stderr) => {
-            if (signal?.aborted) return reject(new Error("aborted"));
-            const code =
-              err && typeof err.code === "number" ? err.code : err ? 1 : 0;
-            resolvePromise({ stdout, stderr, code });
-          },
-        );
-      });
+      const result = await execInContainer(botId, cwd, params.command, signal);
+      if (signal?.aborted) throw new Error("aborted");
       const text = [result.stdout, result.stderr].filter(Boolean).join("\n");
       return {
         content: [
           {
             type: "text",
-            text: `exit ${result.code}\n${truncate(text) || "(no output)"}`,
+            text: `exit ${result.code ?? 1}\n${truncate(text) || "(no output)"}`,
           },
         ],
         details: { code: result.code },
