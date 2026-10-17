@@ -115,6 +115,39 @@ button {
   background: var(--hover);
 }
 
+.mtabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.mtabs button {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  padding: 0.45rem 0.7rem;
+  cursor: pointer;
+}
+
+.mtabs button:hover {
+  color: var(--text);
+}
+
+.mtabs button.sel {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.statusline {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+}
+
 form {
   display: flex;
   flex-direction: column;
@@ -329,6 +362,24 @@ article header {
 
 .card strong {
   overflow-wrap: anywhere;
+}
+
+.statusline .dot.enabled,
+.statusline .dot.running,
+.statusline .dot.disabled {
+  display: inline-block;
+}
+
+.dot.enabled {
+  background: var(--info);
+}
+
+.dot.running {
+  background: var(--ok);
+}
+
+.dot.disabled {
+  background: var(--muted);
 }
 
 .card .dot {

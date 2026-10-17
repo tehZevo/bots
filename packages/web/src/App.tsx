@@ -51,6 +51,9 @@ export function App() {
   const [bots, setBots] = useState<Bot[]>([]);
   const [tab, setTab] = useState<"bots" | "roles">("bots");
   const [openBot, setOpenBot] = useState<string | null>(null);
+  const [modalTab, setModalTab] = useState<"general" | "triggers" | "logs">(
+    "general",
+  );
   const [detailOpen, setDetailOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [runs, setRuns] = useState<Run[]>([]);
@@ -73,6 +76,7 @@ export function App() {
   }, [load]);
 
   useEffect(() => {
+    setModalTab("general");
     setRuns([]);
     if (!openBot) return;
     const loadRuns = async () =>
@@ -205,24 +209,50 @@ export function App() {
                 ×
               </button>
             </div>
-            <BotActions bot={openBotRow} onChanged={load} />
-            <RoleSelect bot={openBotRow} onChanged={load} />
-            <Triggers botId={openBotRow.id} />
-            {runs.length === 0 && (
-              <p>No runs yet. Press "Run now" or wait for a trigger.</p>
+            <nav className="mtabs">
+              {(["general", "triggers", "logs"] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  className={modalTab === t ? "sel" : ""}
+                  onClick={() => setModalTab(t)}
+                >
+                  {t[0].toUpperCase() + t.slice(1)}
+                </button>
+              ))}
+            </nav>
+            {modalTab === "general" && (
+              <>
+                <p className="statusline">
+                  Status: <span className={`dot ${openBotRow.status}`} />{" "}
+                  {openBotRow.status}
+                </p>
+                <BotActions bot={openBotRow} onChanged={load} />
+                <RoleSelect bot={openBotRow} onChanged={load} />
+              </>
             )}
-            {runs.map((run) => (
-              <article key={run.id}>
-                <header>
-                  <span className={`status ${run.status}`}>{run.status}</span>
-                  <span>{run.trigger}</span>
-                  <span>{fmt(run.started_at)}</span>
-                  {run.finished_at && <span>→ {fmt(run.finished_at)}</span>}
-                </header>
-                {run.output && <pre>{run.output}</pre>}
-                {run.error && <pre className="error">{run.error}</pre>}
-              </article>
-            ))}
+            {modalTab === "triggers" && <Triggers botId={openBotRow.id} />}
+            {modalTab === "logs" && (
+              <>
+                {runs.length === 0 && (
+                  <p>No runs yet. Press "Run now" or wait for a trigger.</p>
+                )}
+                {runs.map((run) => (
+                  <article key={run.id}>
+                    <header>
+                      <span className={`status ${run.status}`}>
+                        {run.status}
+                      </span>
+                      <span>{run.trigger}</span>
+                      <span>{fmt(run.started_at)}</span>
+                      {run.finished_at && <span>→ {fmt(run.finished_at)}</span>}
+                    </header>
+                    {run.output && <pre>{run.output}</pre>}
+                    {run.error && <pre className="error">{run.error}</pre>}
+                  </article>
+                ))}
+              </>
+            )}
           </div>
         </div>
       )}
