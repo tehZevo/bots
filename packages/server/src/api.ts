@@ -39,6 +39,7 @@ const DEFAULT_MANUAL_MESSAGE = "Continue with your current work.";
 
 interface BotInput {
   name?: unknown;
+  description?: unknown;
   system_prompt?: unknown;
   model_id?: unknown;
   role_id?: unknown;
@@ -56,6 +57,7 @@ function toBotPayload(input: BotInput) {
   }
   return {
     name: input.name.trim(),
+    description: typeof input.description === "string" ? input.description : "",
     system_prompt:
       typeof input.system_prompt === "string" ? input.system_prompt : "",
     model_id:

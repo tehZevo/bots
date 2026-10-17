@@ -7,6 +7,7 @@ import { config } from "./config.ts";
 export interface BotRow {
   id: string;
   name: string;
+  description: string;
   system_prompt: string;
   model_id: string | null;
   role_id: string | null;
@@ -59,6 +60,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS bots (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
     system_prompt TEXT NOT NULL DEFAULT '',
     model_id TEXT,
     enabled INTEGER NOT NULL DEFAULT 1,
@@ -147,6 +149,11 @@ if (botColumns.has("task")) {
   }
 }
 
+if (!botColumns.has("description"))
+  db.prepare(
+    "ALTER TABLE bots ADD COLUMN description TEXT NOT NULL DEFAULT ''",
+  ).run();
+
 if (!botColumns.has("role_id"))
   db.prepare(
     "ALTER TABLE bots ADD COLUMN role_id TEXT REFERENCES roles(id)",
@@ -164,8 +171,8 @@ export function getBot(id: string): BotRow | undefined {
 
 export function insertBot(bot: BotRow): void {
   db.prepare(
-    `INSERT INTO bots (id, name, system_prompt, model_id, role_id, enabled, created_at)
-     VALUES (@id, @name, @system_prompt, @model_id, @role_id, @enabled, @created_at)`,
+    `INSERT INTO bots (id, name, description, system_prompt, model_id, role_id, enabled, created_at)
+     VALUES (@id, @name, @description, @system_prompt, @model_id, @role_id, @enabled, @created_at)`,
   ).run(bot);
 }
 
