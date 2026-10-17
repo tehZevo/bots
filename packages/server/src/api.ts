@@ -30,6 +30,7 @@ import {
   updateRole,
   updateTrigger,
 } from "./db.ts";
+import { removeContainer } from "./sandbox.ts";
 import { nextRunAt } from "./scheduler.ts";
 
 const DEFAULT_MANUAL_MESSAGE = "Continue with your current work.";
@@ -188,6 +189,7 @@ export function createApp(): Hono {
     if (!bot) return c.json({ error: "not found" }, 404);
     resetBotRuntime(bot.id);
     deleteBot(bot.id);
+    removeContainer(bot.id);
     return c.json({ ok: true });
   });
 
