@@ -4,13 +4,13 @@
 
 - `packages/server` — Hono API, scheduler, agent loop (`src/agent.ts`), SQLite layer (`src/db.ts`), tools (`src/tools.ts`).
 - `packages/web` — React + Vite UI; talks to `/api` (dev proxy → `:8787`).
-- `specs/` — behavior specs: one directory per feature, each with a concise plain-markdown `spec.md` describing **what** the system does (not how). See `specs/README.md` for conventions + index and `specs/roadmap.md` for planned-but-unspaced features.
+- `specs/` — behavior specs: one directory per feature, each with a concise plain-markdown `spec.md` describing **what** the system does (not how). Conventions in `specs/README.md`. Agreed-but-unspaced long-term features live in root `ROADMAP.md`.
 
 ## Specs workflow
 
 - Specs are the source of truth for behavior; code cites specs, not the other way around.
-- When a new behavior is agreed on, open a **spec-only PR** (use a git worktree off `master` so it stays isolated) touching just `specs/**` (+ index).
-- Implementation happens in separate code PRs that reference the spec they implement; update the spec's `Status:` line when it ships.
+- When a new behavior is agreed on, open a **spec-only PR** (use a git worktree off `master` so it stays isolated) touching just `specs/**`.
+- Implementation happens in separate code PRs that reference the spec they implement.
 - Behavior changes require a spec update in the same or an earlier PR than the code change.
 
 ## Commands
