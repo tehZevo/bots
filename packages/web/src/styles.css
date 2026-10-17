@@ -75,7 +75,8 @@ form {
 }
 
 input,
-textarea {
+textarea,
+select {
   background: #171a20;
   color: inherit;
   border: 1px solid #2c313c;
@@ -140,6 +141,14 @@ article header {
 
 .status.running {
   color: #facc15;
+}
+
+.status.enabled {
+  color: #4ade80;
+}
+
+.status.disabled {
+  color: #9aa3b2;
 }
 
 .tabs {
@@ -234,6 +243,19 @@ pre {
 .trigger p {
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.trigger button {
+  justify-self: start;
+}
+
+.triggers form {
+  max-width: 480px;
+}
+
+.mobilebar summary {
+  padding: 0.5rem 0.25rem;
+  cursor: pointer;
 }
 
 @media (max-width: 720px) {

@@ -138,9 +138,7 @@ export function App() {
                 </button>
               ))}
             </div>
-            {bots.length === 0 && (
-              <p>Create a bot from the form to get started.</p>
-            )}
+            {bots.length === 0 && <p>No bots yet — create one above.</p>}
           </>
         )}
         {selected && (
