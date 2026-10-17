@@ -81,12 +81,13 @@ aside h1 {
   margin-top: 0;
 }
 
-ul {
-  list-style: none;
-  padding: 0;
+.sidetabs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
 }
 
-li button {
+.sidetabs button {
   width: 100%;
   text-align: left;
   background: none;
@@ -97,22 +98,9 @@ li button {
   border-radius: 6px;
 }
 
-li button:hover,
-li button.sel {
+.sidetabs button:hover,
+.sidetabs button.sel {
   background: var(--hover);
-}
-
-.dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #666;
-  margin-right: 6px;
-}
-
-.dot.on {
-  background: var(--ok);
 }
 
 form {
@@ -240,27 +228,6 @@ article header {
   color: var(--muted);
 }
 
-.tabs {
-  display: flex;
-  gap: 0.4rem;
-  margin-bottom: 1rem;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 0.5rem;
-}
-
-.tab {
-  background: none;
-  color: var(--muted);
-  border: 1px solid transparent;
-  padding: 0.4rem 0.9rem;
-}
-
-.tab.sel {
-  background: var(--hover);
-  border-color: var(--border);
-  color: var(--text);
-}
-
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -302,8 +269,28 @@ pre {
   color: var(--err);
 }
 
-.mobilebar {
+.topbar {
   display: none;
+}
+
+.drawer .scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgb(0 0 0 / 45%);
+}
+
+.drawer .panel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 21;
+  width: min(300px, 85vw);
+  padding: 1rem;
+  overflow-y: auto;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
 }
 
 .triggers {
@@ -343,11 +330,6 @@ pre {
   max-width: 480px;
 }
 
-.mobilebar summary {
-  padding: 0.5rem 0.25rem;
-  cursor: pointer;
-}
-
 @media (max-width: 720px) {
   .layout {
     grid-template-columns: 1fr;
@@ -357,22 +339,16 @@ pre {
     display: none;
   }
 
-  .mobilebar {
+  .topbar {
     display: flex;
-    flex-wrap: wrap;
     align-items: center;
-    gap: 0.5rem;
+    justify-content: space-between;
     padding: 0.6rem 0.8rem;
     border-bottom: 1px solid var(--border);
     position: sticky;
     top: 0;
     background: var(--bg);
     z-index: 1;
-  }
-
-  .mobilebar select {
-    flex: 1 1 140px;
-    min-width: 0;
   }
 
   main {
