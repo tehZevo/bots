@@ -49,7 +49,7 @@ function fmt(ts: number | null): string {
 
 export function App() {
   const [bots, setBots] = useState<Bot[]>([]);
-  const [tab, setTab] = useState<"bots" | "roles">("bots");
+  const [tab, setTab] = useState<"bots" | "roles" | "settings">("bots");
   const [openBot, setOpenBot] = useState<string | null>(null);
   const [modalTab, setModalTab] = useState<"general" | "triggers" | "logs">(
     "general",
@@ -132,7 +132,6 @@ export function App() {
       <aside>
         <div className="hdr">
           <h1>Bots</h1>
-          <ThemeMenu />
         </div>
         {error && <p className="error">{error}</p>}
         {nav}
@@ -146,7 +145,6 @@ export function App() {
         >
           ☰
         </button>
-        <ThemeMenu />
       </div>
       {navOpen && (
         <div className="drawer">
@@ -166,14 +164,18 @@ export function App() {
         </div>
       )}
       <main>
+        <header className="statusbar">
+          <h2>Bots</h2>
+          <span className="counts">
+            {bots.length} total ·{" "}
+            {bots.filter((b) => b.status === "running").length} running
+          </span>
+          <button type="button" onClick={() => setAddOpen(true)}>
+            Add bot
+          </button>
+        </header>
         {tab === "bots" && (
           <>
-            <div className="viewhead">
-              <h2>Bots</h2>
-              <button type="button" onClick={() => setAddOpen(true)}>
-                Add bot
-              </button>
-            </div>
             <input
               placeholder="Search bots by name"
               value={botQuery}
@@ -215,6 +217,7 @@ export function App() {
           </>
         )}
         {tab === "roles" && <RolesPanel />}
+        {tab === "settings" && <SettingsPanel />}
       </main>
       {detailOpen && openBotRow && (
         <div className="modal">
@@ -405,8 +408,8 @@ function Nav({
   tab,
   onSelect,
 }: {
-  tab: "bots" | "roles";
-  onSelect: (tab: "bots" | "roles") => void;
+  tab: "bots" | "roles" | "settings";
+  onSelect: (tab: "bots" | "roles" | "settings") => void;
 }) {
   return (
     <nav className="sidetabs">
@@ -424,6 +427,13 @@ function Nav({
       >
         Roles
       </button>
+      <button
+        type="button"
+        className={tab === "settings" ? "sel" : ""}
+        onClick={() => onSelect("settings")}
+      >
+        Settings
+      </button>
     </nav>
   );
 }
@@ -436,52 +446,32 @@ function currentTheme(): Theme {
   return stored === "light" || stored === "system" ? stored : "dark";
 }
 
-function ThemeMenu() {
+function SettingsPanel() {
   const [theme, setTheme] = useState<Theme>(currentTheme);
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("click", close);
-    return () => document.removeEventListener("click", close);
-  }, [open]);
 
   const pick = (t: Theme) => {
     localStorage.setItem("bots-theme", t);
     document.documentElement.dataset.theme = t;
     setTheme(t);
-    setOpen(false);
   };
 
   return (
-    <div className="settings" ref={ref}>
-      <button
-        type="button"
-        className="cog"
-        aria-label="Settings"
-        onClick={() => setOpen((o) => !o)}
-      >
-        ⚙
-      </button>
-      {open && (
-        <div className="menu">
-          {THEMES.map((t) => (
-            <button
-              key={t}
-              type="button"
-              className={t === theme ? "sel" : ""}
-              onClick={() => pick(t)}
-            >
-              {t[0].toUpperCase() + t.slice(1)}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+    <section>
+      <h2>Settings</h2>
+      <p className="muted">Theme</p>
+      <nav className="sidetabs wide">
+        {THEMES.map((t) => (
+          <button
+            key={t}
+            type="button"
+            className={t === theme ? "sel" : ""}
+            onClick={() => pick(t)}
+          >
+            {t[0].toUpperCase() + t.slice(1)}
+          </button>
+        ))}
+      </nav>
+    </section>
   );
 }
 

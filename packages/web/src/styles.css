@@ -279,6 +279,27 @@ article header {
   margin: 0 0 0.75rem;
 }
 
+.statusbar {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.statusbar h2 {
+  margin: 0;
+}
+
+.statusbar .counts {
+  color: var(--muted);
+  font-size: 0.9rem;
+  flex: 1;
+}
+
+.sidetabs.wide button {
+  max-width: 240px;
+}
+
 .viewhead {
   display: flex;
   align-items: center;
