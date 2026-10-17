@@ -50,16 +50,12 @@ function fmt(ts: number | null): string {
 export function App() {
   const [bots, setBots] = useState<Bot[]>([]);
   const [tab, setTab] = useState<string>("bots");
+  const [openBot, setOpenBot] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const [runs, setRuns] = useState<Run[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(false);
-
-  const botId = tab !== "bots" && tab !== "roles" ? tab : null;
-
-  const select = (id: string) => {
-    setTab(id);
-    setNavOpen(false);
-  };
 
   const load = useCallback(async () => {
     try {
@@ -78,19 +74,45 @@ export function App() {
 
   useEffect(() => {
     setRuns([]);
-    if (!botId) return;
+    if (!openBot) return;
     const loadRuns = async () =>
-      setRuns(await api<Run[]>(`/api/bots/${botId}/runs`));
+      setRuns(await api<Run[]>(`/api/bots/${openBot}/runs`));
     void loadRuns();
     const t = setInterval(loadRuns, 3000);
     return () => clearInterval(t);
-  }, [botId]);
+  }, [openBot]);
 
   useEffect(() => {
-    if (botId && !bots.some((b) => b.id === botId)) setTab("bots");
-  }, [bots, botId]);
+    if (openBot && !bots.some((b) => b.id === openBot)) {
+      setOpenBot(null);
+      setDetailOpen(false);
+    }
+  }, [bots, openBot]);
 
-  const nav = <Nav tab={tab} onSelect={(t) => select(t)} onCreated={load} />;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (addOpen) setAddOpen(false);
+      else if (detailOpen) setDetailOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [addOpen, detailOpen]);
+
+  const openBotRow = bots.find((b) => b.id === openBot);
+
+  const nav = (
+    <Nav
+      tab={tab}
+      openBotName={openBotRow?.name ?? null}
+      onSelect={(t) => {
+        setTab(t);
+        if (t === "bots" || t === "roles") setDetailOpen(false);
+        else setDetailOpen(true);
+        setNavOpen(false);
+      }}
+    />
+  );
 
   return (
     <div className="layout">
@@ -133,6 +155,12 @@ export function App() {
       <main>
         {tab === "bots" && (
           <>
+            <div className="viewhead">
+              <h2>Bots</h2>
+              <button type="button" onClick={() => setAddOpen(true)}>
+                Add bot
+              </button>
+            </div>
             <div className="cards">
               {bots.map((bot) => (
                 <button
@@ -140,30 +168,48 @@ export function App() {
                   key={bot.id}
                   className="card"
                   aria-label={`${bot.name} (${bot.status})`}
-                  onClick={() => select(bot.id)}
+                  onClick={() => {
+                    setOpenBot(bot.id);
+                    setDetailOpen(true);
+                  }}
                 >
-                  <span className={`dot ${bot.status}`} />
+                  <span className={`dot ${bot.status}`} title={bot.status} />
                   <strong>{bot.name}</strong>
                 </button>
               ))}
             </div>
-            {bots.length === 0 && (
-              <p>No bots yet — create one from the menu.</p>
-            )}
+            {bots.length === 0 && <p>No bots yet — press "Add bot".</p>}
           </>
         )}
         {tab === "roles" && <RolesPanel />}
-        {botId && (
-          <div>
-            <BotActions
-              bot={bots.find((b) => b.id === botId)}
-              onChanged={load}
-            />
-            <RoleSelect
-              bot={bots.find((b) => b.id === botId)}
-              onChanged={load}
-            />
-            <Triggers botId={botId} />
+      </main>
+      {detailOpen && openBotRow && (
+        <div className="modal">
+          <button
+            type="button"
+            className="mscrim"
+            aria-label="Close details"
+            onClick={() => setDetailOpen(false)}
+          />
+          <div
+            className="dialog"
+            role="dialog"
+            aria-label={`${openBotRow.name} details`}
+          >
+            <div className="viewhead">
+              <h2>{openBotRow.name}</h2>
+              <button
+                type="button"
+                className="close"
+                aria-label="Close"
+                onClick={() => setDetailOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+            <BotActions bot={openBotRow} onChanged={load} />
+            <RoleSelect bot={openBotRow} onChanged={load} />
+            <Triggers botId={openBotRow.id} />
             {runs.length === 0 && (
               <p>No runs yet. Press "Run now" or wait for a trigger.</p>
             )}
@@ -180,41 +226,154 @@ export function App() {
               </article>
             ))}
           </div>
-        )}
-      </main>
+        </div>
+      )}
+      {addOpen && (
+        <AddBotModal
+          onClose={() => setAddOpen(false)}
+          onCreated={() => {
+            setAddOpen(false);
+            void load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AddBotModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [systemPrompt, setSystemPrompt] = useState("");
+  const [roleId, setRoleId] = useState("");
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void api<Role[]>("/api/roles").then(setRoles, () => setRoles([]));
+  }, []);
+
+  return (
+    <div className="modal">
+      <button
+        type="button"
+        className="mscrim"
+        aria-label="Cancel"
+        onClick={onClose}
+      />
+      <form
+        className="dialog narrow"
+        role="dialog"
+        aria-label="Add bot"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          try {
+            await api("/api/bots", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                name,
+                system_prompt: systemPrompt,
+                role_id: roleId || null,
+              }),
+            });
+            onCreated();
+          } catch (err) {
+            alert(err instanceof Error ? err.message : String(err));
+            setBusy(false);
+          }
+        }}
+      >
+        <div className="viewhead">
+          <h2>Add bot</h2>
+          <button
+            type="button"
+            className="close"
+            aria-label="Cancel"
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
+        <input
+          ref={(el) => el?.focus()}
+          placeholder="name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
+        <textarea
+          placeholder="system prompt (optional)"
+          rows={3}
+          value={systemPrompt}
+          onChange={(e) => setSystemPrompt(e.target.value)}
+        />
+        <p className="rolepick">
+          Role{" "}
+          <select value={roleId} onChange={(e) => setRoleId(e.target.value)}>
+            <option value="">None</option>
+            {roles.map((role) => (
+              <option key={role.id} value={role.id}>
+                {role.name}
+              </option>
+            ))}
+          </select>
+        </p>
+        <div className="actions">
+          <button type="submit" disabled={busy}>
+            Create
+          </button>
+          <button type="button" onClick={onClose}>
+            Cancel
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
 
 function Nav({
   tab,
+  openBotName,
   onSelect,
-  onCreated,
 }: {
   tab: string;
+  openBotName: string | null;
   onSelect: (tab: string) => void;
-  onCreated: () => void;
 }) {
+  const botActive = tab !== "bots" && tab !== "roles";
   return (
-    <>
-      <nav className="sidetabs">
+    <nav className="sidetabs">
+      <button
+        type="button"
+        className={tab === "bots" ? "sel" : ""}
+        onClick={() => onSelect("bots")}
+      >
+        Bots
+      </button>
+      <button
+        type="button"
+        className={tab === "roles" ? "sel" : ""}
+        onClick={() => onSelect("roles")}
+      >
+        Roles
+      </button>
+      {openBotName && (
         <button
           type="button"
-          className={tab === "bots" ? "sel" : ""}
-          onClick={() => onSelect("bots")}
+          className={botActive ? "sel" : ""}
+          onClick={() => onSelect(openBotName)}
         >
-          Bots
+          {openBotName}
         </button>
-        <button
-          type="button"
-          className={tab === "roles" ? "sel" : ""}
-          onClick={() => onSelect("roles")}
-        >
-          Roles
-        </button>
-      </nav>
-      <BotForm onCreated={onCreated} />
-    </>
+      )}
+    </nav>
   );
 }
 
@@ -441,7 +600,6 @@ function BotActions({
     api(path, init).catch((e) => alert(e.message));
   return (
     <div className="actions">
-      <strong>{bot.name}</strong>
       <button
         type="button"
         onClick={() => post(`/api/bots/${bot.id}/run`, { method: "POST" })}
@@ -479,49 +637,6 @@ function BotActions({
         Delete
       </button>
     </div>
-  );
-}
-
-function BotForm({ onCreated }: { onCreated: () => void }) {
-  const [name, setName] = useState("");
-  const [systemPrompt, setSystemPrompt] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  return (
-    <form
-      onSubmit={async (e) => {
-        e.preventDefault();
-        setBusy(true);
-        try {
-          await api("/api/bots", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ name, system_prompt: systemPrompt }),
-          });
-          setName("");
-          setSystemPrompt("");
-          onCreated();
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
-      <input
-        placeholder="name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        required
-      />
-      <textarea
-        placeholder="system prompt (optional)"
-        rows={2}
-        value={systemPrompt}
-        onChange={(e) => setSystemPrompt(e.target.value)}
-      />
-      <button type="submit" disabled={busy}>
-        Create bot
-      </button>
-    </form>
   );
 }
 
