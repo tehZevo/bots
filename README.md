@@ -31,23 +31,26 @@ For production: `pnpm build && pnpm start` serves the built UI and API from `:87
 
 ## Concepts
 
-- **Bot**: name + task prompt + optional system prompt + schedule. Schedules are cron expressions (`0 9 * * MON-FRI`) or intervals (`@every 30m`).
-- **Run**: one execution of a bot's task through the agent loop (manual or scheduled). Output and errors are stored.
+- **Bot**: a named agent with an optional system prompt and model override. Its context is one persistent, forever-growing conversation (cleared only manually).
+- **Trigger**: attaches to a bot and posts its message into that context on a schedule — cron expressions (`0 9 * * MON-FRI`) or intervals (`@every 30m`). Messages arriving while the bot is busy steer the active loop instead of queueing sessions.
+- **Run**: one working cycle of the agent loop, from an injected trigger message until it goes quiet (manual or scheduled). Output and errors are stored.
 - **Memory**: full conversation per bot persisted in SQLite; long histories are summarized/compacted automatically. Clear via UI or `DELETE /api/bots/:id/messages`.
 - **Tools**: `web_fetch` (GET + HTML-to-text) and `shell` (bash in the bot's workspace under `data/workspaces/<bot-id>/`). Not sandboxed yet.
 
 ## API
 
-| Method   | Path                       | Description                |
-| -------- | -------------------------- | -------------------------- |
-| GET      | `/api/health`              | Health check               |
-| GET      | `/api/bots`                | List bots                  |
-| POST     | `/api/bots`                | Create bot                 |
-| GET/PATCH/DELETE | `/api/bots/:id`  | Read/update/delete a bot   |
-| POST     | `/api/bots/:id/run`        | Trigger a run (async, 202) |
-| GET      | `/api/bots/:id/runs`       | Run history                |
-| GET      | `/api/bots/:id/messages`   | Conversation memory        |
-| DELETE   | `/api/bots/:id/messages`   | Clear memory               |
+| Method   | Path                       | Description                              |
+| -------- | -------------------------- | ---------------------------------------- |
+| GET      | `/api/health`              | Health check                             |
+| GET      | `/api/bots`                | List bots                                |
+| POST     | `/api/bots`                | Create bot (`name`, optional prompt)     |
+| GET/PATCH/DELETE | `/api/bots/:id`  | Read/update/delete a bot                 |
+| POST     | `/api/bots/:id/run`        | Inject manual message (202, may steer)   |
+| GET      | `/api/bots/:id/runs`       | Run history                              |
+| GET/POST | `/api/bots/:id/triggers`   | List / add schedule triggers             |
+| PATCH/DELETE | `/api/triggers/:id`    | Update / delete a trigger                |
+| GET      | `/api/bots/:id/messages`   | Conversation memory                      |
+| DELETE   | `/api/bots/:id/messages`   | Clear memory                             |
 
 ## Roadmap
 
