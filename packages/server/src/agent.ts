@@ -10,6 +10,7 @@ import {
   type BotRow,
   clearMessages,
   finishRun,
+  getRole,
   insertRun,
   loadMessages,
 } from "./db.ts";
@@ -17,6 +18,14 @@ import { resolveModel } from "./llm.ts";
 import { buildTools } from "./tools.ts";
 
 const DEFAULT_SYSTEM_PROMPT = "You are a helpful autonomous bot.";
+
+function effectiveSystemPrompt(bot: BotRow): string {
+  const role = bot.role_id ? getRole(bot.role_id) : undefined;
+  const parts = [bot.system_prompt.trim(), role?.instructions.trim()].filter(
+    Boolean,
+  );
+  return parts.join("\n\n") || DEFAULT_SYSTEM_PROMPT;
+}
 const LLM_ROLES = new Set(["user", "assistant", "toolResult"]);
 
 function estimateTokens(messages: AgentMessage[]): number {
@@ -134,7 +143,7 @@ function startLoop(bot: BotRow, runId: string, firstMessage: AgentMessage) {
     getApiKey: () => config.llm.apiKey,
     steeringMode: "all",
     initialState: {
-      systemPrompt: bot.system_prompt || DEFAULT_SYSTEM_PROMPT,
+      systemPrompt: effectiveSystemPrompt(bot),
       model,
       tools: buildTools(bot.id),
       messages: history,

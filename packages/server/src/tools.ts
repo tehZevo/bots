@@ -26,6 +26,7 @@ const shellSchema = Type.Object({
   command: Type.String({ description: "Command line to run with bash" }),
 });
 
+// biome-ignore lint/suspicious/noExplicitAny: pi types its tool arrays as AgentTool<any>[]
 export function buildTools(botId: string): AgentTool<any>[] {
   const cwd = workspaceDir(botId);
 

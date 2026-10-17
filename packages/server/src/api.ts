@@ -8,16 +8,21 @@ import { repoRoot } from "./config.ts";
 import {
   clearMessages,
   deleteBot,
+  deleteRole,
   deleteTrigger,
   getBot,
+  getRole,
   getTrigger,
   insertBot,
+  insertRole,
   insertTrigger,
   listBots,
+  listRoles,
   listRuns,
   listTriggers,
   loadMessages,
   updateBot,
+  updateRole,
   updateTrigger,
 } from "./db.ts";
 import { nextRunAt } from "./scheduler.ts";
@@ -28,12 +33,19 @@ interface BotInput {
   name?: unknown;
   system_prompt?: unknown;
   model_id?: unknown;
+  role_id?: unknown;
   enabled?: unknown;
 }
 
 function toBotPayload(input: BotInput) {
   if (typeof input.name !== "string" || !input.name.trim())
     return { error: "name is required" };
+  let role_id: string | null = null;
+  if (typeof input.role_id === "string" && input.role_id.trim()) {
+    if (!getRole(input.role_id.trim()))
+      return { error: `unknown role: ${input.role_id}` };
+    role_id = input.role_id.trim();
+  }
   return {
     name: input.name.trim(),
     system_prompt:
@@ -42,8 +54,22 @@ function toBotPayload(input: BotInput) {
       typeof input.model_id === "string" && input.model_id.trim()
         ? input.model_id.trim()
         : null,
+    role_id,
     enabled: input.enabled === false ? 0 : 1,
   };
+}
+
+interface RoleInput {
+  name?: unknown;
+  instructions?: unknown;
+}
+
+function toRolePayload(input: RoleInput) {
+  if (typeof input.name !== "string" || !input.name.trim())
+    return { error: "name is required" };
+  if (typeof input.instructions !== "string" || !input.instructions.trim())
+    return { error: "instructions is required" };
+  return { name: input.name.trim(), instructions: input.instructions };
 }
 
 interface TriggerInput {
@@ -87,6 +113,41 @@ export function createApp(): Hono {
     const bot = { id: randomUUID(), ...payload, created_at: Date.now() };
     insertBot(bot);
     return c.json(bot, 201);
+  });
+
+  app.get("/api/roles", (c) => c.json(listRoles()));
+
+  app.post("/api/roles", async (c) => {
+    const payload = toRolePayload(await c.req.json<RoleInput>());
+    if ("error" in payload) return c.json({ error: payload.error }, 400);
+    const role = { id: randomUUID(), ...payload, created_at: Date.now() };
+    insertRole(role);
+    return c.json(role, 201);
+  });
+
+  app.get("/api/roles/:roleId", (c) => {
+    const role = getRole(c.req.param("roleId"));
+    if (!role) return c.json({ error: "not found" }, 404);
+    return c.json(role);
+  });
+
+  app.patch("/api/roles/:roleId", async (c) => {
+    const role = getRole(c.req.param("roleId"));
+    if (!role) return c.json({ error: "not found" }, 404);
+    const payload = toRolePayload({
+      ...role,
+      ...(await c.req.json<RoleInput>()),
+    });
+    if ("error" in payload) return c.json({ error: payload.error }, 400);
+    updateRole(role.id, payload);
+    return c.json(getRole(role.id));
+  });
+
+  app.delete("/api/roles/:roleId", (c) => {
+    const role = getRole(c.req.param("roleId"));
+    if (!role) return c.json({ error: "not found" }, 404);
+    deleteRole(role.id);
+    return c.json({ ok: true });
   });
 
   app.get("/api/bots/:id", (c) => {
