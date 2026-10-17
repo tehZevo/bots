@@ -194,7 +194,7 @@ export function App() {
             onClick={() => setDetailOpen(false)}
           />
           <div
-            className="dialog"
+            className="dialog tabs"
             role="dialog"
             aria-label={`${openBotRow.name} details`}
           >
@@ -221,38 +221,42 @@ export function App() {
                 </button>
               ))}
             </nav>
-            {modalTab === "general" && (
-              <>
-                <p className="statusline">
-                  Status: <span className={`dot ${openBotRow.status}`} />{" "}
-                  {openBotRow.status}
-                </p>
-                <BotActions bot={openBotRow} onChanged={load} />
-                <RoleSelect bot={openBotRow} onChanged={load} />
-              </>
-            )}
-            {modalTab === "triggers" && <Triggers botId={openBotRow.id} />}
-            {modalTab === "logs" && (
-              <>
-                {runs.length === 0 && (
-                  <p>No runs yet. Press "Run now" or wait for a trigger.</p>
-                )}
-                {runs.map((run) => (
-                  <article key={run.id}>
-                    <header>
-                      <span className={`status ${run.status}`}>
-                        {run.status}
-                      </span>
-                      <span>{run.trigger}</span>
-                      <span>{fmt(run.started_at)}</span>
-                      {run.finished_at && <span>→ {fmt(run.finished_at)}</span>}
-                    </header>
-                    {run.output && <pre>{run.output}</pre>}
-                    {run.error && <pre className="error">{run.error}</pre>}
-                  </article>
-                ))}
-              </>
-            )}
+            <div className="tabbody">
+              {modalTab === "general" && (
+                <>
+                  <p className="statusline">
+                    Status: <span className={`dot ${openBotRow.status}`} />{" "}
+                    {openBotRow.status}
+                  </p>
+                  <BotActions bot={openBotRow} onChanged={load} />
+                  <RoleSelect bot={openBotRow} onChanged={load} />
+                </>
+              )}
+              {modalTab === "triggers" && <Triggers botId={openBotRow.id} />}
+              {modalTab === "logs" && (
+                <>
+                  {runs.length === 0 && (
+                    <p>No runs yet. Press "Run now" or wait for a trigger.</p>
+                  )}
+                  {runs.map((run) => (
+                    <article key={run.id}>
+                      <header>
+                        <span className={`status ${run.status}`}>
+                          {run.status}
+                        </span>
+                        <span>{run.trigger}</span>
+                        <span>{fmt(run.started_at)}</span>
+                        {run.finished_at && (
+                          <span>→ {fmt(run.finished_at)}</span>
+                        )}
+                      </header>
+                      {run.output && <pre>{run.output}</pre>}
+                      {run.error && <pre className="error">{run.error}</pre>}
+                    </article>
+                  ))}
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}
