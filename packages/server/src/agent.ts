@@ -202,6 +202,10 @@ function startLoop(bot: BotRow, runId: string, firstMessage: AgentMessage) {
   })();
 }
 
+export function isLoopActive(botId: string): boolean {
+  return liveLoops.has(botId);
+}
+
 export function injectMessage(
   bot: BotRow,
   text: string,

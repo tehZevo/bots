@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
-import { injectMessage, resetBotRuntime } from "./agent.ts";
+import { injectMessage, isLoopActive, resetBotRuntime } from "./agent.ts";
 import { repoRoot } from "./config.ts";
 import {
   clearMessages,
@@ -68,7 +68,18 @@ export function createApp(): Hono {
 
   app.get("/api/health", (c) => c.json({ ok: true }));
 
-  app.get("/api/bots", (c) => c.json(listBots()));
+  app.get("/api/bots", (c) =>
+    c.json(
+      listBots().map((bot) => ({
+        ...bot,
+        status: isLoopActive(bot.id)
+          ? "running"
+          : bot.enabled
+            ? "enabled"
+            : "disabled",
+      })),
+    ),
+  );
 
   app.post("/api/bots", async (c) => {
     const payload = toBotPayload(await c.req.json<BotInput>());
