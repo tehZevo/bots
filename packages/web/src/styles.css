@@ -603,3 +603,14 @@ pre {
     flex-wrap: wrap;
   }
 }
+
+.profile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+textarea {
+  resize: none;
+  height: 6rem;
+}

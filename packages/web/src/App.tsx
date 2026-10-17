@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 interface Bot {
   id: string;
   name: string;
+  description: string;
   system_prompt: string;
   model_id: string | null;
   role_id: string | null;
@@ -263,6 +264,7 @@ export function App() {
               <div className="tabbody">
                 {modalTab === "general" && (
                   <>
+                    <BotProfile bot={openBotRow} onChanged={load} />
                     <p className="statusline">
                       Status: <span className={`dot ${openBotRow.status}`} />{" "}
                       {openBotRow.status}
@@ -603,10 +605,14 @@ function RoleFormModal({
   const [instructions, setInstructions] = useState(role?.instructions ?? "");
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
+  const [roleTab, setRoleTab] = useState<"general">("general");
   const nameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     nameRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !confirmDel) onClose();
     };
@@ -663,6 +669,18 @@ function RoleFormModal({
             ×
           </button>
         </div>
+        <nav className="mtabs">
+          {(["general"] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              className={roleTab === t ? "sel" : ""}
+              onClick={() => setRoleTab(t)}
+            >
+              General
+            </button>
+          ))}
+        </nav>
         <input
           ref={nameRef}
           placeholder="role name"
@@ -757,6 +775,63 @@ function RoleSelect({
         ))}
       </select>
     </p>
+  );
+}
+
+function BotProfile({
+  bot,
+  onChanged,
+}: {
+  bot: Bot | undefined;
+  onChanged: () => void;
+}) {
+  const [name, setName] = useState(bot?.name ?? "");
+  const [description, setDescription] = useState(bot?.description ?? "");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setName(bot?.name ?? "");
+    setDescription(bot?.description ?? "");
+  }, [bot?.id, bot?.name, bot?.description]);
+
+  if (!bot) return null;
+  const dirty = name.trim() !== bot.name || description !== bot.description;
+  return (
+    <div className="profile">
+      <input
+        aria-label="Bot name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+      />
+      <textarea
+        aria-label="Description"
+        placeholder="description (optional)"
+        rows={2}
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+      />
+      {dirty && (
+        <div className="actions">
+          <button
+            type="button"
+            disabled={busy || !name.trim()}
+            onClick={() => {
+              setBusy(true);
+              api(`/api/bots/${bot.id}`, {
+                method: "PATCH",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ name, description }),
+              })
+                .then(onChanged)
+                .catch((e) => alert(e.message))
+                .finally(() => setBusy(false));
+            }}
+          >
+            Save
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
