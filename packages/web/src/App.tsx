@@ -127,10 +127,11 @@ export function App() {
                   type="button"
                   key={bot.id}
                   className="card"
+                  aria-label={`${bot.name} (${bot.status})`}
                   onClick={() => setSelected(bot.id)}
                 >
+                  <span className={`dot ${bot.status}`} />
                   <strong>{bot.name}</strong>
-                  <span className={`status ${bot.status}`}>{bot.status}</span>
                 </button>
               ))}
             </div>
