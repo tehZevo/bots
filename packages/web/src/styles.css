@@ -3,6 +3,12 @@
   font-family: system-ui, sans-serif;
 }
 
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
   background: #101216;
@@ -186,6 +192,7 @@ article header {
 
 pre {
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   background: #171a20;
   padding: 0.6rem;
   border-radius: 6px;
@@ -194,4 +201,87 @@ pre {
 
 .error {
   color: #f87171;
+}
+
+.mobilebar {
+  display: none;
+}
+
+.triggers {
+  border-top: 1px solid #262a33;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+}
+
+.triggers h2 {
+  font-size: 1rem;
+  margin: 0.4rem 0;
+}
+
+.trigger {
+  display: grid;
+  gap: 0.3rem;
+  border: 1px solid #262a33;
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.trigger code {
+  color: #9ad1ff;
+}
+
+.trigger p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  aside {
+    display: none;
+  }
+
+  .mobilebar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 1px solid #262a33;
+    position: sticky;
+    top: 0;
+    background: #101216;
+    z-index: 1;
+  }
+
+  .mobilebar select {
+    flex: 1 1 140px;
+    min-width: 0;
+  }
+
+  main {
+    padding: 0.8rem;
+    overflow-x: hidden;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font-size: 1rem;
+    padding: 0.6rem 0.8rem;
+    min-height: 44px;
+  }
+
+  .actions strong {
+    flex-basis: 100%;
+  }
+
+  article header {
+    flex-wrap: wrap;
+  }
 }

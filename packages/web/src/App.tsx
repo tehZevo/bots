@@ -20,6 +20,14 @@ interface Run {
   error: string | null;
 }
 
+interface Trigger {
+  id: string;
+  kind: "schedule";
+  message: string;
+  schedule: string;
+  next_run_at: number | null;
+}
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init);
   const body = await res.json();
@@ -81,6 +89,25 @@ export function App() {
         </ul>
         <BotForm onCreated={load} />
       </aside>
+      <div className="mobilebar">
+        <select
+          value={selected ?? ""}
+          onChange={(e) => setSelected(e.target.value)}
+        >
+          <option value="" disabled>
+            Select a bot…
+          </option>
+          {bots.map((bot) => (
+            <option key={bot.id} value={bot.id}>
+              {bot.enabled ? "●" : "○"} {bot.name}
+            </option>
+          ))}
+        </select>
+        <details className="newbot">
+          <summary>New bot</summary>
+          <BotForm onCreated={load} />
+        </details>
+      </div>
       <main>
         <nav className="tabs">
           <button
@@ -122,6 +149,7 @@ export function App() {
               bot={bots.find((b) => b.id === selected)}
               onChanged={load}
             />
+            <Triggers botId={selected} />
             {runs.length === 0 && (
               <p>No runs yet. Press "Run now" or wait for a trigger.</p>
             )}
@@ -237,5 +265,89 @@ function BotForm({ onCreated }: { onCreated: () => void }) {
         Create bot
       </button>
     </form>
+  );
+}
+
+function Triggers({ botId }: { botId: string }) {
+  const [triggers, setTriggers] = useState<Trigger[]>([]);
+  const [message, setMessage] = useState("");
+  const [schedule, setSchedule] = useState("0 * * * *");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void api<Trigger[]>(`/api/bots/${botId}/triggers`).then(setTriggers, () =>
+      setTriggers([]),
+    );
+  }, [botId]);
+
+  const post = (init: RequestInit) =>
+    api(`/api/bots/${botId}/triggers`, init).catch((e) => alert(e.message));
+
+  return (
+    <section className="triggers">
+      <h2>Triggers</h2>
+      {triggers.length === 0 && (
+        <p className="muted">No triggers — the bot only runs on "Run now".</p>
+      )}
+      {triggers.map((t) => (
+        <div className="trigger" key={t.id}>
+          <code>{t.schedule}</code>
+          <span>{fmt(t.next_run_at)}</span>
+          <p>{t.message}</p>
+          <button
+            type="button"
+            className="danger"
+            onClick={() =>
+              api(`/api/triggers/${t.id}`, { method: "DELETE" })
+                .then(() =>
+                  api<Trigger[]>(`/api/bots/${botId}/triggers`).then(
+                    setTriggers,
+                  ),
+                )
+                .catch((e) => alert(e.message))
+            }
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          try {
+            await post({
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ message, schedule }),
+            });
+            setMessage("");
+            const fresh = await api<Trigger[]>(
+              `/api/bots/${botId}/triggers`,
+            ).catch(() => triggers);
+            setTriggers(fresh);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <textarea
+          placeholder="message to inject on trigger"
+          rows={2}
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          required
+        />
+        <input
+          placeholder="cron or @every 30m"
+          value={schedule}
+          onChange={(e) => setSchedule(e.target.value)}
+          required
+        />
+        <button type="submit" disabled={busy}>
+          Add trigger
+        </button>
+      </form>
+    </section>
   );
 }
