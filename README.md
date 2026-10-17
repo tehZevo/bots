@@ -1,60 +1,54 @@
 # Bots
 
-Self-hosted autonomous bots: scheduled or manually triggered agents that run against any OpenAI-compatible LLM endpoint, with persistent per-bot memory and simple tools.
+Self-hosted autonomous bots that run against any OpenAI-compatible LLM endpoint — scheduled, steerable, and sandboxed. Behavior is specced in `specs/`.
 
-## Stack
+## Features
 
-- TypeScript end-to-end (Node 26+, pnpm workspaces)
-- Server: [Hono](https://hono.dev) REST API + static UI serving, SQLite (`better-sqlite3`), cron scheduling (`cron-parser`)
-- Agent loop: [`@earendil-works/pi-agent-core`](https://www.npmjs.com/package/@earendil-works/pi-agent-core) with OpenAI-compatible streaming via `@earendil-works/pi-ai`
-- UI: React + Vite (dev proxy to the API)
+- **Bots with persistent memory** — each bot keeps one growing conversation; long histories are summarized automatically. Clear it anytime (with confirmation).
+- **Roles** — reusable system prompts assignable to bots; the effective prompt is the bot's own text plus its role's instructions.
+- **Triggers** — run a message on cron expressions (`0 9 * * MON-FRI`) or intervals (`@every 30m`). Messages arriving while a bot is busy steer the active run instead of queueing.
+- **Manual control** — Run now, Stop (interrupts a running loop mid-flight), enable/disable, per-bot run history with output and errors in a tabbed detail view.
+- **Sandboxed tools** — `shell` runs bash inside the bot's own Docker container (only its workspace mounted at `/workspace`, no host env or secrets leak in); `web_fetch` does GET + HTML-to-text.
+- **Search & filter** — find bots by name and status; search roles.
+- **Clean UI** — light/dark/system themes, modals with keyboard/outside-tap handling, mobile-friendly layout.
 
-## Quickstart
+## Run it
 
 ```bash
 pnpm install
 cp .env.example .env   # fill in your OpenAI-compatible endpoint
-pnpm dev               # server on :8787, web on :5173
+docker build -t bots-sandbox:latest docker/sandbox   # image for bot shells
+pnpm dev               # server on :8787, web UI on :5173
 ```
 
-Required `.env` values:
+`.env` values:
 
-| Variable       | Description                                  |
-| -------------- | -------------------------------------------- |
-| `LLM_BASE_URL` | OpenAI-compatible base URL (e.g. `https://host/v1`) |
-| `LLM_API_KEY`  | API key                                      |
-| `LLM_MODEL`    | Model id served by that endpoint             |
+| Variable       | Description                                          |
+| -------------- | ---------------------------------------------------- |
+| `LLM_BASE_URL` | OpenAI-compatible base URL (e.g. `https://host/v1`)  |
+| `LLM_API_KEY`  | API key                                              |
+| `LLM_MODEL`    | Model id served by that endpoint                     |
 
-Optional: `PORT` (default `8787`), `DATA_DIR` (default repo `data/`), `DATABASE_PATH`.
+Optional: `PORT` (default `8787`), `DATA_DIR` (default repo `data/`), `DATABASE_PATH`, `SANDBOX_IMAGE` (default `bots-sandbox:latest`).
 
-For production: `pnpm build && pnpm start` serves the built UI and API from `:8787`.
+Production — serves the built UI and API together on `:8787`:
 
-## Concepts
+```bash
+pnpm build && pnpm start
+```
 
-- **Bot**: a named agent with an optional system prompt and model override. Its context is one persistent, forever-growing conversation (cleared only manually).
-- **Trigger**: attaches to a bot and posts its message into that context on a schedule — cron expressions (`0 9 * * MON-FRI`) or intervals (`@every 30m`). Messages arriving while the bot is busy steer the active loop instead of queueing sessions.
-- **Run**: one working cycle of the agent loop, from an injected trigger message until it goes quiet (manual or scheduled). Output and errors are stored.
-- **Memory**: full conversation per bot persisted in SQLite; long histories are summarized/compacted automatically. Clear via UI or `DELETE /api/bots/:id/messages`.
-- **Tools**: `web_fetch` (GET + HTML-to-text) and `shell` (bash in the bot's workspace under `data/workspaces/<bot-id>/`). Not sandboxed yet.
+## Development
 
-## API
+```bash
+pnpm -r typecheck                 # must pass before committing
+pnpm exec biome check --write .   # lint/format
+```
 
-| Method   | Path                       | Description                              |
-| -------- | -------------------------- | ---------------------------------------- |
-| GET      | `/api/health`              | Health check                             |
-| GET      | `/api/bots`                | List bots                                |
-| POST     | `/api/bots`                | Create bot (`name`, optional prompt)     |
-| GET/PATCH/DELETE | `/api/bots/:id`  | Read/update/delete a bot                 |
-| POST     | `/api/bots/:id/run`        | Inject manual message (202, may steer)   |
-| GET      | `/api/bots/:id/runs`       | Run history                              |
-| GET/POST | `/api/bots/:id/triggers`   | List / add schedule triggers             |
-| PATCH/DELETE | `/api/triggers/:id`    | Update / delete a trigger                |
-| GET      | `/api/bots/:id/messages`   | Conversation memory                      |
-| DELETE   | `/api/bots/:id/messages`   | Clear memory                             |
+Specs in `specs/` are the source of truth; spec-only PRs first, implementation in separate PRs referencing them (see `AGENTS.md`).
 
 ## Roadmap
 
-- Sandboxed computer use (containers) per bot workspace
 - Hooks/triggers from the outside world (GitHub webhooks, chat apps)
-- Roles composed of skills/plugins/MCP servers
-- More tools (files, browser), tool permission policy per bot
+- Roles composed of skills/plugins/MCP servers instead of fixed built-in tools
+- Chat channels to talk to bots interactively
+- Approvals for sensitive tool actions; auth & multi-user
