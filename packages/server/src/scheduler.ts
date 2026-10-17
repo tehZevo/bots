@@ -39,7 +39,7 @@ export function startScheduler(tickMs = 15_000): void {
     for (const trigger of dueTriggers(Date.now())) {
       updateTrigger(trigger.id, { next_run_at: nextRunAt(trigger.schedule) });
       const bot = getBot(trigger.bot_id);
-      if (!bot || !bot.enabled) continue;
+      if (!bot?.enabled) continue;
       injectMessage(bot, trigger.message, "schedule");
     }
   };

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import { config } from "./config.ts";
 
@@ -9,7 +9,15 @@ export interface BotRow {
   name: string;
   system_prompt: string;
   model_id: string | null;
+  role_id: string | null;
   enabled: number;
+  created_at: number;
+}
+
+export interface RoleRow {
+  id: string;
+  name: string;
+  instructions: string;
   created_at: number;
 }
 
@@ -87,6 +95,13 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS roles (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    instructions TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_messages_bot ON messages (bot_id, id);
   CREATE INDEX IF NOT EXISTS idx_runs_bot ON runs (bot_id, started_at DESC);
   CREATE INDEX IF NOT EXISTS idx_triggers_due ON triggers (next_run_at);
@@ -127,6 +142,11 @@ if (botColumns.has("task")) {
   }
 }
 
+if (!botColumns.has("role_id"))
+  db.prepare(
+    "ALTER TABLE bots ADD COLUMN role_id TEXT REFERENCES roles(id)",
+  ).run();
+
 export function listBots(): BotRow[] {
   return db.prepare("SELECT * FROM bots ORDER BY created_at").all() as BotRow[];
 }
@@ -139,8 +159,8 @@ export function getBot(id: string): BotRow | undefined {
 
 export function insertBot(bot: BotRow): void {
   db.prepare(
-    `INSERT INTO bots (id, name, system_prompt, model_id, enabled, created_at)
-     VALUES (@id, @name, @system_prompt, @model_id, @enabled, @created_at)`,
+    `INSERT INTO bots (id, name, system_prompt, model_id, role_id, enabled, created_at)
+     VALUES (@id, @name, @system_prompt, @model_id, @role_id, @enabled, @created_at)`,
   ).run(bot);
 }
 
@@ -156,6 +176,37 @@ export function deleteBot(id: string): void {
   db.prepare("DELETE FROM runs WHERE bot_id = ?").run(id);
   db.prepare("DELETE FROM messages WHERE bot_id = ?").run(id);
   db.prepare("DELETE FROM bots WHERE id = ?").run(id);
+}
+
+export function listRoles(): RoleRow[] {
+  return db
+    .prepare("SELECT * FROM roles ORDER BY created_at")
+    .all() as RoleRow[];
+}
+
+export function getRole(id: string): RoleRow | undefined {
+  return db.prepare("SELECT * FROM roles WHERE id = ?").get(id) as
+    | RoleRow
+    | undefined;
+}
+
+export function insertRole(role: RoleRow): void {
+  db.prepare(
+    `INSERT INTO roles (id, name, instructions, created_at)
+     VALUES (@id, @name, @instructions, @created_at)`,
+  ).run(role);
+}
+
+export function updateRole(id: string, patch: Partial<RoleRow>): void {
+  const keys = Object.keys(patch).filter((k) => k !== "id");
+  if (keys.length === 0) return;
+  const sets = keys.map((k) => `${k} = @${k}`).join(", ");
+  db.prepare(`UPDATE roles SET ${sets} WHERE id = @id`).run({ ...patch, id });
+}
+
+export function deleteRole(id: string): void {
+  db.prepare("UPDATE bots SET role_id = NULL WHERE role_id = ?").run(id);
+  db.prepare("DELETE FROM roles WHERE id = ?").run(id);
 }
 
 export function listTriggers(botId: string): TriggerRow[] {

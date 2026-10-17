@@ -5,9 +5,17 @@ interface Bot {
   name: string;
   system_prompt: string;
   model_id: string | null;
+  role_id: string | null;
   enabled: number;
   created_at: number;
   status: "running" | "enabled" | "disabled";
+}
+
+interface Role {
+  id: string;
+  name: string;
+  instructions: string;
+  created_at: number;
 }
 
 interface Run {
@@ -41,13 +49,15 @@ function fmt(ts: number | null): string {
 
 export function App() {
   const [bots, setBots] = useState<Bot[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [tab, setTab] = useState<string>("bots");
   const [runs, setRuns] = useState<Run[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(false);
 
-  const select = (id: string | null) => {
-    setSelected(id);
+  const botId = tab !== "bots" && tab !== "roles" ? tab : null;
+
+  const select = (id: string) => {
+    setTab(id);
     setNavOpen(false);
   };
 
@@ -67,13 +77,20 @@ export function App() {
   }, [load]);
 
   useEffect(() => {
-    if (!selected) return;
+    setRuns([]);
+    if (!botId) return;
     const loadRuns = async () =>
-      setRuns(await api<Run[]>(`/api/bots/${selected}/runs`));
+      setRuns(await api<Run[]>(`/api/bots/${botId}/runs`));
     void loadRuns();
     const t = setInterval(loadRuns, 3000);
     return () => clearInterval(t);
-  }, [selected]);
+  }, [botId]);
+
+  useEffect(() => {
+    if (botId && !bots.some((b) => b.id === botId)) setTab("bots");
+  }, [bots, botId]);
+
+  const nav = <Nav tab={tab} onSelect={(t) => select(t)} onCreated={load} />;
 
   return (
     <div className="layout">
@@ -83,12 +100,7 @@ export function App() {
           <ThemeMenu />
         </div>
         {error && <p className="error">{error}</p>}
-        <Nav
-          bots={bots}
-          selected={selected}
-          onSelect={select}
-          onCreated={load}
-        />
+        {nav}
       </aside>
       <div className="topbar">
         <button
@@ -103,23 +115,23 @@ export function App() {
       </div>
       {navOpen && (
         <div className="drawer">
-          <div className="scrim" onClick={() => setNavOpen(false)} />
+          <button
+            type="button"
+            className="scrim"
+            aria-label="Close menu"
+            onClick={() => setNavOpen(false)}
+          />
           <div className="panel">
             <div className="hdr">
               <h1>Bots</h1>
             </div>
             {error && <p className="error">{error}</p>}
-            <Nav
-              bots={bots}
-              selected={selected}
-              onSelect={select}
-              onCreated={load}
-            />
+            {nav}
           </div>
         </div>
       )}
       <main>
-        {!selected && (
+        {tab === "bots" && (
           <>
             <div className="cards">
               {bots.map((bot) => (
@@ -128,7 +140,7 @@ export function App() {
                   key={bot.id}
                   className="card"
                   aria-label={`${bot.name} (${bot.status})`}
-                  onClick={() => setSelected(bot.id)}
+                  onClick={() => select(bot.id)}
                 >
                   <span className={`dot ${bot.status}`} />
                   <strong>{bot.name}</strong>
@@ -140,13 +152,18 @@ export function App() {
             )}
           </>
         )}
-        {selected && (
+        {tab === "roles" && <RolesPanel />}
+        {botId && (
           <div>
             <BotActions
-              bot={bots.find((b) => b.id === selected)}
+              bot={bots.find((b) => b.id === botId)}
               onChanged={load}
             />
-            <Triggers botId={selected} />
+            <RoleSelect
+              bot={bots.find((b) => b.id === botId)}
+              onChanged={load}
+            />
+            <Triggers botId={botId} />
             {runs.length === 0 && (
               <p>No runs yet. Press "Run now" or wait for a trigger.</p>
             )}
@@ -169,49 +186,44 @@ export function App() {
   );
 }
 
+function Nav({
+  tab,
+  onSelect,
+  onCreated,
+}: {
+  tab: string;
+  onSelect: (tab: string) => void;
+  onCreated: () => void;
+}) {
+  return (
+    <>
+      <nav className="sidetabs">
+        <button
+          type="button"
+          className={tab === "bots" ? "sel" : ""}
+          onClick={() => onSelect("bots")}
+        >
+          Bots
+        </button>
+        <button
+          type="button"
+          className={tab === "roles" ? "sel" : ""}
+          onClick={() => onSelect("roles")}
+        >
+          Roles
+        </button>
+      </nav>
+      <BotForm onCreated={onCreated} />
+    </>
+  );
+}
+
 const THEMES = ["light", "dark", "system"] as const;
 type Theme = (typeof THEMES)[number];
 
 function currentTheme(): Theme {
   const stored = localStorage.getItem("bots-theme");
   return stored === "light" || stored === "system" ? stored : "dark";
-}
-
-function Nav({
-  bots,
-  selected,
-  onSelect,
-  onCreated,
-}: {
-  bots: Bot[];
-  selected: string | null;
-  onSelect: (id: string | null) => void;
-  onCreated: () => void;
-}) {
-  const open = bots.find((b) => b.id === selected);
-  return (
-    <>
-      <nav className="sidetabs">
-        <button
-          type="button"
-          className={selected === null ? "sel" : ""}
-          onClick={() => onSelect(null)}
-        >
-          Bots
-        </button>
-        {open && (
-          <button
-            type="button"
-            className="sel"
-            onClick={() => onSelect(open.id)}
-          >
-            {open.name}
-          </button>
-        )}
-      </nav>
-      <BotForm onCreated={onCreated} />
-    </>
-  );
 }
 
 function ThemeMenu() {
@@ -260,6 +272,160 @@ function ThemeMenu() {
         </div>
       )}
     </div>
+  );
+}
+
+function RolesPanel() {
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [name, setName] = useState("");
+  const [instructions, setInstructions] = useState("");
+  const [editing, setEditing] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const loadRoles = useCallback(async () => {
+    setRoles(await api<Role[]>("/api/roles").catch(() => []));
+  }, []);
+
+  useEffect(() => {
+    void loadRoles();
+  }, [loadRoles]);
+
+  const reset = () => {
+    setName("");
+    setInstructions("");
+    setEditing(null);
+  };
+
+  return (
+    <section>
+      <h2>Roles</h2>
+      {roles.length === 0 && (
+        <p className="muted">No roles yet — create one below.</p>
+      )}
+      <div className="cards">
+        {roles.map((role) => (
+          <button
+            type="button"
+            key={role.id}
+            className={editing === role.id ? "card sel" : "card"}
+            onClick={() => {
+              setEditing(role.id);
+              setName(role.name);
+              setInstructions(role.instructions);
+            }}
+          >
+            <strong>{role.name}</strong>
+            <span className="preview">{role.instructions}</span>
+          </button>
+        ))}
+      </div>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          try {
+            const body = JSON.stringify({ name, instructions });
+            if (editing)
+              await api(`/api/roles/${editing}`, {
+                method: "PATCH",
+                headers: { "content-type": "application/json" },
+                body,
+              });
+            else
+              await api("/api/roles", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body,
+              });
+            reset();
+            await loadRoles();
+          } catch (err) {
+            alert(err instanceof Error ? err.message : String(err));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <input
+          placeholder="role name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
+        <textarea
+          placeholder="instructions added to assigned bots' prompts"
+          rows={3}
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
+          required
+        />
+        <div className="actions">
+          <button type="submit" disabled={busy}>
+            {editing ? "Save role" : "Create role"}
+          </button>
+          {editing && (
+            <button type="button" onClick={reset}>
+              Cancel
+            </button>
+          )}
+          {editing && (
+            <button
+              type="button"
+              className="danger"
+              onClick={async () => {
+                await api(`/api/roles/${editing}`, { method: "DELETE" }).catch(
+                  (e) => alert(e.message),
+                );
+                reset();
+                await loadRoles();
+              }}
+            >
+              Delete role
+            </button>
+          )}
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function RoleSelect({
+  bot,
+  onChanged,
+}: {
+  bot: Bot | undefined;
+  onChanged: () => void;
+}) {
+  const [roles, setRoles] = useState<Role[]>([]);
+
+  useEffect(() => {
+    void api<Role[]>("/api/roles").then(setRoles, () => setRoles([]));
+  }, []);
+
+  if (!bot) return null;
+  return (
+    <p className="rolepick">
+      Role{" "}
+      <select
+        value={bot.role_id ?? ""}
+        onChange={(e) =>
+          api(`/api/bots/${bot.id}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ role_id: e.target.value || null }),
+          })
+            .then(onChanged)
+            .catch((e) => alert(e.message))
+        }
+      >
+        <option value="">None</option>
+        {roles.map((role) => (
+          <option key={role.id} value={role.id}>
+            {role.name}
+          </option>
+        ))}
+      </select>
+    </p>
   );
 }
 
