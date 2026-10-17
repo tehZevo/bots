@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 interface Bot {
   id: string;
@@ -72,7 +72,10 @@ export function App() {
   return (
     <div className="layout">
       <aside>
-        <h1>Bots</h1>
+        <div className="hdr">
+          <h1>Bots</h1>
+          <ThemeMenu />
+        </div>
         {error && <p className="error">{error}</p>}
         <ul>
           {bots.map((bot) => (
@@ -107,6 +110,7 @@ export function App() {
           <summary>New bot</summary>
           <BotForm onCreated={load} />
         </details>
+        <ThemeMenu />
       </div>
       <main>
         <nav className="tabs">
@@ -166,6 +170,63 @@ export function App() {
           </div>
         )}
       </main>
+    </div>
+  );
+}
+
+const THEMES = ["light", "dark", "system"] as const;
+type Theme = (typeof THEMES)[number];
+
+function currentTheme(): Theme {
+  const stored = localStorage.getItem("bots-theme");
+  return stored === "light" || stored === "system" ? stored : "dark";
+}
+
+function ThemeMenu() {
+  const [theme, setTheme] = useState<Theme>(currentTheme);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [open]);
+
+  const pick = (t: Theme) => {
+    localStorage.setItem("bots-theme", t);
+    document.documentElement.dataset.theme = t;
+    setTheme(t);
+    setOpen(false);
+  };
+
+  return (
+    <div className="settings" ref={ref}>
+      <button
+        type="button"
+        className="cog"
+        aria-label="Settings"
+        onClick={() => setOpen((o) => !o)}
+      >
+        ⚙
+      </button>
+      {open && (
+        <div className="menu">
+          {THEMES.map((t) => (
+            <button
+              key={t}
+              type="button"
+              className={t === theme ? "sel" : ""}
+              onClick={() => pick(t)}
+            >
+              {t[0].toUpperCase() + t.slice(1)}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
