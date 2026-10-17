@@ -14,6 +14,10 @@
 - Implementation happens in separate code PRs that reference the spec they implement.
 - Behavior changes require a spec update in the same or an earlier PR than the code change.
 
+## Pull requests
+
+- UI changes: attach **light and dark mode screenshots** to the PR when able.
+
 ## Commands
 
 - Install: `pnpm install`
