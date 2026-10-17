@@ -2,7 +2,7 @@
 
 - Clicking/tapping a bot card opens that bot's detail as a modal over the Bots tab; the panel behind keeps showing the cards.
 - The modal has three tabs:
-  - `General` — current status line, controls (Stop while running, Enable/Disable, Clear memory, Delete) and the role picker.
+  - `General` — editable Name and Description fields with a Save button (blank names are rejected), the current status line, controls (Stop while running, Enable/Disable, Clear memory, Delete) and the role picker. Saving applies immediately to the cards behind.
   - `Triggers` — the bot's triggers with next fire times, remove per trigger, plus the add-trigger form.
   - `Logs` — run history newest first: status, source (`schedule`/`manual`) and error or output text (see `runs/lifecycle.md`).
 - The active tab is marked; switching tabs changes nothing about the bot. Newly opened modals start on `General`.

@@ -11,4 +11,5 @@ Behaviors agreed on but not yet specced in detail. Each becomes its own spec dir
 - **Approvals** — a human-approval layer for sensitive tool actions that the agent cannot bypass.
 - **Auth & multi-user** — protect API/UI; per-user bots and credentials (placeholder tokens so models never see secrets).
 - **Bot avatars** — pick or generate an avatar per bot, shown on cards and the detail modal.
+- **Current task** — bots publish what they are working on; the agent can update its current task/activity as it progresses, shown on cards and the detail modal.
 - **Health statuses** — extend bot status colors: yellow = issues detected, red = error/blocked.
