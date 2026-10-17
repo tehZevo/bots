@@ -1,3 +1,4 @@
+// Specs: specs/tools/web-fetch.md + shell.md
 import { execFile } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";

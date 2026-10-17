@@ -1,4 +1,4 @@
-# Agent loop
+# Run execution
 
 One run = a tool-calling loop against an OpenAI-compatible endpoint until the model stops calling tools.
 

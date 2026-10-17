@@ -1,4 +1,4 @@
-# Bots
+# Bot registry
 
 A bot is a named agent with a task, optional system prompt, a schedule, and an optional model override.
 

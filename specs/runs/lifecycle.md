@@ -1,4 +1,4 @@
-# Runs
+# Run lifecycle
 
 A run is one execution of a bot's task, triggered by `schedule` or `manual`.
 
