@@ -44,6 +44,12 @@ export function App() {
   const [selected, setSelected] = useState<string | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [navOpen, setNavOpen] = useState(false);
+
+  const select = (id: string | null) => {
+    setSelected(id);
+    setNavOpen(false);
+  };
 
   const load = useCallback(async () => {
     try {
@@ -77,56 +83,42 @@ export function App() {
           <ThemeMenu />
         </div>
         {error && <p className="error">{error}</p>}
-        <ul>
-          {bots.map((bot) => (
-            <li key={bot.id}>
-              <button
-                type="button"
-                className={selected === bot.id ? "sel" : ""}
-                onClick={() => setSelected(bot.id)}
-              >
-                <span className={bot.enabled ? "dot on" : "dot"} /> {bot.name}
-              </button>
-            </li>
-          ))}
-        </ul>
-        <BotForm onCreated={load} />
+        <Nav
+          bots={bots}
+          selected={selected}
+          onSelect={select}
+          onCreated={load}
+        />
       </aside>
-      <div className="mobilebar">
-        <select
-          value={selected ?? ""}
-          onChange={(e) => setSelected(e.target.value)}
+      <div className="topbar">
+        <button
+          type="button"
+          className="hamburger"
+          aria-label="Menu"
+          onClick={() => setNavOpen(true)}
         >
-          <option value="" disabled>
-            Select a bot…
-          </option>
-          {bots.map((bot) => (
-            <option key={bot.id} value={bot.id}>
-              {bot.enabled ? "●" : "○"} {bot.name}
-            </option>
-          ))}
-        </select>
-        <details className="newbot">
-          <summary>New bot</summary>
-          <BotForm onCreated={load} />
-        </details>
+          ☰
+        </button>
         <ThemeMenu />
       </div>
+      {navOpen && (
+        <div className="drawer">
+          <div className="scrim" onClick={() => setNavOpen(false)} />
+          <div className="panel">
+            <div className="hdr">
+              <h1>Bots</h1>
+            </div>
+            {error && <p className="error">{error}</p>}
+            <Nav
+              bots={bots}
+              selected={selected}
+              onSelect={select}
+              onCreated={load}
+            />
+          </div>
+        </div>
+      )}
       <main>
-        <nav className="tabs">
-          <button
-            type="button"
-            className={!selected ? "tab sel" : "tab"}
-            onClick={() => setSelected(null)}
-          >
-            Bots
-          </button>
-          {selected && (
-            <button type="button" className="tab sel">
-              {bots.find((b) => b.id === selected)?.name ?? "Bot"}
-            </button>
-          )}
-        </nav>
         {!selected && (
           <>
             <div className="cards">
@@ -142,7 +134,9 @@ export function App() {
                 </button>
               ))}
             </div>
-            {bots.length === 0 && <p>No bots yet — create one above.</p>}
+            {bots.length === 0 && (
+              <p>No bots yet — create one from the menu.</p>
+            )}
           </>
         )}
         {selected && (
@@ -180,6 +174,43 @@ type Theme = (typeof THEMES)[number];
 function currentTheme(): Theme {
   const stored = localStorage.getItem("bots-theme");
   return stored === "light" || stored === "system" ? stored : "dark";
+}
+
+function Nav({
+  bots,
+  selected,
+  onSelect,
+  onCreated,
+}: {
+  bots: Bot[];
+  selected: string | null;
+  onSelect: (id: string | null) => void;
+  onCreated: () => void;
+}) {
+  const open = bots.find((b) => b.id === selected);
+  return (
+    <>
+      <nav className="sidetabs">
+        <button
+          type="button"
+          className={selected === null ? "sel" : ""}
+          onClick={() => onSelect(null)}
+        >
+          Bots
+        </button>
+        {open && (
+          <button
+            type="button"
+            className="sel"
+            onClick={() => onSelect(open.id)}
+          >
+            {open.name}
+          </button>
+        )}
+      </nav>
+      <BotForm onCreated={onCreated} />
+    </>
+  );
 }
 
 function ThemeMenu() {
