@@ -565,16 +565,17 @@ function RoleFormModal({
   const [name, setName] = useState(role?.name ?? "");
   const [instructions, setInstructions] = useState(role?.instructions ?? "");
   const [busy, setBusy] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     nameRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && !confirmDel) onClose();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, confirmDel]);
 
   return (
     <div className="modal">
@@ -648,18 +649,7 @@ function RoleFormModal({
               type="button"
               className="danger"
               disabled={busy}
-              onClick={() =>
-                void (async () => {
-                  setBusy(true);
-                  try {
-                    await api(`/api/roles/${role.id}`, { method: "DELETE" });
-                    onSaved();
-                  } catch (err) {
-                    alert(err instanceof Error ? err.message : String(err));
-                    setBusy(false);
-                  }
-                })()
-              }
+              onClick={() => setConfirmDel(true)}
             >
               Delete role
             </button>
@@ -669,6 +659,26 @@ function RoleFormModal({
           </button>
         </div>
       </form>
+      {role && confirmDel && (
+        <ConfirmDialog
+          text={`Delete role ${role.name}? Bots using it fall back to their own prompts.`}
+          confirmLabel="Delete role"
+          onCancel={() => setConfirmDel(false)}
+          onConfirm={() => {
+            setConfirmDel(false);
+            void (async () => {
+              setBusy(true);
+              try {
+                await api(`/api/roles/${role.id}`, { method: "DELETE" });
+                onSaved();
+              } catch (err) {
+                alert(err instanceof Error ? err.message : String(err));
+                setBusy(false);
+              }
+            })();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -720,59 +730,119 @@ function BotActions({
   bot: Bot | undefined;
   onChanged: () => void;
 }) {
+  const [pending, setPending] = useState<"delete" | "clear" | null>(null);
   if (!bot) return null;
   const post = (path: string, init?: RequestInit) =>
     api(path, init).catch((e) => alert(e.message));
   return (
-    <div className="actions">
-      <button
-        type="button"
-        onClick={() => post(`/api/bots/${bot.id}/run`, { method: "POST" })}
-      >
-        Run now
-      </button>
-      {bot.status === "running" && (
+    <>
+      <div className="actions">
+        <button
+          type="button"
+          onClick={() => post(`/api/bots/${bot.id}/run`, { method: "POST" })}
+        >
+          Run now
+        </button>
+        {bot.status === "running" && (
+          <button
+            type="button"
+            onClick={() =>
+              post(`/api/bots/${bot.id}/interrupt`, { method: "POST" }).then(
+                onChanged,
+              )
+            }
+          >
+            Stop
+          </button>
+        )}
         <button
           type="button"
           onClick={() =>
-            post(`/api/bots/${bot.id}/interrupt`, { method: "POST" }).then(
-              onChanged,
-            )
+            post(`/api/bots/${bot.id}`, {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ enabled: bot.enabled === 0 }),
+            }).then(onChanged)
           }
         >
-          Stop
+          {bot.enabled ? "Disable" : "Enable"}
         </button>
+        <button type="button" onClick={() => setPending("clear")}>
+          Clear memory
+        </button>
+        <button
+          type="button"
+          className="danger"
+          onClick={() => setPending("delete")}
+        >
+          Delete
+        </button>
+      </div>
+      {pending === "delete" && (
+        <ConfirmDialog
+          text={`Delete bot ${bot.name}? This removes the bot, its triggers and run history.`}
+          confirmLabel="Delete bot"
+          onCancel={() => setPending(null)}
+          onConfirm={async () => {
+            setPending(null);
+            await post(`/api/bots/${bot.id}`, { method: "DELETE" });
+            onChanged();
+          }}
+        />
       )}
+      {pending === "clear" && (
+        <ConfirmDialog
+          text={`Clear the stored context of ${bot.name}? The bot forgets its conversation history.`}
+          confirmLabel="Clear memory"
+          onCancel={() => setPending(null)}
+          onConfirm={() => {
+            setPending(null);
+            post(`/api/bots/${bot.id}/messages`, { method: "DELETE" });
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+function ConfirmDialog({
+  text,
+  confirmLabel,
+  onCancel,
+  onConfirm,
+}: {
+  text: string;
+  confirmLabel: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  return (
+    <div className="confirm">
       <button
         type="button"
-        onClick={() =>
-          post(`/api/bots/${bot.id}`, {
-            method: "PATCH",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ enabled: bot.enabled === 0 }),
-          }).then(onChanged)
-        }
-      >
-        {bot.enabled ? "Disable" : "Enable"}
-      </button>
-      <button
-        type="button"
-        onClick={() =>
-          post(`/api/bots/${bot.id}/messages`, { method: "DELETE" })
-        }
-      >
-        Clear memory
-      </button>
-      <button
-        type="button"
-        className="danger"
-        onClick={async () => {
-          await post(`/api/bots/${bot.id}`, { method: "DELETE" });
-          onChanged();
-        }}
-      >
-        Delete
-      </button>
+        className="mscrim"
+        aria-label="Cancel"
+        onClick={onCancel}
+      />
+      <div className="dialog narrow" role="alertdialog" aria-label={text}>
+        <p>{text}</p>
+        <div className="actions">
+          <button type="button" className="danger" onClick={onConfirm}>
+            {confirmLabel}
+          </button>
+          <button type="button" onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -782,6 +852,7 @@ function Triggers({ botId }: { botId: string }) {
   const [message, setMessage] = useState("");
   const [schedule, setSchedule] = useState("0 * * * *");
   const [busy, setBusy] = useState(false);
+  const [removing, setRemoving] = useState<Trigger | null>(null);
 
   useEffect(() => {
     void api<Trigger[]>(`/api/bots/${botId}/triggers`).then(setTriggers, () =>
@@ -806,20 +877,27 @@ function Triggers({ botId }: { botId: string }) {
           <button
             type="button"
             className="danger"
-            onClick={() =>
-              api(`/api/triggers/${t.id}`, { method: "DELETE" })
-                .then(() =>
-                  api<Trigger[]>(`/api/bots/${botId}/triggers`).then(
-                    setTriggers,
-                  ),
-                )
-                .catch((e) => alert(e.message))
-            }
+            onClick={() => setRemoving(t)}
           >
             Remove
           </button>
         </div>
       ))}
+      {removing && (
+        <ConfirmDialog
+          text={`Remove trigger ${removing.schedule}? Its future fires stop; past runs stay.`}
+          confirmLabel="Remove trigger"
+          onCancel={() => setRemoving(null)}
+          onConfirm={() => {
+            setRemoving(null);
+            api(`/api/triggers/${removing.id}`, { method: "DELETE" })
+              .then(() =>
+                api<Trigger[]>(`/api/bots/${botId}/triggers`).then(setTriggers),
+              )
+              .catch((e) => alert(e.message));
+          }}
+        />
+      )}
       <form
         onSubmit={async (e) => {
           e.preventDefault();
