@@ -56,6 +56,10 @@ export function App() {
   );
   const [detailOpen, setDetailOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [botQuery, setBotQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | "running" | "enabled" | "disabled"
+  >("all");
   const [runs, setRuns] = useState<Run[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(false);
@@ -102,6 +106,13 @@ export function App() {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [addOpen, detailOpen]);
+
+  const botFilter = botQuery.trim().toLowerCase();
+  const visibleBots = bots.filter(
+    (bot) =>
+      (statusFilter === "all" || bot.status === statusFilter) &&
+      (!botFilter || bot.name.toLowerCase().includes(botFilter)),
+  );
 
   const openBotRow = bots.find((b) => b.id === openBot);
 
@@ -163,8 +174,25 @@ export function App() {
                 Add bot
               </button>
             </div>
+            <input
+              placeholder="Search bots by name"
+              value={botQuery}
+              onChange={(e) => setBotQuery(e.target.value)}
+            />
+            <nav className="mtabs">
+              {(["all", "running", "enabled", "disabled"] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className={statusFilter === s ? "sel" : ""}
+                  onClick={() => setStatusFilter(s)}
+                >
+                  {s[0].toUpperCase() + s.slice(1)}
+                </button>
+              ))}
+            </nav>
             <div className="cards">
-              {bots.map((bot) => (
+              {visibleBots.map((bot) => (
                 <button
                   type="button"
                   key={bot.id}
@@ -181,6 +209,9 @@ export function App() {
               ))}
             </div>
             {bots.length === 0 && <p>No bots yet — press "Add bot".</p>}
+            {bots.length > 0 && visibleBots.length === 0 && (
+              <p className="muted">No bots match the current filters.</p>
+            )}
           </>
         )}
         {tab === "roles" && <RolesPanel />}
