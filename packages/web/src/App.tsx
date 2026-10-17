@@ -49,7 +49,7 @@ function fmt(ts: number | null): string {
 
 export function App() {
   const [bots, setBots] = useState<Bot[]>([]);
-  const [tab, setTab] = useState<string>("bots");
+  const [tab, setTab] = useState<"bots" | "roles">("bots");
   const [openBot, setOpenBot] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -104,11 +104,9 @@ export function App() {
   const nav = (
     <Nav
       tab={tab}
-      openBotName={openBotRow?.name ?? null}
       onSelect={(t) => {
         setTab(t);
-        if (t === "bots" || t === "roles") setDetailOpen(false);
-        else setDetailOpen(true);
+        setDetailOpen(false);
         setNavOpen(false);
       }}
     />
@@ -340,14 +338,11 @@ function AddBotModal({
 
 function Nav({
   tab,
-  openBotName,
   onSelect,
 }: {
-  tab: string;
-  openBotName: string | null;
-  onSelect: (tab: string) => void;
+  tab: "bots" | "roles";
+  onSelect: (tab: "bots" | "roles") => void;
 }) {
-  const botActive = tab !== "bots" && tab !== "roles";
   return (
     <nav className="sidetabs">
       <button
@@ -364,15 +359,6 @@ function Nav({
       >
         Roles
       </button>
-      {openBotName && (
-        <button
-          type="button"
-          className={botActive ? "sel" : ""}
-          onClick={() => onSelect(openBotName)}
-        >
-          {openBotName}
-        </button>
-      )}
     </nav>
   );
 }
