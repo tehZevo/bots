@@ -61,7 +61,12 @@ function toBotPayload(input: BotInput) {
         ? input.model_id.trim()
         : null,
     role_id,
-    enabled: input.enabled === false ? 0 : 1,
+    enabled:
+      input.enabled === false ||
+      input.enabled === 0 ||
+      input.enabled === "false"
+        ? 0
+        : 1,
   };
 }
 
