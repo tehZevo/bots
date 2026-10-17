@@ -7,6 +7,7 @@ interface Bot {
   model_id: string | null;
   enabled: number;
   created_at: number;
+  status: "running" | "enabled" | "disabled";
 }
 
 interface Run {
@@ -81,7 +82,40 @@ export function App() {
         <BotForm onCreated={load} />
       </aside>
       <main>
-        {!selected && <p>Select a bot.</p>}
+        <nav className="tabs">
+          <button
+            type="button"
+            className={!selected ? "tab sel" : "tab"}
+            onClick={() => setSelected(null)}
+          >
+            Bots
+          </button>
+          {selected && (
+            <button type="button" className="tab sel">
+              {bots.find((b) => b.id === selected)?.name ?? "Bot"}
+            </button>
+          )}
+        </nav>
+        {!selected && (
+          <>
+            <div className="cards">
+              {bots.map((bot) => (
+                <button
+                  type="button"
+                  key={bot.id}
+                  className="card"
+                  onClick={() => setSelected(bot.id)}
+                >
+                  <strong>{bot.name}</strong>
+                  <span className={`status ${bot.status}`}>{bot.status}</span>
+                </button>
+              ))}
+            </div>
+            {bots.length === 0 && (
+              <p>Create a bot from the form to get started.</p>
+            )}
+          </>
+        )}
         {selected && (
           <div>
             <BotActions
