@@ -8,3 +8,4 @@ Behaviors agreed on but not yet specced in detail. Each becomes its own spec dir
 - **Chat channels** — talk to bots interactively (web chat first, then external chat apps).
 - **Approvals** — a human-approval layer for sensitive tool actions that the agent cannot bypass.
 - **Auth & multi-user** — protect API/UI; per-user bots and credentials (placeholder tokens so models never see secrets).
+- **Health statuses** — extend bot status colors: yellow = issues detected, red = error/blocked.
