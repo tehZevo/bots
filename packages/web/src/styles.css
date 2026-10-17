@@ -146,6 +146,12 @@ button {
   border-bottom-color: var(--accent);
 }
 
+.mainhead {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.5rem;
+}
+
 .statusline {
   display: flex;
   align-items: center;

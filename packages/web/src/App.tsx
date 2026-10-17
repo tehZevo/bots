@@ -135,9 +135,6 @@ export function App() {
           {bots.length} total ·{" "}
           {bots.filter((b) => b.status === "running").length} running
         </span>
-        <button type="button" onClick={() => setAddOpen(true)}>
-          Add bot
-        </button>
       </header>
       <div className="layout">
         <aside>
@@ -177,6 +174,11 @@ export function App() {
         <main>
           {tab === "bots" && (
             <>
+              <div className="mainhead">
+                <button type="button" onClick={() => setAddOpen(true)}>
+                  Add bot
+                </button>
+              </div>
               <input
                 placeholder="Search bots by name"
                 value={botQuery}
