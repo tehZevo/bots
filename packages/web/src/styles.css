@@ -10,6 +10,7 @@
   --muted: #9aa3b2;
   --code: #9ad1ff;
   --ok: #4ade80;
+  --info: #5b9bff;
   --warn: #facc15;
   --err: #f87171;
 }
@@ -25,6 +26,7 @@
   --muted: #5a636f;
   --code: #0a6ab8;
   --ok: #1a7f4b;
+  --info: #1d63d0;
   --warn: #8a6d00;
   --err: #c22b25;
 }
@@ -211,8 +213,7 @@ article header {
   margin-bottom: 0.4rem;
 }
 
-.status.ok,
-.status.enabled {
+.status.ok {
   color: var(--ok);
 }
 
@@ -224,10 +225,6 @@ article header {
   color: var(--warn);
 }
 
-.status.disabled {
-  color: var(--muted);
-}
-
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -235,6 +232,7 @@ article header {
 }
 
 .card {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -254,6 +252,28 @@ article header {
 
 .card strong {
   overflow-wrap: anywhere;
+}
+
+.card .dot {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.7rem;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.card .dot.disabled {
+  background: var(--muted);
+}
+
+.card .dot.enabled {
+  background: var(--info);
+}
+
+.card .dot.running {
+  background: var(--ok);
 }
 
 pre {
