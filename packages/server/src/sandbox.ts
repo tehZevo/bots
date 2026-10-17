@@ -1,8 +1,13 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { getSetting } from "./db.ts";
 
 const IMAGE = process.env.SANDBOX_IMAGE ?? "bots-sandbox:latest";
 const EXEC_TIMEOUT_MS = 60_000;
+const IDLE_SETTING_KEY = "sandbox_idle_minutes";
+export const DEFAULT_IDLE_MINUTES = 5;
+
+const lastActivity = new Map<string, number>();
 
 export function containerName(botId: string): string {
   return `bots-bot-${botId}`;
@@ -73,6 +78,7 @@ export async function ensureContainer(
   workspaceDir: string,
 ): Promise<string> {
   const name = containerName(botId);
+  lastActivity.set(botId, Date.now());
   const state = await spawnCapture([
     "inspect",
     "-f",
@@ -139,5 +145,56 @@ export async function execInContainer(
 }
 
 export function removeContainer(botId: string): void {
+  lastActivity.delete(botId);
   void spawnCapture(["rm", "-f", containerName(botId)]).catch(() => {});
+}
+
+export function idleMinutes(): number {
+  const raw = getSetting(IDLE_SETTING_KEY);
+  if (raw === undefined) return DEFAULT_IDLE_MINUTES;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_IDLE_MINUTES;
+}
+
+export function touchSandbox(botId: string): void {
+  lastActivity.set(botId, Date.now());
+}
+
+async function reapOnce(): Promise<void> {
+  const minutes = idleMinutes();
+  if (minutes <= 0) return;
+  const ps = await spawnCapture([
+    "ps",
+    "--filter",
+    "label=bots-sandbox=1",
+    "--format",
+    "{{.Names}}",
+  ]).catch(() => null);
+  if (!ps || ps.code !== 0) return;
+  const { isLoopActive } = await import("./agent.ts");
+  for (const [botId] of lastActivity)
+    if (isLoopActive(botId)) touchSandbox(botId);
+  const cutoff = Date.now() - minutes * 60_000;
+  for (const line of ps.stdout.split("\n")) {
+    const name = line.trim();
+    if (!name.startsWith("bots-bot-")) continue;
+    const botId = name.slice("bots-bot-".length);
+    const seen = lastActivity.get(botId);
+    if (seen === undefined) {
+      lastActivity.set(botId, Date.now());
+      continue;
+    }
+    if (seen > cutoff) continue;
+    await spawnCapture(["rm", "-f", name]).catch(() => {});
+    lastActivity.delete(botId);
+  }
+}
+
+export function startSandboxReaper(): void {
+  const timer = setInterval(() => {
+    void reapOnce().catch((e) =>
+      console.error("sandbox reaper:", e instanceof Error ? e.message : e),
+    );
+  }, 60_000);
+  timer.unref();
 }
