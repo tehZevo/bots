@@ -737,12 +737,6 @@ function BotActions({
   return (
     <>
       <div className="actions">
-        <button
-          type="button"
-          onClick={() => post(`/api/bots/${bot.id}/run`, { method: "POST" })}
-        >
-          Run now
-        </button>
         {bot.status === "running" && (
           <button
             type="button"
