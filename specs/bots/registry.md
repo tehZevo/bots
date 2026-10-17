@@ -1,8 +1,7 @@
 # Bot registry
 
-A bot is a named agent with a task, optional system prompt, a schedule, and an optional model override.
+A bot is a named agent with its own persistent context (see context/persistent-context.md).
 
-- Stored: name, task, system_prompt, schedule, model_id (null = server default), enabled, next_run_at, last_run_at.
-- CRUD via `/api/bots`; name, task, and schedule are required — invalid input returns 400 with an error message.
-- Changing the schedule recomputes `next_run_at`; other edits don't touch it.
-- Deleting a bot deletes its runs and messages.
+- Stored per bot: name (required), optional system prompt, optional model override (null = server default), enabled flag.
+- CRUD via `/api/bots`; invalid input returns 400 with an error message.
+- Deleting a bot deletes its triggers, runs, and messages.
