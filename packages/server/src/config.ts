@@ -27,7 +27,11 @@ export const config = {
     maxTokens: Number(process.env.LLM_MAX_TOKENS ?? 4096),
   },
   compaction: {
-    tokenThreshold: Number(process.env.COMPACTION_TOKEN_THRESHOLD ?? 24000),
+    // null = automatic: compact at COMPACTION_RATIO of the model's context window
+    tokenThreshold: process.env.COMPACTION_TOKEN_THRESHOLD
+      ? Number(process.env.COMPACTION_TOKEN_THRESHOLD)
+      : null,
+    ratio: Number(process.env.COMPACTION_RATIO ?? 0.75),
     keepRecent: Number(process.env.COMPACTION_KEEP_RECENT ?? 16),
   },
 };

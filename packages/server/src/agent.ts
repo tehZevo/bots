@@ -140,8 +140,11 @@ function startLoop(bot: BotRow, runId: string, firstMessage: AgentMessage) {
       messages: history,
     },
     transformContext: async (messages) => {
+      const budget =
+        config.compaction.tokenThreshold ??
+        Math.floor(model.contextWindow * config.compaction.ratio);
       if (
-        estimateTokens(messages) < config.compaction.tokenThreshold ||
+        estimateTokens(messages) < budget ||
         messages.length <= config.compaction.keepRecent + 2
       ) {
         return messages;
