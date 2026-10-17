@@ -592,6 +592,18 @@ function BotActions({
       >
         Run now
       </button>
+      {bot.status === "running" && (
+        <button
+          type="button"
+          onClick={() =>
+            post(`/api/bots/${bot.id}/interrupt`, { method: "POST" }).then(
+              onChanged,
+            )
+          }
+        >
+          Stop
+        </button>
+      )}
       <button
         type="button"
         onClick={() =>

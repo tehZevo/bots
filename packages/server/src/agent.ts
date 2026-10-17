@@ -109,6 +109,7 @@ function lastAssistantText(messages: readonly AgentMessage[]): string | null {
 interface LiveLoop {
   agent: Agent;
   runId: string;
+  stopped: boolean;
 }
 
 const liveLoops = new Map<string, LiveLoop>();
@@ -178,14 +179,24 @@ function startLoop(bot: BotRow, runId: string, firstMessage: AgentMessage) {
     },
   });
 
-  liveLoops.set(bot.id, { agent, runId });
+  const loop: LiveLoop = { agent, runId, stopped: false };
+  liveLoops.set(bot.id, loop);
 
   void (async () => {
     try {
       await agent.prompt(firstMessage);
-      while (agent.hasQueuedMessages()) await agent.continue();
+      while (!loop.stopped && agent.hasQueuedMessages()) await agent.continue();
+      persistNew(agent.state.messages);
+      if (loop.stopped) {
+        finishRun(
+          runId,
+          "error",
+          lastAssistantText(agent.state.messages),
+          "interrupted",
+        );
+        return;
+      }
       const messages = agent.state.messages;
-      persistNew(messages);
       const text = lastAssistantText(messages);
       if (agent.state.errorMessage) {
         finishRun(runId, "error", text, agent.state.errorMessage);
@@ -203,7 +214,11 @@ function startLoop(bot: BotRow, runId: string, firstMessage: AgentMessage) {
         runId,
         "error",
         partial,
-        err instanceof Error ? err.message : String(err),
+        loop.stopped
+          ? "interrupted"
+          : err instanceof Error
+            ? err.message
+            : String(err),
       );
     } finally {
       liveLoops.delete(bot.id);
@@ -243,6 +258,15 @@ export function injectMessage(
   });
   startLoop(bot, runId, message);
   return { runId, steered: false };
+}
+
+export function interruptBot(botId: string): boolean {
+  const live = liveLoops.get(botId);
+  if (!live) return false;
+  live.stopped = true;
+  live.agent.abort();
+  liveLoops.delete(botId);
+  return true;
 }
 
 export function resetBotRuntime(botId: string): void {

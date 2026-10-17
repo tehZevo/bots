@@ -3,7 +3,12 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
-import { injectMessage, isLoopActive, resetBotRuntime } from "./agent.ts";
+import {
+  injectMessage,
+  interruptBot,
+  isLoopActive,
+  resetBotRuntime,
+} from "./agent.ts";
 import { repoRoot } from "./config.ts";
 import {
   clearMessages,
@@ -198,6 +203,12 @@ export function createApp(): Hono {
         : DEFAULT_MANUAL_MESSAGE;
     const { runId, steered } = injectMessage(bot, text, "manual");
     return c.json({ runId, steered }, 202);
+  });
+
+  app.post("/api/bots/:id/interrupt", (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    return c.json({ stopped: interruptBot(bot.id) });
   });
 
   app.get("/api/bots/:id/runs", (c) => {
