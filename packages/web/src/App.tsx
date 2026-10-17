@@ -128,181 +128,185 @@ export function App() {
   );
 
   return (
-    <div className="layout">
-      <aside>
-        <div className="hdr">
-          <h1>Bots</h1>
-        </div>
-        {error && <p className="error">{error}</p>}
-        {nav}
-      </aside>
-      <div className="topbar">
-        <button
-          type="button"
-          className="hamburger"
-          aria-label="Menu"
-          onClick={() => setNavOpen(true)}
-        >
-          ☰
+    <div className="app">
+      <header className="statusbar">
+        <h2>Bots</h2>
+        <span className="counts">
+          {bots.length} total ·{" "}
+          {bots.filter((b) => b.status === "running").length} running
+        </span>
+        <button type="button" onClick={() => setAddOpen(true)}>
+          Add bot
         </button>
-      </div>
-      {navOpen && (
-        <div className="drawer">
-          <button
-            type="button"
-            className="scrim"
-            aria-label="Close menu"
-            onClick={() => setNavOpen(false)}
-          />
-          <div className="panel">
-            <div className="hdr">
-              <h1>Bots</h1>
-            </div>
-            {error && <p className="error">{error}</p>}
-            {nav}
+      </header>
+      <div className="layout">
+        <aside>
+          <div className="hdr">
+            <h1>Bots</h1>
           </div>
-        </div>
-      )}
-      <main>
-        <header className="statusbar">
-          <h2>Bots</h2>
-          <span className="counts">
-            {bots.length} total ·{" "}
-            {bots.filter((b) => b.status === "running").length} running
-          </span>
-          <button type="button" onClick={() => setAddOpen(true)}>
-            Add bot
-          </button>
-        </header>
-        {tab === "bots" && (
-          <>
-            <input
-              placeholder="Search bots by name"
-              value={botQuery}
-              onChange={(e) => setBotQuery(e.target.value)}
-            />
-            <nav className="mtabs">
-              {(["all", "running", "enabled", "disabled"] as const).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  className={statusFilter === s ? "sel" : ""}
-                  onClick={() => setStatusFilter(s)}
-                >
-                  {s[0].toUpperCase() + s.slice(1)}
-                </button>
-              ))}
-            </nav>
-            <div className="cards">
-              {visibleBots.map((bot) => (
-                <button
-                  type="button"
-                  key={bot.id}
-                  className="card"
-                  aria-label={`${bot.name} (${bot.status})`}
-                  onClick={() => {
-                    setOpenBot(bot.id);
-                    setDetailOpen(true);
-                  }}
-                >
-                  <span className={`dot ${bot.status}`} title={bot.status} />
-                  <strong>{bot.name}</strong>
-                </button>
-              ))}
-            </div>
-            {bots.length === 0 && <p>No bots yet — press "Add bot".</p>}
-            {bots.length > 0 && visibleBots.length === 0 && (
-              <p className="muted">No bots match the current filters.</p>
-            )}
-          </>
-        )}
-        {tab === "roles" && <RolesPanel />}
-        {tab === "settings" && <SettingsPanel />}
-      </main>
-      {detailOpen && openBotRow && (
-        <div className="modal">
+          {error && <p className="error">{error}</p>}
+          {nav}
+        </aside>
+        <div className="topbar">
           <button
             type="button"
-            className="mscrim"
-            aria-label="Close details"
-            onClick={() => setDetailOpen(false)}
-          />
-          <div
-            className="dialog tabs"
-            role="dialog"
-            aria-label={`${openBotRow.name} details`}
+            className="hamburger"
+            aria-label="Menu"
+            onClick={() => setNavOpen(true)}
           >
-            <div className="viewhead">
-              <h2>{openBotRow.name}</h2>
-              <button
-                type="button"
-                className="close"
-                aria-label="Close"
-                onClick={() => setDetailOpen(false)}
-              >
-                ×
-              </button>
-            </div>
-            <nav className="mtabs">
-              {(["general", "triggers", "logs"] as const).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  className={modalTab === t ? "sel" : ""}
-                  onClick={() => setModalTab(t)}
-                >
-                  {t[0].toUpperCase() + t.slice(1)}
-                </button>
-              ))}
-            </nav>
-            <div className="tabbody">
-              {modalTab === "general" && (
-                <>
-                  <p className="statusline">
-                    Status: <span className={`dot ${openBotRow.status}`} />{" "}
-                    {openBotRow.status}
-                  </p>
-                  <BotActions bot={openBotRow} onChanged={load} />
-                  <RoleSelect bot={openBotRow} onChanged={load} />
-                </>
-              )}
-              {modalTab === "triggers" && <Triggers botId={openBotRow.id} />}
-              {modalTab === "logs" && (
-                <>
-                  {runs.length === 0 && (
-                    <p>No runs yet. Press "Run now" or wait for a trigger.</p>
-                  )}
-                  {runs.map((run) => (
-                    <article key={run.id}>
-                      <header>
-                        <span className={`status ${run.status}`}>
-                          {run.status}
-                        </span>
-                        <span>{run.trigger}</span>
-                        <span>{fmt(run.started_at)}</span>
-                        {run.finished_at && (
-                          <span>→ {fmt(run.finished_at)}</span>
-                        )}
-                      </header>
-                      {run.output && <pre>{run.output}</pre>}
-                      {run.error && <pre className="error">{run.error}</pre>}
-                    </article>
-                  ))}
-                </>
-              )}
+            ☰
+          </button>
+        </div>
+        {navOpen && (
+          <div className="drawer">
+            <button
+              type="button"
+              className="scrim"
+              aria-label="Close menu"
+              onClick={() => setNavOpen(false)}
+            />
+            <div className="panel">
+              <div className="hdr">
+                <h1>Bots</h1>
+              </div>
+              {error && <p className="error">{error}</p>}
+              {nav}
             </div>
           </div>
-        </div>
-      )}
-      {addOpen && (
-        <AddBotModal
-          onClose={() => setAddOpen(false)}
-          onCreated={() => {
-            setAddOpen(false);
-            void load();
-          }}
-        />
-      )}
+        )}
+        <main>
+          {tab === "bots" && (
+            <>
+              <input
+                placeholder="Search bots by name"
+                value={botQuery}
+                onChange={(e) => setBotQuery(e.target.value)}
+              />
+              <nav className="mtabs">
+                {(["all", "running", "enabled", "disabled"] as const).map(
+                  (s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      className={statusFilter === s ? "sel" : ""}
+                      onClick={() => setStatusFilter(s)}
+                    >
+                      {s[0].toUpperCase() + s.slice(1)}
+                    </button>
+                  ),
+                )}
+              </nav>
+              <div className="cards">
+                {visibleBots.map((bot) => (
+                  <button
+                    type="button"
+                    key={bot.id}
+                    className="card"
+                    aria-label={`${bot.name} (${bot.status})`}
+                    onClick={() => {
+                      setOpenBot(bot.id);
+                      setDetailOpen(true);
+                    }}
+                  >
+                    <span className={`dot ${bot.status}`} title={bot.status} />
+                    <strong>{bot.name}</strong>
+                  </button>
+                ))}
+              </div>
+              {bots.length === 0 && <p>No bots yet — press "Add bot".</p>}
+              {bots.length > 0 && visibleBots.length === 0 && (
+                <p className="muted">No bots match the current filters.</p>
+              )}
+            </>
+          )}
+          {tab === "roles" && <RolesPanel />}
+          {tab === "settings" && <SettingsPanel />}
+        </main>
+        {detailOpen && openBotRow && (
+          <div className="modal">
+            <button
+              type="button"
+              className="mscrim"
+              aria-label="Close details"
+              onClick={() => setDetailOpen(false)}
+            />
+            <div
+              className="dialog tabs"
+              role="dialog"
+              aria-label={`${openBotRow.name} details`}
+            >
+              <div className="viewhead">
+                <h2>{openBotRow.name}</h2>
+                <button
+                  type="button"
+                  className="close"
+                  aria-label="Close"
+                  onClick={() => setDetailOpen(false)}
+                >
+                  ×
+                </button>
+              </div>
+              <nav className="mtabs">
+                {(["general", "triggers", "logs"] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    className={modalTab === t ? "sel" : ""}
+                    onClick={() => setModalTab(t)}
+                  >
+                    {t[0].toUpperCase() + t.slice(1)}
+                  </button>
+                ))}
+              </nav>
+              <div className="tabbody">
+                {modalTab === "general" && (
+                  <>
+                    <p className="statusline">
+                      Status: <span className={`dot ${openBotRow.status}`} />{" "}
+                      {openBotRow.status}
+                    </p>
+                    <BotActions bot={openBotRow} onChanged={load} />
+                    <RoleSelect bot={openBotRow} onChanged={load} />
+                  </>
+                )}
+                {modalTab === "triggers" && <Triggers botId={openBotRow.id} />}
+                {modalTab === "logs" && (
+                  <>
+                    {runs.length === 0 && (
+                      <p>No runs yet. Press "Run now" or wait for a trigger.</p>
+                    )}
+                    {runs.map((run) => (
+                      <article key={run.id}>
+                        <header>
+                          <span className={`status ${run.status}`}>
+                            {run.status}
+                          </span>
+                          <span>{run.trigger}</span>
+                          <span>{fmt(run.started_at)}</span>
+                          {run.finished_at && (
+                            <span>→ {fmt(run.finished_at)}</span>
+                          )}
+                        </header>
+                        {run.output && <pre>{run.output}</pre>}
+                        {run.error && <pre className="error">{run.error}</pre>}
+                      </article>
+                    ))}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+        {addOpen && (
+          <AddBotModal
+            onClose={() => setAddOpen(false)}
+            onCreated={() => {
+              setAddOpen(false);
+              void load();
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 }

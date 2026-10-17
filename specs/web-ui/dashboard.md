@@ -2,7 +2,7 @@
 
 Single-page console for operating bots; any client that can reach the API may operate all bots.
 
-- A top status bar spans the main area with the title `Bots`, the total number of bots, and how many are active/running (e.g. `Bots — 4 total · 1 running`), refreshed by the same polling as the cards.
+- A status bar stretches across the very top of the app, above the sidebar: title `Bots`, the total number of bots, and how many are active/running (e.g. `4 total · 1 running`) plus the Add bot button, refreshed by the same polling as the cards.
 - Bots tab (default view): a card per bot showing its name with status as a colored circle in the card's upper-right corner — green `running` while its loop is active, blue `enabled`, gray `disabled`. On desktop, hovering the circle reveals its meaning (`running` / `enabled` / `disabled`). Creating a bot adds a card; selecting a card opens that bot's detail modal (see `bot-detail.md`).
 - Above the cards sit a search field (case-insensitive substring match on bot name) and status filter buttons `All` / `Running` / `Enabled` / `Disabled`; both filters combine, with an empty "no matches" state. Filtering is client-side over the polled list.
 - Create a bot via the "Add bot" modal on the bots tab (see `create-bot.md`) — name, optional system prompt, optional role.
