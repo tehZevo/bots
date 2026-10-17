@@ -73,11 +73,20 @@ function toRolePayload(input: RoleInput) {
 }
 
 interface TriggerInput {
+  kind?: unknown;
   message?: unknown;
   schedule?: unknown;
 }
 
+const TRIGGER_KINDS = ["schedule"] as const;
+
 function toTriggerPayload(input: TriggerInput) {
+  const kind = input.kind === undefined ? "schedule" : input.kind;
+  if (
+    typeof kind !== "string" ||
+    !(TRIGGER_KINDS as readonly string[]).includes(kind)
+  )
+    return { error: `unknown kind: ${String(input.kind)}` };
   if (typeof input.message !== "string" || !input.message.trim())
     return { error: "message is required" };
   const schedule =
@@ -86,7 +95,11 @@ function toTriggerPayload(input: TriggerInput) {
     return { error: "schedule is required (cron expression or @every 30m)" };
   if (nextRunAt(schedule) === null)
     return { error: `invalid schedule: ${schedule}` };
-  return { message: input.message, schedule };
+  return {
+    kind: kind as (typeof TRIGGER_KINDS)[number],
+    message: input.message,
+    schedule,
+  };
 }
 
 export function createApp(): Hono {
@@ -220,7 +233,6 @@ export function createApp(): Hono {
     const trigger = {
       id: randomUUID(),
       bot_id: bot.id,
-      kind: "schedule" as const,
       ...payload,
       next_run_at: nextRunAt(payload.schedule),
       created_at: Date.now(),
