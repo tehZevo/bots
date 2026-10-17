@@ -1,4 +1,3 @@
-// Specs: specs/bots/registry.md, specs/runs/lifecycle.md, specs/memory/conversation.md (persistence)
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";

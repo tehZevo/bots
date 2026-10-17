@@ -1,4 +1,3 @@
-// Spec: specs/scheduling/firing.md
 import { randomUUID } from "node:crypto";
 import { CronExpressionParser } from "cron-parser";
 import { runBot } from "./agent.ts";

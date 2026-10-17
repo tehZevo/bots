@@ -1,4 +1,3 @@
-// Specs: specs/bots/registry.md, specs/runs/lifecycle.md
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";

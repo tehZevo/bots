@@ -4,7 +4,7 @@
 
 - `packages/server` — Hono API, scheduler, agent loop (`src/agent.ts`), SQLite layer (`src/db.ts`), tools (`src/tools.ts`).
 - `packages/web` — React + Vite UI; talks to `/api` (dev proxy → `:8787`).
-- `specs/` — behavior specs: a directory per feature/behavior-set; each markdown file is named after the behavior it describes (e.g. `specs/tools/shell.md`) — never generic names like `spec.md`. Specs describe **only current shipped behavior**, present tense, ~20 lines max; future ideas go in root `ROADMAP.md`, never in specs. Source modules cite their spec files in a header comment (`// Spec: specs/<feature>/<behavior>.md`).
+- `specs/` — behavior specs: a directory per feature/behavior-set; each markdown file is named after the behavior it describes (e.g. `specs/tools/shell.md`) — never generic names like `spec.md`. Specs describe **only current shipped behavior**, present tense, ~20 lines max; future ideas go in root `ROADMAP.md`, never in specs.
 
 ## Specs workflow
 

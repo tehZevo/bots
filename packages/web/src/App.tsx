@@ -1,4 +1,3 @@
-// Spec: specs/web-ui/dashboard.md
 import { useCallback, useEffect, useState } from "react";
 
 interface Bot {

@@ -1,4 +1,3 @@
-// Specs: specs/agent-loop/run-execution.md, specs/memory/conversation.md
 import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
 import { Agent } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
