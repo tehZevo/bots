@@ -3,24 +3,30 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
+import { injectMessage, resetBotRuntime } from "./agent.ts";
 import { repoRoot } from "./config.ts";
 import {
   clearMessages,
   deleteBot,
+  deleteTrigger,
   getBot,
+  getTrigger,
   insertBot,
+  insertTrigger,
   listBots,
   listRuns,
+  listTriggers,
   loadMessages,
   updateBot,
+  updateTrigger,
 } from "./db.ts";
-import { isRunning, nextRunAt, startRun } from "./scheduler.ts";
+import { nextRunAt } from "./scheduler.ts";
+
+const DEFAULT_MANUAL_MESSAGE = "Continue with your current work.";
 
 interface BotInput {
   name?: unknown;
-  task?: unknown;
   system_prompt?: unknown;
-  schedule?: unknown;
   model_id?: unknown;
   enabled?: unknown;
 }
@@ -28,26 +34,33 @@ interface BotInput {
 function toBotPayload(input: BotInput) {
   if (typeof input.name !== "string" || !input.name.trim())
     return { error: "name is required" };
-  if (typeof input.task !== "string" || !input.task.trim())
-    return { error: "task is required" };
-  const schedule =
-    typeof input.schedule === "string" ? input.schedule.trim() : "";
-  if (!schedule)
-    return { error: "schedule is required (cron expression or @every 30m)" };
-  if (nextRunAt(schedule) === null)
-    return { error: `invalid schedule: ${schedule}` };
   return {
     name: input.name.trim(),
-    task: input.task,
     system_prompt:
       typeof input.system_prompt === "string" ? input.system_prompt : "",
-    schedule,
     model_id:
       typeof input.model_id === "string" && input.model_id.trim()
         ? input.model_id.trim()
         : null,
     enabled: input.enabled === false ? 0 : 1,
   };
+}
+
+interface TriggerInput {
+  message?: unknown;
+  schedule?: unknown;
+}
+
+function toTriggerPayload(input: TriggerInput) {
+  if (typeof input.message !== "string" || !input.message.trim())
+    return { error: "message is required" };
+  const schedule =
+    typeof input.schedule === "string" ? input.schedule.trim() : "";
+  if (!schedule)
+    return { error: "schedule is required (cron expression or @every 30m)" };
+  if (nextRunAt(schedule) === null)
+    return { error: `invalid schedule: ${schedule}` };
+  return { message: input.message, schedule };
 }
 
 export function createApp(): Hono {
@@ -60,13 +73,7 @@ export function createApp(): Hono {
   app.post("/api/bots", async (c) => {
     const payload = toBotPayload(await c.req.json<BotInput>());
     if ("error" in payload) return c.json({ error: payload.error }, 400);
-    const bot = {
-      id: randomUUID(),
-      ...payload,
-      next_run_at: nextRunAt(payload.schedule),
-      last_run_at: null,
-      created_at: Date.now(),
-    };
+    const bot = { id: randomUUID(), ...payload, created_at: Date.now() };
     insertBot(bot);
     return c.json(bot, 201);
   });
@@ -82,29 +89,30 @@ export function createApp(): Hono {
     if (!bot) return c.json({ error: "not found" }, 404);
     const payload = toBotPayload({ ...bot, ...(await c.req.json<BotInput>()) });
     if ("error" in payload) return c.json({ error: payload.error }, 400);
-    const scheduleChanged = payload.schedule !== bot.schedule;
-    updateBot(bot.id, {
-      ...payload,
-      next_run_at: scheduleChanged
-        ? nextRunAt(payload.schedule)
-        : bot.next_run_at,
-    });
+    updateBot(bot.id, payload);
     return c.json(getBot(bot.id));
   });
 
   app.delete("/api/bots/:id", (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
+    resetBotRuntime(bot.id);
     deleteBot(bot.id);
     return c.json({ ok: true });
   });
 
-  app.post("/api/bots/:id/run", (c) => {
+  app.post("/api/bots/:id/run", async (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
-    if (isRunning(bot.id)) return c.json({ error: "already running" }, 409);
-    const runId = startRun(bot, "manual");
-    return c.json({ runId }, 202);
+    const body: { message?: unknown } = await c.req
+      .json<{ message?: unknown }>()
+      .catch(() => ({}));
+    const text =
+      typeof body.message === "string" && body.message.trim()
+        ? body.message
+        : DEFAULT_MANUAL_MESSAGE;
+    const { runId, steered } = injectMessage(bot, text, "manual");
+    return c.json({ runId, steered }, 202);
   });
 
   app.get("/api/bots/:id/runs", (c) => {
@@ -121,7 +129,56 @@ export function createApp(): Hono {
   app.delete("/api/bots/:id/messages", (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
+    resetBotRuntime(bot.id);
     clearMessages(bot.id);
+    return c.json({ ok: true });
+  });
+
+  app.get("/api/bots/:id/triggers", (c) => {
+    const botId = c.req.param("id");
+    if (!getBot(botId)) return c.json({ error: "not found" }, 404);
+    return c.json(listTriggers(botId));
+  });
+
+  app.post("/api/bots/:id/triggers", async (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    const payload = toTriggerPayload(await c.req.json<TriggerInput>());
+    if ("error" in payload) return c.json({ error: payload.error }, 400);
+    const trigger = {
+      id: randomUUID(),
+      bot_id: bot.id,
+      kind: "schedule" as const,
+      ...payload,
+      next_run_at: nextRunAt(payload.schedule),
+      created_at: Date.now(),
+    };
+    insertTrigger(trigger);
+    return c.json(trigger, 201);
+  });
+
+  app.patch("/api/triggers/:triggerId", async (c) => {
+    const trigger = getTrigger(c.req.param("triggerId"));
+    if (!trigger) return c.json({ error: "not found" }, 404);
+    const payload = toTriggerPayload({
+      ...trigger,
+      ...(await c.req.json<TriggerInput>()),
+    });
+    if ("error" in payload) return c.json({ error: payload.error }, 400);
+    updateTrigger(trigger.id, {
+      ...payload,
+      next_run_at:
+        payload.schedule === trigger.schedule
+          ? trigger.next_run_at
+          : nextRunAt(payload.schedule),
+    });
+    return c.json(getTrigger(trigger.id));
+  });
+
+  app.delete("/api/triggers/:triggerId", (c) => {
+    const trigger = getTrigger(c.req.param("triggerId"));
+    if (!trigger) return c.json({ error: "not found" }, 404);
+    deleteTrigger(trigger.id);
     return c.json({ ok: true });
   });
 

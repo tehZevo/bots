@@ -4,12 +4,9 @@ interface Bot {
   id: string;
   name: string;
   system_prompt: string;
-  task: string;
-  schedule: string;
   model_id: string | null;
   enabled: number;
-  next_run_at: number | null;
-  last_run_at: number | null;
+  created_at: number;
 }
 
 interface Run {
@@ -91,9 +88,8 @@ export function App() {
               bot={bots.find((b) => b.id === selected)}
               onChanged={load}
             />
-            <p className="task">{bots.find((b) => b.id === selected)?.task}</p>
             {runs.length === 0 && (
-              <p>No runs yet. Press "Run now" or wait for the schedule.</p>
+              <p>No runs yet. Press "Run now" or wait for a trigger.</p>
             )}
             {runs.map((run) => (
               <article key={run.id}>
@@ -127,7 +123,6 @@ function BotActions({
   return (
     <div className="actions">
       <strong>{bot.name}</strong>
-      <span className="muted">{bot.schedule}</span>
       <button
         type="button"
         onClick={() => post(`/api/bots/${bot.id}/run`, { method: "POST" })}
@@ -170,8 +165,6 @@ function BotActions({
 
 function BotForm({ onCreated }: { onCreated: () => void }) {
   const [name, setName] = useState("");
-  const [task, setTask] = useState("");
-  const [schedule, setSchedule] = useState("0 * * * *");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -184,15 +177,9 @@ function BotForm({ onCreated }: { onCreated: () => void }) {
           await api("/api/bots", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              name,
-              task,
-              schedule,
-              system_prompt: systemPrompt,
-            }),
+            body: JSON.stringify({ name, system_prompt: systemPrompt }),
           });
           setName("");
-          setTask("");
           setSystemPrompt("");
           onCreated();
         } finally {
@@ -204,19 +191,6 @@ function BotForm({ onCreated }: { onCreated: () => void }) {
         placeholder="name"
         value={name}
         onChange={(e) => setName(e.target.value)}
-        required
-      />
-      <textarea
-        placeholder="task / prompt"
-        rows={3}
-        value={task}
-        onChange={(e) => setTask(e.target.value)}
-        required
-      />
-      <input
-        placeholder="cron e.g. 0 * * * *"
-        value={schedule}
-        onChange={(e) => setSchedule(e.target.value)}
         required
       />
       <textarea

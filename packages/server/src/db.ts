@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import Database from "better-sqlite3";
 import { config } from "./config.ts";
 
@@ -7,12 +8,18 @@ export interface BotRow {
   id: string;
   name: string;
   system_prompt: string;
-  task: string;
-  schedule: string;
   model_id: string | null;
   enabled: number;
+  created_at: number;
+}
+
+export interface TriggerRow {
+  id: string;
+  bot_id: string;
+  kind: "schedule";
+  message: string;
+  schedule: string;
   next_run_at: number | null;
-  last_run_at: number | null;
   created_at: number;
 }
 
@@ -45,12 +52,18 @@ db.exec(`
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     system_prompt TEXT NOT NULL DEFAULT '',
-    task TEXT NOT NULL,
-    schedule TEXT NOT NULL,
     model_id TEXT,
     enabled INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS triggers (
+    id TEXT PRIMARY KEY,
+    bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL DEFAULT 'schedule',
+    message TEXT NOT NULL,
+    schedule TEXT NOT NULL,
     next_run_at INTEGER,
-    last_run_at INTEGER,
     created_at INTEGER NOT NULL
   );
 
@@ -76,7 +89,43 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_messages_bot ON messages (bot_id, id);
   CREATE INDEX IF NOT EXISTS idx_runs_bot ON runs (bot_id, started_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_triggers_due ON triggers (next_run_at);
 `);
+
+const botColumns = new Set(
+  (db.prepare("PRAGMA table_info(bots)").all() as { name: string }[]).map(
+    (column) => column.name,
+  ),
+);
+if (botColumns.has("task")) {
+  const legacy = db
+    .prepare("SELECT id, task, schedule, next_run_at FROM bots")
+    .all() as {
+    id: string;
+    task: string;
+    schedule: string;
+    next_run_at: number | null;
+  }[];
+  const insertLegacy = db.prepare(
+    `INSERT INTO triggers (id, bot_id, kind, message, schedule, next_run_at, created_at)
+     VALUES (?, ?, 'schedule', ?, ?, ?, ?)`,
+  );
+  for (const row of legacy) {
+    if (row.task && row.schedule)
+      insertLegacy.run(
+        randomUUID(),
+        row.id,
+        row.task,
+        row.schedule,
+        row.next_run_at,
+        Date.now(),
+      );
+  }
+  for (const column of ["task", "schedule", "next_run_at", "last_run_at"]) {
+    if (botColumns.has(column))
+      db.prepare(`ALTER TABLE bots DROP COLUMN ${column}`).run();
+  }
+}
 
 export function listBots(): BotRow[] {
   return db.prepare("SELECT * FROM bots ORDER BY created_at").all() as BotRow[];
@@ -90,8 +139,8 @@ export function getBot(id: string): BotRow | undefined {
 
 export function insertBot(bot: BotRow): void {
   db.prepare(
-    `INSERT INTO bots (id, name, system_prompt, task, schedule, model_id, enabled, next_run_at, last_run_at, created_at)
-     VALUES (@id, @name, @system_prompt, @task, @schedule, @model_id, @enabled, @next_run_at, @last_run_at, @created_at)`,
+    `INSERT INTO bots (id, name, system_prompt, model_id, enabled, created_at)
+     VALUES (@id, @name, @system_prompt, @model_id, @enabled, @created_at)`,
   ).run(bot);
 }
 
@@ -103,17 +152,52 @@ export function updateBot(id: string, patch: Partial<BotRow>): void {
 }
 
 export function deleteBot(id: string): void {
+  db.prepare("DELETE FROM triggers WHERE bot_id = ?").run(id);
   db.prepare("DELETE FROM runs WHERE bot_id = ?").run(id);
   db.prepare("DELETE FROM messages WHERE bot_id = ?").run(id);
   db.prepare("DELETE FROM bots WHERE id = ?").run(id);
 }
 
-export function dueBots(now: number): BotRow[] {
+export function listTriggers(botId: string): TriggerRow[] {
+  return db
+    .prepare("SELECT * FROM triggers WHERE bot_id = ? ORDER BY created_at")
+    .all(botId) as TriggerRow[];
+}
+
+export function getTrigger(id: string): TriggerRow | undefined {
+  return db.prepare("SELECT * FROM triggers WHERE id = ?").get(id) as
+    | TriggerRow
+    | undefined;
+}
+
+export function insertTrigger(trigger: TriggerRow): void {
+  db.prepare(
+    `INSERT INTO triggers (id, bot_id, kind, message, schedule, next_run_at, created_at)
+     VALUES (@id, @bot_id, @kind, @message, @schedule, @next_run_at, @created_at)`,
+  ).run(trigger);
+}
+
+export function updateTrigger(id: string, patch: Partial<TriggerRow>): void {
+  const keys = Object.keys(patch).filter((k) => k !== "id");
+  if (keys.length === 0) return;
+  const sets = keys.map((k) => `${k} = @${k}`).join(", ");
+  db.prepare(`UPDATE triggers SET ${sets} WHERE id = @id`).run({
+    ...patch,
+    id,
+  });
+}
+
+export function deleteTrigger(id: string): void {
+  db.prepare("DELETE FROM triggers WHERE id = ?").run(id);
+}
+
+export function dueTriggers(now: number): TriggerRow[] {
   return db
     .prepare(
-      "SELECT * FROM bots WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?",
+      `SELECT t.* FROM triggers t JOIN bots b ON b.id = t.bot_id
+       WHERE b.enabled = 1 AND t.next_run_at IS NOT NULL AND t.next_run_at <= ?`,
     )
-    .all(now) as BotRow[];
+    .all(now) as TriggerRow[];
 }
 
 export function insertRun(run: RunRow): void {

@@ -26,9 +26,9 @@
 - NodeNext ESM everywhere; relative imports in the server include the `.ts` extension (`rewriteRelativeImportExtensions` handles emit).
 - Keep secrets out of git: env lives in `.env` (gitignored); never commit real keys or base URLs.
 - `better-sqlite3` is a native dep — if bindings are missing after install, run its install script inside the pnpm store dir (`prebuild-install || node-gyp rebuild --release`).
-- Agent LLM access goes through `@earendil-works/pi-*` v1.x: stream via `streamSimple` from `@earendil-works/pi-ai/api/openai-completions`, agent state is set with `initialState`, and `systemPrompt` on the live agent state is read-only.
-- Scheduler runs are fire-and-forget; every run row must reach a terminal status (`ok`/`error`) — keep the try/catch/finally in `scheduler.ts` intact.
+- Agent LLM access goes through `@earendil-works/pi-*` v1.x: stream via `streamSimple` from `@earendil-works/pi-ai/api/openai-completions`, agent state is set with `initialState`, and `systemPrompt` on the live agent state is read-only. Inject into a busy loop with `agent.steer()` (see `injectMessage` in `agent.ts`).
+- Trigger firing and message injection are fire-and-forget; every run row must reach a terminal status (`ok`/`error`) — keep the try/catch/finally around the loop in `agent.ts` intact.
 
 ## Testing without CI
 
-Smoke test manually: start server with `.env`, `POST /api/bots` with task "Reply with exactly PONG", then `POST /api/bots/:id/run` and poll `GET /api/bots/:id/runs` for `status: ok`.
+Smoke test manually: start server with `.env`, `POST /api/bots` (name only), `POST /api/triggers`-style nested create `/api/bots/:id/triggers` with message "Reply with exactly PONG" and `@every 1m` (or just `POST /api/bots/:id/run` with that message), then poll `GET /api/bots/:id/runs` for `status: ok`.
