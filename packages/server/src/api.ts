@@ -17,6 +17,7 @@ import {
   deleteTrigger,
   getBot,
   getRole,
+  getSetting,
   getTrigger,
   insertBot,
   insertRole,
@@ -26,11 +27,12 @@ import {
   listRuns,
   listTriggers,
   loadMessages,
+  setSetting,
   updateBot,
   updateRole,
   updateTrigger,
 } from "./db.ts";
-import { removeContainer } from "./sandbox.ts";
+import { idleMinutes, removeContainer } from "./sandbox.ts";
 import { nextRunAt } from "./scheduler.ts";
 
 const DEFAULT_MANUAL_MESSAGE = "Continue with your current work.";
@@ -117,6 +119,29 @@ export function createApp(): Hono {
   const app = new Hono();
 
   app.get("/api/health", (c) => c.json({ ok: true }));
+
+  app.get("/api/settings", (c) =>
+    c.json({ sandbox_idle_minutes: idleMinutes() }),
+  );
+
+  app.put("/api/settings", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      sandbox_idle_minutes?: unknown;
+    } | null;
+    const raw = body?.sandbox_idle_minutes;
+    if (
+      typeof raw !== "number" ||
+      !Number.isInteger(raw) ||
+      raw < 0 ||
+      raw > 1440
+    )
+      return c.json(
+        { error: "sandbox_idle_minutes must be an integer 0-1440" },
+        400,
+      );
+    setSetting("sandbox_idle_minutes", String(raw));
+    return c.json({ sandbox_idle_minutes: raw });
+  });
 
   app.get("/api/bots", (c) =>
     c.json(

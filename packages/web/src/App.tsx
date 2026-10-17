@@ -454,6 +454,29 @@ function currentTheme(): Theme {
 
 function SettingsPanel() {
   const [theme, setTheme] = useState<Theme>(currentTheme);
+  const [idle, setIdle] = useState(5);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    void api<{ sandbox_idle_minutes: number }>("/api/settings")
+      .then((s) => setIdle(s.sandbox_idle_minutes))
+      .catch(() => {});
+  }, []);
+
+  const saveIdle = async () => {
+    setSaving(true);
+    try {
+      await api("/api/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sandbox_idle_minutes: idle }),
+      });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const pick = (t: Theme) => {
     localStorage.setItem("bots-theme", t);
@@ -477,6 +500,20 @@ function SettingsPanel() {
           </button>
         ))}
       </nav>
+      <p className="muted">Sandbox idle timeout</p>
+      <div className="actions">
+        <input
+          type="number"
+          min={0}
+          max={1440}
+          value={idle}
+          onChange={(e) => setIdle(Number(e.target.value))}
+        />
+        minutes
+        <button type="button" disabled={saving} onClick={() => void saveIdle()}>
+          Save
+        </button>
+      </div>
     </section>
   );
 }
