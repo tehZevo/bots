@@ -456,10 +456,9 @@ function ThemeMenu() {
 
 function RolesPanel() {
   const [roles, setRoles] = useState<Role[]>([]);
-  const [name, setName] = useState("");
-  const [instructions, setInstructions] = useState("");
-  const [editing, setEditing] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [query, setQuery] = useState("");
+  const [formRole, setFormRole] = useState<Role | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const loadRoles = useCallback(async () => {
     setRoles(await api<Role[]>("/api/roles").catch(() => []));
@@ -469,63 +468,138 @@ function RolesPanel() {
     void loadRoles();
   }, [loadRoles]);
 
-  const reset = () => {
-    setName("");
-    setInstructions("");
-    setEditing(null);
-  };
+  const q = query.trim().toLowerCase();
+  const visible = roles.filter(
+    (role) =>
+      !q ||
+      role.name.toLowerCase().includes(q) ||
+      role.instructions.toLowerCase().includes(q),
+  );
 
   return (
     <section>
-      <h2>Roles</h2>
+      <div className="viewhead">
+        <h2>Roles</h2>
+        <button type="button" onClick={() => setCreating(true)}>
+          Create role
+        </button>
+      </div>
+      <input
+        placeholder="Search roles"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+      />
       {roles.length === 0 && (
-        <p className="muted">No roles yet — create one below.</p>
+        <p className="muted">No roles yet — press "Create role".</p>
+      )}
+      {roles.length > 0 && visible.length === 0 && (
+        <p className="muted">No roles match "{query}".</p>
       )}
       <div className="cards">
-        {roles.map((role) => (
+        {visible.map((role) => (
           <button
             type="button"
             key={role.id}
-            className={editing === role.id ? "card sel" : "card"}
-            onClick={() => {
-              setEditing(role.id);
-              setName(role.name);
-              setInstructions(role.instructions);
-            }}
+            className="card"
+            onClick={() => setFormRole(role)}
           >
             <strong>{role.name}</strong>
             <span className="preview">{role.instructions}</span>
           </button>
         ))}
       </div>
+      {(creating || formRole) && (
+        <RoleFormModal
+          role={formRole}
+          onClose={() => {
+            setCreating(false);
+            setFormRole(null);
+          }}
+          onSaved={() => {
+            setCreating(false);
+            setFormRole(null);
+            void loadRoles();
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+function RoleFormModal({
+  role,
+  onClose,
+  onSaved,
+}: {
+  role: Role | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(role?.name ?? "");
+  const [instructions, setInstructions] = useState(role?.instructions ?? "");
+  const [busy, setBusy] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    nameRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="modal">
+      <button
+        type="button"
+        className="mscrim"
+        aria-label="Cancel"
+        onClick={onClose}
+      />
       <form
-        onSubmit={async (e) => {
+        className="dialog narrow"
+        role="dialog"
+        aria-label={role ? "Edit role" : "Create role"}
+        onSubmit={(e) => {
           e.preventDefault();
-          setBusy(true);
-          try {
-            const body = JSON.stringify({ name, instructions });
-            if (editing)
-              await api(`/api/roles/${editing}`, {
-                method: "PATCH",
-                headers: { "content-type": "application/json" },
-                body,
-              });
-            else
-              await api("/api/roles", {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body,
-              });
-            reset();
-            await loadRoles();
-          } catch (err) {
-            alert(err instanceof Error ? err.message : String(err));
-          } finally {
-            setBusy(false);
-          }
+          void (async () => {
+            setBusy(true);
+            try {
+              const body = JSON.stringify({ name, instructions });
+              if (role)
+                await api(`/api/roles/${role.id}`, {
+                  method: "PATCH",
+                  headers: { "content-type": "application/json" },
+                  body,
+                });
+              else
+                await api("/api/roles", {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body,
+                });
+              onSaved();
+            } catch (err) {
+              alert(err instanceof Error ? err.message : String(err));
+              setBusy(false);
+            }
+          })();
         }}
       >
+        <div className="viewhead">
+          <h2>{role ? "Edit role" : "Create role"}</h2>
+          <button
+            type="button"
+            className="close"
+            aria-label="Cancel"
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
         <input
+          ref={nameRef}
           placeholder="role name"
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -533,38 +607,42 @@ function RolesPanel() {
         />
         <textarea
           placeholder="instructions added to assigned bots' prompts"
-          rows={3}
+          rows={5}
           value={instructions}
           onChange={(e) => setInstructions(e.target.value)}
           required
         />
         <div className="actions">
           <button type="submit" disabled={busy}>
-            {editing ? "Save role" : "Create role"}
+            {role ? "Save role" : "Create role"}
           </button>
-          {editing && (
-            <button type="button" onClick={reset}>
-              Cancel
-            </button>
-          )}
-          {editing && (
+          {role && (
             <button
               type="button"
               className="danger"
-              onClick={async () => {
-                await api(`/api/roles/${editing}`, { method: "DELETE" }).catch(
-                  (e) => alert(e.message),
-                );
-                reset();
-                await loadRoles();
-              }}
+              disabled={busy}
+              onClick={() =>
+                void (async () => {
+                  setBusy(true);
+                  try {
+                    await api(`/api/roles/${role.id}`, { method: "DELETE" });
+                    onSaved();
+                  } catch (err) {
+                    alert(err instanceof Error ? err.message : String(err));
+                    setBusy(false);
+                  }
+                })()
+              }
             >
               Delete role
             </button>
           )}
+          <button type="button" onClick={onClose}>
+            Cancel
+          </button>
         </div>
       </form>
-    </section>
+    </div>
   );
 }
 
