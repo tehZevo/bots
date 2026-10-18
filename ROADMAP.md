@@ -14,3 +14,4 @@ Behaviors agreed on but not yet specced in detail. Each becomes its own spec dir
 - **Bot templates** — reusable bundles of machine + role (+ description, system prompt, starter triggers) created from any bot or from scratch; "New bot from template" pre-fills the create dialog and can be instantiated repeatedly.
 
 - **In-app notifications** — notification list for failed runs and pending approvals with an unread badge; delivered as native browser push through the PWA service worker once subscriptions exist.
+- **Notification sounds** — optional sound on new notifications with per-bot choices (none / default chime / built-in library), Settings toggle + preview.
