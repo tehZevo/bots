@@ -1825,45 +1825,51 @@ function IntegrationsPanel() {
         </button>
       </div>
       <h3>MCP Servers</h3>
-      {servers.length === 0 && (
-        <p className="muted">No MCP servers yet — add one above.</p>
-      )}
-      {servers.map((s) => {
-        const r = results[s.id];
-        return (
-          <div className="mcpsrv" key={s.id}>
-            <header>
-              <strong>{s.name}</strong>
-              {!s.enabled && <span className="muted">(disabled)</span>}
-              <button type="button" onClick={() => test(s)} disabled={r?.busy}>
-                {r?.busy ? "Testing…" : "Test connection"}
-              </button>
-              <button type="button" onClick={() => setForm(s)}>
-                Edit
-              </button>
-              <button
-                type="button"
-                className="danger"
-                onClick={() => setRemoving(s)}
-              >
-                Delete
-              </button>
-            </header>
-            <code>{[s.command, ...s.args].join(" ")}</code>
-            {Object.keys(s.env).length > 0 && (
-              <p className="muted envline">
-                {Object.keys(s.env)
-                  .map((k) => `${k}=••••`)
-                  .join("  ")}
-              </p>
-            )}
-            {r?.tools !== undefined && (
-              <p className="ok line">Connected — {r.tools} tools</p>
-            )}
-            {r?.error && <p className="error line">{r.error}</p>}
-          </div>
-        );
-      })}
+      <div className="mcpsection">
+        {servers.length === 0 && (
+          <p className="muted">No MCP servers yet — add one above.</p>
+        )}
+        {servers.map((s) => {
+          const r = results[s.id];
+          return (
+            <div className="mcpsrv" key={s.id}>
+              <header>
+                <strong>{s.name}</strong>
+                {!s.enabled && <span className="muted">(disabled)</span>}
+                <button
+                  type="button"
+                  onClick={() => test(s)}
+                  disabled={r?.busy}
+                >
+                  {r?.busy ? "Testing…" : "Test connection"}
+                </button>
+                <button type="button" onClick={() => setForm(s)}>
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => setRemoving(s)}
+                >
+                  Delete
+                </button>
+              </header>
+              <code>{[s.command, ...s.args].join(" ")}</code>
+              {Object.keys(s.env).length > 0 && (
+                <p className="muted envline">
+                  {Object.keys(s.env)
+                    .map((k) => `${k}=••••`)
+                    .join("  ")}
+                </p>
+              )}
+              {r?.tools !== undefined && (
+                <p className="ok line">Connected — {r.tools} tools</p>
+              )}
+              {r?.error && <p className="error line">{r.error}</p>}
+            </div>
+          );
+        })}
+      </div>
       {removing && (
         <ConfirmDialog
           text={`Delete MCP server ${removing.name}? Bots granted this server will lose its tools.`}
