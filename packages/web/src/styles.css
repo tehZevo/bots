@@ -963,4 +963,15 @@ button.danger.ghost { min-width: 30px; padding: 4px 8px; }
 [data-theme="light"] .switch .knob::after { background: #fff; box-shadow: 0 0 2px rgb(0 0 0 / 35%); }
 .trigger.off { opacity: 0.55; }
 .trigger.off p, .trigger.off code { text-decoration: none; }
-.trig-switch { margin-right: 6px; }
+.trig-switch { margin-right: 6px; }.trigmd { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: var(--gap-section); align-items: start; }
+.tlist { display: flex; flex-direction: column; gap: 4px; }
+.tlist > button { text-align: left; justify-content: flex-start; }
+.tlist .trow { background: none; border: 1px solid transparent; color: var(--text); font-size: 13px; padding: 0.45rem 0.6rem; border-radius: var(--radius-control); min-height: 0; overflow-wrap: anywhere; }
+.tlist .trow:hover { background: var(--hover); }
+.tlist .trow.sel { border-color: var(--border); background: var(--panel); box-shadow: var(--card-shadow); }
+.tlist .trow.off { color: var(--muted); opacity: 0.6; }
+.teditor { border: 1px solid var(--border); border-radius: var(--radius-card); padding: 1rem; background: var(--panel); display: flex; flex-direction: column; gap: 0.6rem; }
+.tedithead { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+.triggers .actions { display: flex; gap: 0.5rem; }
+@media (max-width: 720px) { .trigmd { grid-template-columns: minmax(0, 1fr); } .tback { display: inline-flex; } }
+.tback { display: none; align-self: flex-start; background: none; border: none; color: var(--code); padding: 0; min-height: 0; font-size: 13px; }

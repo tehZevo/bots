@@ -1827,6 +1827,7 @@ function ConfirmDialog({
 
 function Triggers({ botId }: { botId: string }) {
   const [triggers, setTriggers] = useState<Trigger[]>([]);
+  const [sel, setSel] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [schedule, setSchedule] = useState("0 * * * *");
   const [kind, setKind] = useState<"schedule" | "webhook">("schedule");
@@ -1835,11 +1836,19 @@ function Triggers({ botId }: { botId: string }) {
   );
   const [busy, setBusy] = useState(false);
   const [removing, setRemoving] = useState<Trigger | null>(null);
+  const [rotating, setRotating] = useState<Trigger | null>(null);
 
   const reload = useCallback(
     () =>
       api<Trigger[]>(`/api/bots/${botId}/triggers`)
-        .then(setTriggers)
+        .then((rows) => {
+          setTriggers(rows);
+          setSel((cur) =>
+            cur === "new" || rows.some((r) => r.id === cur)
+              ? cur
+              : (rows[0]?.id ?? null),
+          );
+        })
         .catch(() => setTriggers([])),
     [botId],
   );
@@ -1848,84 +1857,146 @@ function Triggers({ botId }: { botId: string }) {
     void reload();
   }, [reload]);
 
+  const current = triggers.find((t) => t.id === sel) ?? null;
+
+  const patch = async (id: string, body: Record<string, unknown>) => {
+    try {
+      await api(`/api/triggers/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      await reload();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const select = (id: string | null) => {
+    setSel(id);
+    document.getElementById("trig-editor")?.scrollIntoView({ block: "start" });
+  };
+
   return (
     <section className="triggers">
-      <h2>Triggers</h2>
-      {triggers.length === 0 && (
-        <p className="muted">No triggers — the bot only runs on "Run now".</p>
-      )}
-      {triggers.map((t) => (
-        <div className={`trigger${t.enabled ? "" : " off"}`} key={t.id}>
-          <label
-            className="switch trig-switch"
-            aria-label="Trigger enabled"
-            title={t.enabled ? "Disable trigger" : "Enable trigger"}
-          >
-            <input
-              type="checkbox"
-              checked={t.enabled === 1}
-              onChange={() =>
-                void api(`/api/triggers/${t.id}`, {
-                  method: "PATCH",
-                  headers: { "content-type": "application/json" },
-                  body: JSON.stringify({ enabled: t.enabled !== 1 }),
-                })
-                  .then(reload)
-                  .catch((e) =>
-                    alert(e instanceof Error ? e.message : String(e)),
-                  )
+      <div className="trigmd">
+        <nav className="tlist" aria-label="Triggers">
+          <button type="button" onClick={() => select("new")}>
+            + Add trigger
+          </button>
+          {triggers.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className={`trow${sel === t.id ? " sel" : ""}${t.enabled ? "" : " off"}`}
+              onClick={() => select(t.id)}
+            >
+              {t.kind === "webhook"
+                ? `webhook ${t.id.slice(0, 8)}`
+                : t.schedule}
+              {t.enabled ? "" : " · paused"}
+            </button>
+          ))}
+        </nav>
+        <div className="teditor" id="trig-editor">
+          {current && (
+            <button
+              type="button"
+              className="tback"
+              onClick={() =>
+                document
+                  .querySelector(".tlist")
+                  ?.scrollIntoView({ block: "start" })
               }
-            />
-            <span className="knob" />
-            <span className="state">
-              {t.enabled === 1 ? "Enabled" : "Disabled"}
-            </span>
-          </label>
-          {t.kind === "webhook" ? (
-            <>
-              <code>{`POST /api/webhooks/${t.id}`}</code>
-              <button
-                type="button"
-                onClick={() =>
-                  api<{ secret: string }>(
-                    `/api/triggers/${t.id}/rotate-secret`,
-                    { method: "POST" },
-                  )
-                    .then((r) => setCreated({ id: t.id, secret: r.secret }))
-                    .catch((e) => alert(e.message))
+            >
+              ← Triggers
+            </button>
+          )}
+          {sel === null && (
+            <p className="muted">
+              No triggers — the bot only runs on &quot;Run now&quot;.
+            </p>
+          )}
+          {sel === "new" && (
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setBusy(true);
+                try {
+                  const body: Record<string, string> = { message, kind };
+                  if (kind === "schedule") body.schedule = schedule;
+                  const res = await api<Trigger & { secret?: string }>(
+                    `/api/bots/${botId}/triggers`,
+                    {
+                      method: "POST",
+                      headers: { "content-type": "application/json" },
+                      body: JSON.stringify(body),
+                    },
+                  ).catch((err) => {
+                    alert(err.message);
+                    return null;
+                  });
+                  if (res) {
+                    if (res.secret)
+                      setCreated({ id: res.id, secret: res.secret });
+                    setMessage("");
+                    await reload();
+                    setSel(res?.id ?? null);
+                  }
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              <label className="field">
+                Message
+                <textarea
+                  placeholder="message to inject on trigger"
+                  rows={2}
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  required
+                />
+              </label>
+              <select
+                value={kind}
+                onChange={(e) =>
+                  setKind(e.target.value as "schedule" | "webhook")
                 }
               >
-                Rotate secret
-              </button>
-            </>
-          ) : (
-            <>
-              <code>{t.schedule}</code>
-              <span>{fmt(t.next_run_at)}</span>
-            </>
+                <option value="schedule">Schedule</option>
+                <option value="webhook">Webhook</option>
+              </select>
+              {kind === "schedule" && (
+                <input
+                  placeholder="cron or @every 30m"
+                  value={schedule}
+                  onChange={(e) => setSchedule(e.target.value)}
+                  required
+                />
+              )}
+              <div className="actions">
+                <button type="submit" disabled={busy}>
+                  Create trigger
+                </button>
+                <button type="button" onClick={() => setSel(null)}>
+                  Cancel
+                </button>
+              </div>
+            </form>
           )}
-          <p>{t.message}</p>
-          <button
-            type="button"
-            className="danger"
-            onClick={() => setRemoving(t)}
-          >
-            Remove
-          </button>
+          {current && (
+            <TriggerEditor
+              key={current.id}
+              trigger={current}
+              onPatch={patch}
+              onRotate={() => setRotating(current)}
+              onRemove={() => setRemoving(current)}
+              secret={created?.id === current.id ? created.secret : null}
+            />
+          )}
         </div>
-      ))}
-      {created && (
-        <div className="secretbox">
-          <p>
-            Webhook URL:{" "}
-            <code>{`${location.origin}/api/webhooks/${created.id}`}</code>
-          </p>
-          <p>
-            Secret (shown once — store it now):{" "}
-            <code className="secret">{created.secret}</code>
-          </p>
-        </div>
-      )}
+      </div>
       {removing && (
         <ConfirmDialog
           text={`Remove trigger ${removing.kind === "webhook" ? removing.id : removing.schedule}? Its future fires stop; past runs stay.`}
@@ -1939,59 +2010,117 @@ function Triggers({ botId }: { botId: string }) {
           }}
         />
       )}
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setBusy(true);
-          try {
-            const body: Record<string, string> = { message, kind };
-            if (kind === "schedule") body.schedule = schedule;
-            const res = await api<Trigger & { secret?: string }>(
-              `/api/bots/${botId}/triggers`,
-              {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify(body),
-              },
-            ).catch((err) => {
-              alert(err.message);
-              return null;
-            });
-            if (res?.secret) setCreated({ id: res.id, secret: res.secret });
-            setMessage("");
-            await reload();
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
+      {rotating && (
+        <ConfirmDialog
+          text={`Rotate the webhook secret for ${rotating.id}? The current secret stops working immediately — integrations break until updated.`}
+          confirmLabel="Rotate secret"
+          onCancel={() => setRotating(null)}
+          onConfirm={() => {
+            const t = rotating;
+            setRotating(null);
+            api<{ secret: string }>(`/api/triggers/${t.id}/rotate-secret`, {
+              method: "POST",
+            })
+              .then((r) => {
+                setCreated({ id: t.id, secret: r.secret });
+                void reload();
+              })
+              .catch((e) => alert(e.message));
+          }}
+        />
+      )}
+    </section>
+  );
+}
+function TriggerEditor({
+  trigger,
+  onPatch,
+  onRotate,
+  onRemove,
+  secret,
+}: {
+  trigger: Trigger;
+  onPatch: (id: string, body: Record<string, unknown>) => Promise<void>;
+  onRotate: () => void;
+  onRemove: () => void;
+  secret: string | null;
+}) {
+  const [message, setMessage] = useState(trigger.message);
+  const [schedule, setSchedule] = useState(trigger.schedule);
+  const [busy, setBusy] = useState(false);
+  const dirty =
+    message !== trigger.message ||
+    (trigger.kind === "schedule" && schedule !== trigger.schedule);
+  return (
+    <>
+      <div className="tedithead">
+        <label className="switch">
+          <input
+            type="checkbox"
+            aria-label="Trigger enabled"
+            checked={trigger.enabled === 1}
+            onChange={() =>
+              void onPatch(trigger.id, { enabled: trigger.enabled !== 1 })
+            }
+          />
+          <span className="knob" />
+          <span className="state">
+            {trigger.enabled === 1 ? "Enabled" : "Disabled"}
+          </span>
+        </label>
+        {trigger.kind === "webhook" ? (
+          <code>{`POST /api/webhooks/${trigger.id}`}</code>
+        ) : (
+          <span className="muted">next: {fmt(trigger.next_run_at)}</span>
+        )}
+      </div>
+      <label className="field">
+        Message
         <textarea
-          placeholder="message to inject on trigger"
-          rows={2}
+          rows={3}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
-          required
         />
-        <select
-          value={kind}
-          onChange={(e) => setKind(e.target.value as "schedule" | "webhook")}
+      </label>
+      {trigger.kind === "schedule" && (
+        <input
+          placeholder="cron or @every 30m"
+          value={schedule}
+          onChange={(e) => setSchedule(e.target.value)}
+        />
+      )}
+      <div className="actions">
+        <button
+          type="button"
+          disabled={!dirty || busy}
+          onClick={() => {
+            setBusy(true);
+            void onPatch(trigger.id, {
+              message,
+              ...(trigger.kind === "schedule" ? { schedule } : {}),
+            }).finally(() => setBusy(false));
+          }}
         >
-          <option value="schedule">Schedule</option>
-          <option value="webhook">Webhook</option>
-        </select>
-        {kind === "schedule" && (
-          <input
-            placeholder="cron or @every 30m"
-            value={schedule}
-            onChange={(e) => setSchedule(e.target.value)}
-            required
-          />
-        )}
-        <button type="submit" disabled={busy}>
-          Add trigger
+          Save
         </button>
-      </form>
-    </section>
+        {trigger.kind === "webhook" && (
+          <button type="button" onClick={onRotate}>
+            Rotate secret
+          </button>
+        )}
+      </div>
+      {secret && (
+        <div className="secretbox">
+          <p>
+            Secret (shown once — store it now):{" "}
+            <code className="secret">{secret}</code>
+          </p>
+        </div>
+      )}
+      <button type="button" className="danger" onClick={onRemove}>
+        Remove
+      </button>
+    </>
   );
 }
 
