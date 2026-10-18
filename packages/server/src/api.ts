@@ -12,8 +12,10 @@ import {
 } from "./agent.ts";
 import { repoRoot } from "./config.ts";
 import {
+  botsUsingMachine,
   clearMessages,
   deleteBot,
+  deleteMachine,
   deleteMcpServer,
   deleteProvider,
   deleteRole,
@@ -21,6 +23,7 @@ import {
   deleteSkill,
   deleteTrigger,
   getBot,
+  getMachine,
   getMcpServer,
   getMcpServerByName,
   getProvider,
@@ -29,6 +32,7 @@ import {
   getSkill,
   getTrigger,
   insertBot,
+  insertMachine,
   insertMcpServer,
   insertProvider,
   insertRole,
@@ -36,6 +40,7 @@ import {
   insertTrigger,
   latestErrorBotIds,
   listBots,
+  listMachines,
   listMcpServers,
   listProviders,
   listRoles,
@@ -44,9 +49,11 @@ import {
   listTriggers,
   loadMessages,
   type ProviderRow,
+  setMachineBuild,
   setSetting,
   setTriggerSecret,
   updateBot,
+  updateMachine,
   updateMcpServer,
   updateProvider,
   updateRole,
@@ -54,7 +61,11 @@ import {
   updateTrigger,
 } from "./db.ts";
 import { testMcpConnection } from "./mcp.ts";
-import { idleMinutes, removeContainer } from "./sandbox.ts";
+import {
+  defaultSandboxImage,
+  idleMinutes,
+  removeContainer,
+} from "./sandbox.ts";
 import { nextRunAt } from "./scheduler.ts";
 
 const DEFAULT_MANUAL_MESSAGE = "Continue with your current work.";
@@ -65,6 +76,7 @@ interface BotInput {
   system_prompt?: unknown;
   model_id?: unknown;
   role_id?: unknown;
+  machine_id?: unknown;
   enabled?: unknown;
 }
 
@@ -77,6 +89,12 @@ function toBotPayload(input: BotInput) {
       return { error: `unknown role: ${input.role_id}` };
     role_id = input.role_id.trim();
   }
+  let machine_id: string | null = null;
+  if (typeof input.machine_id === "string" && input.machine_id.trim()) {
+    if (!getMachine(input.machine_id.trim()))
+      return { error: `unknown machine: ${input.machine_id}` };
+    machine_id = input.machine_id.trim();
+  }
   return {
     name: input.name.trim(),
     description: typeof input.description === "string" ? input.description : "",
@@ -87,6 +105,7 @@ function toBotPayload(input: BotInput) {
         ? input.model_id.trim()
         : null,
     role_id,
+    machine_id,
     enabled:
       input.enabled === false ||
       input.enabled === 0 ||
@@ -455,6 +474,91 @@ export function createApp(): Hono {
     const role = getRole(c.req.param("roleId"));
     if (!role) return c.json({ error: "not found" }, 404);
     deleteRole(role.id);
+    return c.json({ ok: true });
+  });
+
+  const DEFAULT_MACHINE_ID = "default";
+
+  interface MachineInput {
+    name?: unknown;
+    description?: unknown;
+    dockerfile?: unknown;
+  }
+
+  function toMachinePayload(input: MachineInput) {
+    const name = typeof input.name === "string" ? input.name.trim() : "";
+    if (!name) return { error: "name is required" };
+    const dockerfile =
+      typeof input.dockerfile === "string" ? input.dockerfile.trim() : "";
+    if (!dockerfile) return { error: "dockerfile is required" };
+    const description =
+      typeof input.description === "string" ? input.description.trim() : "";
+    return { name, description, dockerfile };
+  }
+
+  function machineNameClash(name: string, exceptId?: string) {
+    return listMachines().some(
+      (m) => m.id !== exceptId && m.name.toLowerCase() === name.toLowerCase(),
+    );
+  }
+
+  app.get("/api/machines", (c) =>
+    c.json([
+      {
+        id: DEFAULT_MACHINE_ID,
+        name: "Default",
+        description: "Built-in sandbox image",
+        builtin: true,
+        dockerfile: "",
+        image: defaultSandboxImage(),
+        build_error: null,
+      },
+      ...listMachines().map((m) => ({ ...m, builtin: false })),
+    ]),
+  );
+
+  app.post("/api/machines", async (c) => {
+    const payload = toMachinePayload(await c.req.json<MachineInput>());
+    if ("error" in payload) return c.json({ error: payload.error }, 400);
+    if (machineNameClash(payload.name))
+      return c.json({ error: "name already exists" }, 400);
+    const machine = {
+      id: randomUUID(),
+      ...payload,
+      image: null,
+      build_error: null,
+      created_at: Date.now(),
+    };
+    insertMachine(machine);
+    return c.json({ ...machine, builtin: false }, 201);
+  });
+
+  app.patch("/api/machines/:machineId", async (c) => {
+    const existing = getMachine(c.req.param("machineId"));
+    if (!existing) return c.json({ error: "not found" }, 404);
+    const payload = toMachinePayload({
+      ...existing,
+      ...(await c.req.json<MachineInput>()),
+    });
+    if ("error" in payload) return c.json({ error: payload.error }, 400);
+    if (machineNameClash(payload.name, existing.id))
+      return c.json({ error: "name already exists" }, 400);
+    updateMachine(existing.id, payload);
+    if (payload.dockerfile !== existing.dockerfile)
+      setMachineBuild(existing.id, null, null);
+    return c.json({ ...getMachine(existing.id), builtin: false });
+  });
+
+  app.delete("/api/machines/:machineId", (c) => {
+    const id = c.req.param("machineId");
+    if (!getMachine(id)) return c.json({ error: "not found" }, 404);
+    const users = botsUsingMachine(id);
+    if (users.length > 0)
+      return c.json(
+        { error: `in use by bots: ${users.map((b) => b.name).join(", ")}` },
+        409,
+      );
+    deleteMachine(id);
     return c.json({ ok: true });
   });
 

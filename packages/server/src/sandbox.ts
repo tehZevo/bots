@@ -1,9 +1,16 @@
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { getSetting } from "./db.ts";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { getBot, getMachine, getSetting, setMachineBuild } from "./db.ts";
 
 const IMAGE =
   process.env.SANDBOX_IMAGE ?? "ghcr.io/tehzevo/bots-sandbox:latest";
+
+export function defaultSandboxImage(): string {
+  return IMAGE;
+}
 
 let imageReady: Promise<void> | null = null;
 
@@ -26,6 +33,66 @@ function ensureImage(): Promise<void> {
   }
   return imageReady;
 }
+const BUILD_TIMEOUT_MS = 900_000;
+const machineBuilds = new Map<string, Promise<string>>();
+
+function machineTag(dockerfile: string): string {
+  return `bots-machine:${createHash("sha256").update(dockerfile).digest("hex").slice(0, 16)}`;
+}
+
+export function buildMachineImage(
+  machineId: string,
+  dockerfile: string,
+): Promise<string> {
+  const tag = machineTag(dockerfile);
+  let pending = machineBuilds.get(tag);
+  if (!pending) {
+    pending = (async () => {
+      const known = await spawnCapture(["image", "inspect", tag]);
+      if (known.code !== 0) {
+        const dir = mkdtempSync(join(tmpdir(), "bots-machine-"));
+        try {
+          writeFileSync(
+            join(dir, "Dockerfile"),
+            dockerfile.endsWith("\n") ? dockerfile : `${dockerfile}\n`,
+          );
+          const built = await spawnCapture(["build", "-t", tag, dir], {
+            timeoutMs: BUILD_TIMEOUT_MS,
+          });
+          if (built.code !== 0)
+            throw new Error(
+              `machine image build failed: ${built.stderr.trim().split("\n").pop() ?? "unknown error"}`,
+            );
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      }
+      setMachineBuild(machineId, tag, null);
+      return tag;
+    })().catch((err) => {
+      setMachineBuild(
+        machineId,
+        null,
+        err instanceof Error ? err.message : String(err),
+      );
+      throw err;
+    });
+    pending.finally(() => machineBuilds.delete(tag)).catch(() => {});
+    machineBuilds.set(tag, pending);
+  }
+  return pending;
+}
+
+export async function imageForBot(botId: string): Promise<string> {
+  const bot = getBot(botId);
+  const machine = bot?.machine_id ? getMachine(bot.machine_id) : undefined;
+  if (!machine) {
+    await ensureImage();
+    return IMAGE;
+  }
+  return buildMachineImage(machine.id, machine.dockerfile);
+}
+
 const EXEC_TIMEOUT_MS = 60_000;
 const IDLE_SETTING_KEY = "sandbox_idle_minutes";
 export const DEFAULT_IDLE_MINUTES = 5;
@@ -101,7 +168,7 @@ export async function ensureContainer(
   workspaceDir: string,
 ): Promise<string> {
   const name = containerName(botId);
-  await ensureImage();
+  const image = await imageForBot(botId);
   lastActivity.set(botId, Date.now());
   const state = await spawnCapture([
     "inspect",
@@ -129,13 +196,13 @@ export async function ensureContainer(
     "/workspace",
     "-e",
     "HOME=/workspace",
-    IMAGE,
+    image,
   ]);
   if (run.code !== 0) {
     const err = run.stderr.trim();
     throw new Error(
       /manifest unknown|not found/i.test(err)
-        ? `sandbox image ${IMAGE} missing — build docker/sandbox/Dockerfile or check network access to the registry`
+        ? `sandbox image ${image} missing — build docker/sandbox/Dockerfile or check network access to the registry`
         : `docker run ${name}: ${err}`,
     );
   }

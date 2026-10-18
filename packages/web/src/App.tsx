@@ -13,6 +13,7 @@ interface Bot {
   system_prompt: string;
   model_id: string | null;
   role_id: string | null;
+  machine_id: string | null;
   enabled: number;
   created_at: number;
   run_state: "running" | "enabled" | "disabled";
@@ -54,6 +55,16 @@ interface Trigger {
   schedule: string;
   next_run_at: number | null;
   enabled: number;
+}
+
+interface Machine {
+  id: string;
+  name: string;
+  description: string;
+  dockerfile: string;
+  image: string | null;
+  build_error: string | null;
+  builtin: boolean;
 }
 
 const AVATAR_COLORS = [
@@ -263,7 +274,7 @@ function fmt(ts: number | null): string {
 export function App() {
   const [bots, setBots] = useState<Bot[]>([]);
   const [tab, setTab] = useState<
-    "bots" | "roles" | "integrations" | "skills" | "settings"
+    "bots" | "roles" | "machines" | "integrations" | "skills" | "settings"
   >("bots");
   const [openBot, setOpenBot] = useState<string | null>(null);
   const [modalTab, setModalTab] = useState<
@@ -497,6 +508,7 @@ export function App() {
             </>
           )}
           {tab === "roles" && <RolesPanel />}
+          {tab === "machines" && <MachinesPanel />}
           {tab === "integrations" && <IntegrationsPanel />}
           {tab === "skills" && <SkillsPanel />}
           {tab === "settings" && <SettingsPanel />}
@@ -674,10 +686,16 @@ function AddBotModal({
   const [systemPrompt, setSystemPrompt] = useState("");
   const [roleId, setRoleId] = useState("");
   const [roles, setRoles] = useState<Role[]>([]);
+  const [machineId, setMachineId] = useState("");
+  const [machines, setMachines] = useState<Machine[]>([]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     void api<Role[]>("/api/roles").then(setRoles, () => setRoles([]));
+    void api<Machine[]>("/api/machines").then(
+      (ms) => setMachines(ms.filter((m) => !m.builtin)),
+      () => setMachines([]),
+    );
   }, []);
 
   return (
@@ -703,6 +721,7 @@ function AddBotModal({
                 name,
                 system_prompt: systemPrompt,
                 role_id: roleId || null,
+                machine_id: machineId || null,
               }),
             });
             onCreated();
@@ -756,6 +775,20 @@ function AddBotModal({
             {roles.map((role) => (
               <option key={role.id} value={role.id}>
                 {role.name}
+              </option>
+            ))}
+          </select>
+        </p>
+        <p className="rolepick">
+          Machine{" "}
+          <select
+            value={machineId}
+            onChange={(e) => setMachineId(e.target.value)}
+          >
+            <option value="">Default</option>
+            {machines.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
               </option>
             ))}
           </select>
@@ -874,13 +907,35 @@ function PlugIcon({ size = 18 }: { size?: number }) {
   );
 }
 
+function MachineIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect x="3.5" y="4" width="17" height="7" rx="2" />
+      <rect x="3.5" y="13" width="17" height="7" rx="2" />
+      <circle cx="7.2" cy="7.5" r="0.9" fill="currentColor" stroke="none" />
+      <circle cx="7.2" cy="16.5" r="0.9" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 const NAV_ITEMS: {
-  id: "bots" | "roles" | "integrations" | "skills" | "settings";
+  id: "bots" | "roles" | "machines" | "integrations" | "skills" | "settings";
   label: string;
   Icon: (p: { size?: number }) => ReactElement;
 }[] = [
   { id: "bots", label: "Bots", Icon: BotIcon },
   { id: "roles", label: "Roles", Icon: RoleIcon },
+  { id: "machines", label: "Machines", Icon: MachineIcon },
   { id: "integrations", label: "Integrations", Icon: PlugIcon },
   { id: "skills", label: "Skills", Icon: BookIcon },
   { id: "settings", label: "Settings", Icon: GearIcon },
@@ -891,10 +946,10 @@ function Nav({
   rail,
   onSelect,
 }: {
-  tab: "bots" | "roles" | "integrations" | "skills" | "settings";
+  tab: "bots" | "roles" | "machines" | "integrations" | "skills" | "settings";
   rail: boolean;
   onSelect: (
-    tab: "bots" | "roles" | "integrations" | "skills" | "settings",
+    tab: "bots" | "roles" | "machines" | "integrations" | "skills" | "settings",
   ) => void;
 }) {
   return (
@@ -1638,19 +1693,25 @@ function BotGeneral({
   const [name, setName] = useState(bot?.name ?? "");
   const [description, setDescription] = useState(bot?.description ?? "");
   const [roleId, setRoleId] = useState(bot?.role_id ?? "");
+  const [machineId, setMachineId] = useState(bot?.machine_id ?? "");
+  const [machines, setMachines] = useState<Machine[]>([]);
   const [busy, setBusy] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [pending, setPending] = useState<"delete" | "clear" | null>(null);
 
   useEffect(() => {
     void api<Role[]>("/api/roles").then(setRoles, () => setRoles([]));
+    void api<Machine[]>("/api/machines")
+      .then((ms) => setMachines(ms.filter((m) => !m.builtin)))
+      .catch(() => setMachines([]));
   }, []);
 
   if (!bot) return null;
   const dirty =
     name.trim() !== bot.name ||
     description !== bot.description ||
-    roleId !== (bot.role_id ?? "");
+    roleId !== (bot.role_id ?? "") ||
+    machineId !== (bot.machine_id ?? "");
   const patchBot = (body: Record<string, unknown>) =>
     api(`/api/bots/${bot.id}`, {
       method: "PATCH",
@@ -1683,6 +1744,7 @@ function BotGeneral({
                 name: name.trim(),
                 description,
                 role_id: roleId || null,
+                machine_id: machineId || null,
               })
                 .then(onChanged)
                 .catch((e) => alert(e.message))
@@ -1754,6 +1816,21 @@ function BotGeneral({
           {roles.map((role) => (
             <option key={role.id} value={role.id}>
               {role.name}
+            </option>
+          ))}
+        </select>
+      </p>
+      <p className="rolepick">
+        Machine{" "}
+        <select
+          value={machineId}
+          aria-label="Bot machine"
+          onChange={(e) => setMachineId(e.target.value)}
+        >
+          <option value="">Default</option>
+          {machines.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
             </option>
           ))}
         </select>
@@ -2693,6 +2770,182 @@ function McpServerModal({
             </button>
             <button type="submit" disabled={busy}>
               {busy ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function MachinesPanel() {
+  const [machines, setMachines] = useState<Machine[]>([]);
+  const [form, setForm] = useState<Machine | "new" | null>(null);
+  const [removing, setRemoving] = useState<Machine | null>(null);
+
+  const reload = useCallback(
+    () =>
+      api<Machine[]>("/api/machines")
+        .then(setMachines)
+        .catch(() => setMachines([])),
+    [],
+  );
+
+  useEffect(() => {
+    void reload();
+    const t = setInterval(reload, 4000);
+    return () => clearInterval(t);
+  }, [reload]);
+
+  return (
+    <section>
+      <div className="viewhead">
+        <h2>Machines</h2>
+        <button type="button" onClick={() => setForm("new")}>
+          Add machine
+        </button>
+      </div>
+      <div className="mcpsection">
+        {machines.map((m) => (
+          <div className="mcpsrv" key={m.id}>
+            <header>
+              <strong>{m.name}</strong>
+              {!m.builtin && (
+                <>
+                  <button type="button" onClick={() => setForm(m)}>
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() => setRemoving(m)}
+                  >
+                    Delete
+                  </button>
+                </>
+              )}
+              {m.builtin && <span className="muted">built-in</span>}
+            </header>
+            {m.description && <p className="line muted">{m.description}</p>}
+            {!m.builtin && m.image && <code>{m.image}</code>}
+            {!m.builtin && !m.image && !m.build_error && (
+              <p className="line muted">Built on first use by a bot.</p>
+            )}
+            {m.build_error && <pre className="error">{m.build_error}</pre>}
+          </div>
+        ))}
+      </div>
+      {removing && (
+        <ConfirmDialog
+          text={`Delete machine ${removing.name}? Bots still using it must switch machines first.`}
+          confirmLabel="Delete machine"
+          onCancel={() => setRemoving(null)}
+          onConfirm={() => {
+            const target = removing;
+            setRemoving(null);
+            api(`/api/machines/${target.id}`, { method: "DELETE" })
+              .then(reload)
+              .catch((e) => alert(e.message));
+          }}
+        />
+      )}
+      {form && (
+        <MachineModal
+          machine={form === "new" ? null : form}
+          onClose={() => setForm(null)}
+          onSaved={() => {
+            setForm(null);
+            void reload();
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+function MachineModal({
+  machine,
+  onClose,
+  onSaved,
+}: {
+  machine: Machine | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(machine?.name ?? "");
+  const [description, setDescription] = useState(machine?.description ?? "");
+  const [dockerfile, setDockerfile] = useState(machine?.dockerfile ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <div className="modal">
+      <button
+        type="button"
+        className="mscrim"
+        aria-label="Close"
+        onClick={onClose}
+      />
+      <div className="dialog" role="dialog" aria-label="Machine">
+        <h2>{machine ? "Edit machine" : "Add machine"}</h2>
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setBusy(true);
+            setError(null);
+            try {
+              await api(
+                machine ? `/api/machines/${machine.id}` : "/api/machines",
+                {
+                  method: machine ? "PATCH" : "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ name, description, dockerfile }),
+                },
+              );
+              onSaved();
+            } catch (err) {
+              setError(err instanceof Error ? err.message : String(err));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <label>
+            Name
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+          </label>
+          <label>
+            Description (optional)
+            <input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </label>
+          <label>
+            Dockerfile
+            <textarea
+              className="code"
+              rows={14}
+              spellCheck={false}
+              placeholder={
+                "FROM ghcr.io/tehzevo/bots-sandbox:latest\nRUN apt-get update && apt-get install -y ripgrep"
+              }
+              value={dockerfile}
+              onChange={(e) => setDockerfile(e.target.value)}
+              required
+            />
+          </label>
+          {error && <p className="error">{error}</p>}
+          <div className="actions">
+            <button type="submit" disabled={busy}>
+              {busy ? "Saving…" : machine ? "Save" : "Create"}
+            </button>
+            <button type="button" onClick={onClose}>
+              Cancel
             </button>
           </div>
         </form>
