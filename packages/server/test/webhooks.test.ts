@@ -64,3 +64,66 @@ test("oversized payload is rejected with 413", async () => {
   if (status === 200) status = 200;
   assert.ok(status === 413 || status === 200);
 });
+
+test("disabled trigger authenticates then 409s", async () => {
+  const t = await makeWebhook();
+  const off = await app.request(`/api/triggers/${t.triggerId}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ enabled: false }),
+  });
+  assert.equal(off.status, 200);
+  assert.equal((await json(off)).enabled, 0);
+  const badAuth = await app.request(`/api/webhooks/${t.triggerId}`, { method: "POST" });
+  assert.equal(badAuth.status, 401);
+  const offHit = await app.request(`/api/webhooks/${t.triggerId}`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${t.secret}` },
+  });
+  assert.equal(offHit.status, 409);
+  assert.match(String((await json(offHit)).error), /disabled/);
+});
+
+test("non-boolean enabled is rejected and re-enable resumes future-only", async () => {
+  const t = await makeWebhook();
+  const bad = await app.request(`/api/triggers/${t.triggerId}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ enabled: "yes" }),
+  });
+  assert.equal(bad.status, 400);
+});
+
+test("disabled schedule triggers are not due; resume recomputes next_run_at", async () => {
+  const botRes = await app.request("/api/bots", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "sched-bot" }),
+  });
+  const bot = (await json(botRes)).id as string;
+  const trigRes = await app.request(`/api/bots/${bot}/triggers`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ kind: "schedule", message: "tick", schedule: "@every 1m" }),
+  });
+  const t = await json(trigRes);
+  const id = t.id as string;
+  assert.ok(t.next_run_at !== null);
+  const { dueTriggers, getTrigger, updateTrigger } = await import("../src/db.ts");
+  updateTrigger(id, { next_run_at: Date.now() - 5 * 60_000 });
+  await app.request(`/api/triggers/${id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ enabled: false }),
+  });
+  assert.equal(dueTriggers(Date.now()).filter((x) => x.id === id).length, 0);
+  const resumeAt = Date.now();
+  await app.request(`/api/triggers/${id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ enabled: true }),
+  });
+  const after = getTrigger(id);
+  assert.ok(after?.enabled === 1);
+  assert.ok((after?.next_run_at ?? 0) >= resumeAt, "resume must schedule from now, not catch up");
+});

@@ -53,6 +53,7 @@ interface Trigger {
   message: string;
   schedule: string;
   next_run_at: number | null;
+  enabled: number;
 }
 
 const AVATAR_COLORS = [
@@ -1854,7 +1855,32 @@ function Triggers({ botId }: { botId: string }) {
         <p className="muted">No triggers — the bot only runs on "Run now".</p>
       )}
       {triggers.map((t) => (
-        <div className="trigger" key={t.id}>
+        <div className={`trigger${t.enabled ? "" : " off"}`} key={t.id}>
+          <label
+            className="switch trig-switch"
+            aria-label="Trigger enabled"
+            title={t.enabled ? "Disable trigger" : "Enable trigger"}
+          >
+            <input
+              type="checkbox"
+              checked={t.enabled === 1}
+              onChange={() =>
+                void api(`/api/triggers/${t.id}`, {
+                  method: "PATCH",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ enabled: t.enabled !== 1 }),
+                })
+                  .then(reload)
+                  .catch((e) =>
+                    alert(e instanceof Error ? e.message : String(e)),
+                  )
+              }
+            />
+            <span className="knob" />
+            <span className="state">
+              {t.enabled === 1 ? "Enabled" : "Disabled"}
+            </span>
+          </label>
           {t.kind === "webhook" ? (
             <>
               <code>{`POST /api/webhooks/${t.id}`}</code>

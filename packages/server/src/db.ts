@@ -36,6 +36,7 @@ export interface TriggerRow {
   schedule: string;
   next_run_at: number | null;
   secret: string | null;
+  enabled: number;
   created_at: number;
 }
 
@@ -163,6 +164,15 @@ if (botColumns.has("task")) {
     if (botColumns.has(column))
       db.prepare(`ALTER TABLE bots DROP COLUMN ${column}`).run();
   }
+}
+
+const trigCols = new Set(
+  (db.prepare("PRAGMA table_info(triggers)").all() as { name: string }[]).map((c) => c.name),
+);
+if (!trigCols.has("enabled")) {
+  db.prepare(
+    "ALTER TABLE triggers ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1",
+  ).run();
 }
 
 const roleCols = new Set(
@@ -322,8 +332,8 @@ export function getTrigger(id: string): TriggerRow | undefined {
 
 export function insertTrigger(trigger: TriggerRow): void {
   db.prepare(
-    `INSERT INTO triggers (id, bot_id, kind, message, schedule, next_run_at, secret, created_at)
-     VALUES (@id, @bot_id, @kind, @message, @schedule, @next_run_at, @secret, @created_at)`,
+    `INSERT INTO triggers (id, bot_id, kind, message, schedule, next_run_at, secret, enabled, created_at)
+     VALUES (@id, @bot_id, @kind, @message, @schedule, @next_run_at, @secret, @enabled, @created_at)`,
   ).run(trigger);
 }
 
@@ -352,7 +362,7 @@ export function dueTriggers(now: number): TriggerRow[] {
   return db
     .prepare(
       `SELECT t.* FROM triggers t JOIN bots b ON b.id = t.bot_id
-       WHERE b.enabled = 1 AND t.next_run_at IS NOT NULL AND t.next_run_at <= ?`,
+       WHERE b.enabled = 1 AND t.enabled = 1 AND t.next_run_at IS NOT NULL AND t.next_run_at <= ?`,
     )
     .all(now) as TriggerRow[];
 }
