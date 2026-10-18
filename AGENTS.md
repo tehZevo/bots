@@ -15,6 +15,12 @@
 - Implementation happens in separate code PRs that reference the spec they implement.
 - Behavior changes require a spec update in the same or an earlier PR than the code change.
 
+## User docs
+
+- `docs/` (the VitePress site) is user-facing documentation; keep it current as code lands.
+- Any PR that changes observable behavior, UI flows, API surface, or config must update the affected `docs/**` page in the same PR — new features get a section, changed ones get reworded, removed ones get deleted.
+- Before merging a feature PR, skim every `docs/**` page it touches for stale wording; `pnpm docs:build` fails on broken internal links.
+
 ## Pull requests
 
 - UI changes: attach **light-mode, dark-mode, and one mobile-width (390px) screenshot** to the PR when able.
