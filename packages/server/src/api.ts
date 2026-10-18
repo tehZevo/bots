@@ -333,7 +333,13 @@ export function createApp(): Hono {
   app.post("/api/bots", async (c) => {
     const payload = toBotPayload(await c.req.json<BotInput>());
     if ("error" in payload) return c.json({ error: payload.error }, 400);
-    const bot = { id: randomUUID(), ...payload, created_at: Date.now() };
+    const bot = {
+      id: randomUUID(),
+      current_task: null,
+      current_task_updated_at: null,
+      ...payload,
+      created_at: Date.now(),
+    };
     insertBot(bot);
     return c.json(bot, 201);
   });
@@ -463,8 +469,15 @@ export function createApp(): Hono {
   });
 
   app.get("/api/bots/:id/runs", (c) => {
-    if (!getBot(c.req.param("id"))) return c.json({ error: "not found" }, 404);
-    return c.json(listRuns(c.req.param("id")));
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    return c.json(
+      listRuns(bot.id).map((run) => ({
+        ...run,
+        current_task: bot.current_task,
+        current_task_updated_at: bot.current_task_updated_at,
+      })),
+    );
   });
 
   app.get("/api/bots/:id/messages", (c) => {
