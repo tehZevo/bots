@@ -16,6 +16,8 @@ interface Bot {
   enabled: number;
   created_at: number;
   status: "running" | "enabled" | "disabled";
+  current_task: string | null;
+  current_task_updated_at: number | null;
 }
 
 interface Role {
@@ -84,6 +86,16 @@ function Avatar({ name, id }: { name: string; id: string }) {
       {initialsFor(name)}
     </span>
   );
+}
+
+function relTime(ts: number): string {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -287,6 +299,14 @@ export function App() {
                         />
                       </span>
                     </span>
+                    {bot.current_task && (
+                      <span className="taskline" title={bot.current_task}>
+                        {bot.current_task}
+                        {bot.current_task_updated_at && (
+                          <em> · {relTime(bot.current_task_updated_at)}</em>
+                        )}
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -315,6 +335,14 @@ export function App() {
               <div className="viewhead">
                 <Avatar name={openBotRow.name} id={openBotRow.id} />
                 <h2>{openBotRow.name}</h2>
+                {openBotRow.current_task && (
+                  <p className="taskline">
+                    {openBotRow.current_task}
+                    {openBotRow.current_task_updated_at && (
+                      <em> · {relTime(openBotRow.current_task_updated_at)}</em>
+                    )}
+                  </p>
+                )}
                 <button
                   type="button"
                   className="close"

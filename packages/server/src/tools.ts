@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "@earendil-works/pi-ai";
 import { dataDir } from "./config.ts";
+import { setCurrentTask } from "./db.ts";
 import { containerName, execInContainer } from "./sandbox.ts";
 
 const MAX_OUTPUT_CHARS = 8000;
@@ -20,6 +21,10 @@ export function workspaceDir(botId: string): string {
 
 const webFetchSchema = Type.Object({
   url: Type.String({ description: "Absolute http(s) URL to fetch" }),
+});
+
+const taskSchema = Type.Object({
+  text: Type.String(),
 });
 
 const shellSchema = Type.Object({
@@ -86,5 +91,17 @@ export function buildTools(botId: string): AgentTool<any>[] {
     },
   };
 
-  return [webFetch, shell];
+  const setCurrentTaskTool: AgentTool<typeof taskSchema> = {
+    name: "set_current_task",
+    label: "Set current task",
+    description:
+      "Set the one-line status describing what this bot is working on right now; always applies to this bot only. Pass an empty string to clear it.",
+    parameters: taskSchema,
+    execute: async (_id, params) => {
+      setCurrentTask(botId, params.text);
+      return { content: [{ type: "text" as const, text: "ok" }], details: {} };
+    },
+  };
+
+  return [webFetch, shell, setCurrentTaskTool];
 }

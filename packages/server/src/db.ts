@@ -12,6 +12,8 @@ export interface BotRow {
   model_id: string | null;
   role_id: string | null;
   enabled: number;
+  current_task: string | null;
+  current_task_updated_at: number | null;
   created_at: number;
 }
 
@@ -162,6 +164,13 @@ if (!botColumns.has("description"))
   db.prepare(
     "ALTER TABLE bots ADD COLUMN description TEXT NOT NULL DEFAULT ''",
   ).run();
+
+if (!botColumns.has("current_task")) {
+  db.prepare("ALTER TABLE bots ADD COLUMN current_task TEXT").run();
+  db.prepare(
+    "ALTER TABLE bots ADD COLUMN current_task_updated_at INTEGER",
+  ).run();
+}
 
 if (!botColumns.has("role_id"))
   db.prepare(
@@ -317,6 +326,14 @@ export function loadMessages(botId: string): MessageRow[] {
 
 export function clearMessages(botId: string): void {
   db.prepare("DELETE FROM messages WHERE bot_id = ?").run(botId);
+  setCurrentTask(botId, null);
+}
+
+export function setCurrentTask(botId: string, text: string | null): void {
+  const value = text && text.trim() ? text.trim() : null;
+  db.prepare(
+    "UPDATE bots SET current_task = ?, current_task_updated_at = ? WHERE id = ?",
+  ).run(value, value ? Date.now() : null, botId);
 }
 
 export { db };
