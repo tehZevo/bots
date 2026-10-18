@@ -313,7 +313,7 @@ export function App() {
           {redCount > 0 && (
             <>
               {" "}
-              · <span className="redcount">{redCount} red</span>
+              · <span className="redcount">{redCount} blocked</span>
             </>
           )}
         </span>
