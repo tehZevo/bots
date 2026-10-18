@@ -10,9 +10,8 @@ import { normalizeContext } from "@earendil-works/pi-ai";
 import { streamSimple as openaiStreamSimple } from "@earendil-works/pi-ai/api/openai-completions";
 import { config } from "./config.ts";
 import {
-  appendMessage,
+  appendMessages,
   type BotRow,
-  clearMessages,
   finishRun,
   getMcpServer,
   getRole,
@@ -20,6 +19,7 @@ import {
   insertRun,
   listMcpServers,
   loadMessages,
+  replaceMessages,
 } from "./db.ts";
 import { type ResolvedLlm, resolveDefault } from "./llm.ts";
 import { connectMcpServer, type McpSession } from "./mcp.ts";
@@ -95,6 +95,44 @@ async function connectRoleMcpTools(
   return { sessions, tools };
 }
 const LLM_ROLES = new Set(["user", "assistant", "toolResult"]);
+
+export function createMessagePersistence(botId: string, runId: string | null) {
+  let persisted = new WeakSet<AgentMessage>();
+
+  return {
+    markPersisted(messages: readonly AgentMessage[]): void {
+      for (const message of messages) persisted.add(message);
+    },
+
+    appendUnpersisted(messages: readonly AgentMessage[]): void {
+      const seen = new Set<AgentMessage>();
+      const entries: { role: string; payload: unknown }[] = [];
+      for (const message of messages) {
+        const role = (message as Message).role;
+        if (!LLM_ROLES.has(role) || persisted.has(message) || seen.has(message))
+          continue;
+        seen.add(message);
+        entries.push({ role, payload: message });
+      }
+      if (entries.length === 0) return;
+      appendMessages(botId, runId, entries);
+      for (const entry of entries) persisted.add(entry.payload as AgentMessage);
+    },
+
+    replacePersisted(messages: readonly AgentMessage[]): void {
+      const replacement = new WeakSet<AgentMessage>();
+      const entries: { role: string; payload: unknown }[] = [];
+      for (const message of messages) {
+        const role = (message as Message).role;
+        if (!LLM_ROLES.has(role) || replacement.has(message)) continue;
+        replacement.add(message);
+        entries.push({ role, payload: message });
+      }
+      replaceMessages(botId, runId, entries);
+      persisted = replacement;
+    },
+  };
+}
 
 function estimateTokens(messages: AgentMessage[]): number {
   let chars = 0;
@@ -203,19 +241,8 @@ async function startLoop(
     .map((row) => JSON.parse(row.payload) as AgentMessage)
     .filter((message) => LLM_ROLES.has((message as Message).role));
 
-  let savedCount = history.length;
-  const persistNew = (messages: readonly AgentMessage[]): void => {
-    if (messages.length < savedCount) {
-      clearMessages(bot.id);
-      savedCount = 0;
-    }
-    for (let i = savedCount; i < messages.length; i++) {
-      const message = messages[i];
-      if (!LLM_ROLES.has((message as Message).role)) continue;
-      appendMessage(bot.id, runId, (message as Message).role, message);
-    }
-    savedCount = messages.length;
-  };
+  const persistence = createMessagePersistence(bot.id, runId);
+  persistence.markPersisted(history);
 
   const agent = new Agent({
     streamFn: makeStreamFn(llm),
@@ -227,21 +254,39 @@ async function startLoop(
       tools: [...buildTools(bot.id), ...mcp.tools],
       messages: history,
     },
-    transformContext: async (messages) => {
+    prepareRequest: async ({ context }) => {
       const budget =
         config.compaction.tokenThreshold ??
         Math.floor(model.contextWindow * config.compaction.ratio);
+      const body = context.messages.filter(
+        (message) => (message as Message).role !== "system",
+      );
       if (
-        estimateTokens(messages) < budget ||
-        messages.length <= config.compaction.keepRecent + 2
+        estimateTokens(context.messages) < budget ||
+        body.length <= config.compaction.keepRecent + 1
       ) {
-        return messages;
+        return undefined;
       }
-      const keep = messages.slice(-config.compaction.keepRecent);
-      const drop = messages.slice(0, -config.compaction.keepRecent);
+
+      let systemMessage: AgentMessage = {
+        role: "system",
+        content: "",
+        timestamp: Date.now(),
+      };
+      for (let i = context.messages.length - 1; i >= 0; i--) {
+        if ((context.messages[i] as Message).role === "system") {
+          systemMessage = context.messages[i];
+          break;
+        }
+      }
+
+      const keep = body.slice(-config.compaction.keepRecent);
+      const drop = body.slice(0, -config.compaction.keepRecent);
+      if (drop.length === 0) return undefined;
       try {
         const summary = await summarize(drop, llm);
         const compacted: AgentMessage[] = [
+          systemMessage,
           {
             role: "user",
             content: `[Running memory — compressed summary of ${drop.length} earlier messages]\n${summary}`,
@@ -249,10 +294,16 @@ async function startLoop(
           } as AgentMessage,
           ...keep,
         ];
-        persistNew(compacted);
-        return compacted;
+        agent.state.messages = compacted.slice();
+        persistence.replacePersisted(compacted);
+        return {
+          context: {
+            messages: compacted.slice(),
+            tools: context.tools ? [...context.tools] : [],
+          },
+        };
       } catch {
-        return messages;
+        return undefined;
       }
     },
   });
@@ -264,7 +315,7 @@ async function startLoop(
     try {
       await agent.prompt(firstMessage);
       while (!loop.stopped && agent.hasQueuedMessages()) await agent.continue();
-      persistNew(agent.state.messages);
+      persistence.appendUnpersisted(agent.state.messages);
       if (loop.stopped) {
         finishRun(
           runId,
@@ -282,6 +333,11 @@ async function startLoop(
         finishRun(runId, "ok", text, null);
       }
     } catch (err) {
+      try {
+        persistence.appendUnpersisted(agent.state.messages);
+      } catch {
+        // persistence best-effort; still finish the run row below
+      }
       let partial: string | null = null;
       try {
         partial = lastAssistantText(agent.state.messages);
