@@ -496,6 +496,16 @@ export interface McpServerRow {
   created_at: number;
 }
 
+db.prepare(
+  `CREATE TABLE IF NOT EXISTS skills (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    instructions TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  )`,
+).run();
+
 db.exec(
   `CREATE TABLE IF NOT EXISTS mcp_servers (
     id TEXT PRIMARY KEY,
@@ -517,6 +527,55 @@ function hydrateMcp(
     args: JSON.parse(row.args) as string[],
     env: JSON.parse(row.env) as Record<string, string>,
   };
+}
+
+export interface SkillRow {
+  id: string;
+  name: string;
+  description: string;
+  instructions: string;
+  created_at: number;
+}
+
+export function listSkills(): SkillRow[] {
+  return db
+    .prepare("SELECT * FROM skills ORDER BY name COLLATE NOCASE")
+    .all() as SkillRow[];
+}
+
+export function getSkill(id: string): SkillRow | undefined {
+  return db.prepare("SELECT * FROM skills WHERE id = ?").get(id) as
+    | SkillRow
+    | undefined;
+}
+
+export function insertSkill(skill: SkillRow): void {
+  db.prepare(
+    "INSERT INTO skills (id, name, description, instructions, created_at) VALUES (?, ?, ?, ?, ?)",
+  ).run(
+    skill.id,
+    skill.name,
+    skill.description,
+    skill.instructions,
+    skill.created_at,
+  );
+}
+
+export function updateSkill(
+  id: string,
+  fields: Partial<Pick<SkillRow, "name" | "description" | "instructions">>,
+): void {
+  const sets = Object.keys(fields)
+    .map((k) => `${k} = ?`)
+    .join(", ");
+  db.prepare(`UPDATE skills SET ${sets} WHERE id = ?`).run(
+    ...Object.values(fields),
+    id,
+  );
+}
+
+export function deleteSkill(id: string): void {
+  db.prepare("DELETE FROM skills WHERE id = ?").run(id);
 }
 
 export function listMcpServers(): McpServerRow[] {
