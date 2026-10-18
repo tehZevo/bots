@@ -1974,18 +1974,37 @@ function Chat({ botId }: { botId: string }) {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const pendingRef = useRef<string | null>(null);
+  const replyBaseRef = useRef(0);
+  const [typing, setTyping] = useState(false);
 
   const loadChat = useCallback(async () => {
     try {
-      setTurns(
-        await api<{ role: string; text: string }[]>(
-          `/api/bots/${botId}/messages`,
-        ),
+      const fresh = await api<{ role: string; text: string }[]>(
+        `/api/bots/${botId}/messages`,
       );
+      if (
+        pendingRef.current &&
+        fresh.some((t) => t.role === "user" && t.text === pendingRef.current)
+      )
+        pendingRef.current = null;
+      const replies = fresh.filter(
+        (t) => t.role === "assistant" && t.text.trim(),
+      ).length;
+      if (typing && replies > replyBaseRef.current) setTyping(false);
+      setTurns(() => {
+        const base = [...fresh];
+        if (
+          pendingRef.current &&
+          !base.some((t) => t.text === pendingRef.current)
+        )
+          base.push({ role: "user", text: pendingRef.current });
+        return base;
+      });
     } catch {
       /* keep last */
     }
-  }, [botId]);
+  }, [botId, typing]);
 
   useEffect(() => {
     void loadChat();
@@ -2003,15 +2022,24 @@ function Chat({ botId }: { botId: string }) {
     if (!text || sending) return;
     setSending(true);
     setErr(null);
+    pendingRef.current = text;
+    replyBaseRef.current = turns.filter(
+      (t) => t.role === "assistant" && t.text.trim(),
+    ).length;
+    setTyping(true);
+    setTurns((prev) => [...prev, { role: "user", text }]);
+    setDraft("");
     try {
       await api(`/api/bots/${botId}/messages`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ text }),
       });
-      setDraft("");
       await loadChat();
     } catch (e) {
+      pendingRef.current = null;
+      setTyping(false);
+      setTurns((prev) => prev.filter((t) => t.text !== text));
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setSending(false);
@@ -2028,6 +2056,16 @@ function Chat({ botId }: { botId: string }) {
             <pre>{t.text}</pre>
           </div>
         ))}
+        {typing && (
+          <div className="chat-turn typing" aria-label="bot is replying">
+            <span className="who">bot</span>
+            <span className="dots">
+              <i />
+              <i />
+              <i />
+            </span>
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
       {err && <p className="error">{err}</p>}
