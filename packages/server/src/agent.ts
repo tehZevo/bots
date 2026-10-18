@@ -242,7 +242,7 @@ export function isLoopActive(botId: string): boolean {
 export function injectMessage(
   bot: BotRow,
   text: string,
-  kind: "schedule" | "manual" | "chat",
+  kind: "schedule" | "manual" | "chat" | "webhook",
 ): InjectResult {
   const message = {
     role: "user",
