@@ -16,6 +16,8 @@ Behaviors agreed on but not yet specced in detail. Each becomes its own spec dir
 - **Avatar animations** — status-driven avatar motion: disabled = still and gray, running = active animation, idle = sleeping animation (see web-ui/status-colors.md levels).
 - **Current task** — bots publish what they are working on; the agent can update its current task/activity as it progresses, shown on cards and the detail modal.
 - **PWA** — installable web app with offline shell and push-ready structure.
+- **Bot templates** — reusable bundles of machine + role (+ description, system prompt, starter triggers) created from any bot or from scratch; "New bot from template" pre-fills the create dialog and can be instantiated repeatedly.
+
 - **In-app notifications** — notification list for failed runs and pending approvals with an unread badge; delivered as native browser push through the PWA service worker once subscriptions exist.
 - **Health statuses** — extend bot status colors: yellow = issues detected, red = error/blocked.
 - **Yellow health state** — third-level "having issues" color on cards/detail, set by the agent itself reporting trouble via its status-update tool (`set_current_task` surface), not derived from run history.
