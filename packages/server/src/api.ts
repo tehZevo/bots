@@ -337,7 +337,7 @@ export function createApp(): Hono {
       (() => {
         const errored = latestErrorBotIds();
         const hasDefault = Boolean(
-          getSetting("default_provider") && getSetting("default_model"),
+          getSetting("default_provider_id") && getSetting("default_model"),
         );
         return listBots().map((bot) => {
           const noModel = !bot.model_id && !hasDefault;
@@ -352,7 +352,7 @@ export function createApp(): Hono {
               : bot.status !== null && bot.status_level === "issue"
                 ? ("yellow" as const)
                 : ("green" as const),
-            status: isLoopActive(bot.id)
+            run_state: isLoopActive(bot.id)
               ? "running"
               : bot.enabled
                 ? "enabled"
