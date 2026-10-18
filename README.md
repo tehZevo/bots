@@ -32,16 +32,16 @@ pnpm build && pnpm start
 
 ### Published image (no local build)
 
-Every merge to `master` publishes public orchestrator and sandbox images to GHCR (`ghcr.io/tehZevo/bots` and `ghcr.io/tehZevo/bots-sandbox`; `sha-<git-sha>` always, `latest` on successful master builds, semver git tags as version tags — the release line is `v0.x.y` until the first beta):
+Every merge to `master` publishes public orchestrator and sandbox images to GHCR (`ghcr.io/tehzevo/bots` and `ghcr.io/tehzevo/bots-sandbox`; `sha-<git-sha>` always, `latest` on successful master builds, semver git tags as version tags — the release line is `v0.x.y` until the first beta):
 
 ```bash
-docker pull ghcr.io/tehZevo/bots:latest
+docker pull ghcr.io/tehzevo/bots:latest
 ```
 
 ```yaml
 services:
   orchestrator:
-    image: ghcr.io/tehZevo/bots:latest
+    image: ghcr.io/tehzevo/bots:latest
     ports: ["8787:8787"]
     volumes:
       - ./data:/app/data
