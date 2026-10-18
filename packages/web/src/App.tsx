@@ -90,27 +90,50 @@ function fnv(id: string): number {
   return h >>> 0;
 }
 
+const SHAPE_PRESETS: ((r: () => number) => [number, number, number][])[] = [
+  // pebble — near-circle with a tiny two-harmonic ripple
+  (r) => [
+    [3, 0.04 + r() * 0.02, r() * 6.28],
+    [4, 0.03 + r() * 0.02, r() * 6.28],
+  ],
+  // egg — vertical n=2 bulge
+  () => [[2, 0.15, Math.PI / 2]],
+  // pear — stacked asymmetry, heavy bottom
+  () => [
+    [1, 0.07, Math.PI / 2],
+    [2, 0.1, 0],
+  ],
+  // bean — crescent indent plus mild n=1
+  (r) => [
+    [2, 0.16, r() < 0.5 ? 0.79 : 3.93],
+    [1, 0.05, r() * 6.28],
+  ],
+  // cushion — rounded square
+  (r) => [[4, 0.09 + r() * 0.02, r() * 6.28]],
+  // trilobe — soft rounded triangle
+  (r) => [[3, 0.1 + r() * 0.02, r() * 6.28]],
+  // hexpebble — gentle hexagon
+  (r) => [[6, 0.07 + r() * 0.02, r() * 6.28]],
+  // clover — five soft lobes
+  (r) => [[5, 0.13, r() * 6.28]],
+  // star5 / star6 — puffy rounded points
+  (r) => [[5, 0.19, r() * 6.28]],
+  (r) => [[6, 0.17, r() * 6.28]],
+  // dimple — one flattened side at a seeded angle
+  () => [[1, -0.14, 0]],
+  // drop — teardrop leaning to a seeded direction
+  (r) => {
+    const dir = r() < 0.5 ? 0 : Math.PI;
+    return [
+      [1, 0.12, dir],
+      [2, 0.06, dir],
+    ];
+  },
+];
+
 function shapeRadii(rand: () => number): number[] {
-  const family = Math.floor(rand() * 4);
-  const terms: [number, number, number][] = [];
-  if (family === 0) {
-    const count = 3 + Math.floor(rand() * 2);
-    for (let i = 0; i < count; i++)
-      terms.push([
-        2 + Math.floor(rand() * 4),
-        0.05 + rand() * 0.13,
-        rand() * Math.PI * 2,
-      ]);
-  } else if (family === 1) {
-    terms.push([2, 0.15, rand() < 0.5 ? 0 : Math.PI / 2]);
-    terms.push([3, rand() * 0.04, rand() * Math.PI * 2]);
-  } else if (family === 2) {
-    const k = rand() < 0.5 ? 3 : 6;
-    terms.push([k, 0.09 + rand() * 0.03, rand() * Math.PI * 2]);
-  } else {
-    terms.push([2, 0.16, rand() < 0.5 ? Math.PI / 4 : (5 * Math.PI) / 4]);
-    terms.push([1, 0.05 + rand() * 0.03, rand() * Math.PI * 2]);
-  }
+  const terms = SHAPE_PRESETS[Math.floor(rand() * SHAPE_PRESETS.length)](rand);
+  rand();
   const n = 72;
   return Array.from({ length: n }, (_, i) => {
     const th = (i / n) * Math.PI * 2;
@@ -151,13 +174,25 @@ function Avatar({ id }: { name: string; id: string }) {
   const maxR = Math.max(...radii);
   const base = 46 / maxR;
   const eyeGap = 7 + rand() * 5;
-  const eyeRx = 2.8 + rand() * 1.6;
-  const eyeRy = eyeRx * (1.25 + rand() * 0.5);
+  const eyeRx = 2.6 + rand() * 1.4;
+  const eyeRy = eyeRx * (1.8 + rand() * 0.5);
   const gaze = (rand() - 0.5) * 3;
   const droop = rand() < 0.3;
   return (
-    <span className="avatar" style={{ color: avatarColor(id) }} aria-hidden>
-      <svg viewBox="0 0 100 100" width="100%" height="100%">
+    <span
+      className="avatar"
+      style={{
+        color: avatarColor(id),
+        ["--avatar-glow" as string]: `${avatarColor(id)}59`,
+      }}
+      aria-hidden
+    >
+      <svg
+        className="avatar-svg"
+        viewBox="0 0 100 100"
+        width="100%"
+        height="100%"
+      >
         <path d={smoothClosedPath(radii, 50, base)} fill="currentColor" />
         {[-1, 1].map((side) => (
           <ellipse

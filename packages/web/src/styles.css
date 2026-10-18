@@ -937,3 +937,5 @@ button.danger.ghost { min-width: 30px; padding: 4px 8px; }
 
 .modal form > label.checkrow { flex-direction: row; align-items: center; gap: 8px; width: fit-content; }
 .envrows { min-height: 0; max-height: 160px; }
+
+.avatar-svg { filter: drop-shadow(0 0 6px var(--avatar-glow, transparent)); }
