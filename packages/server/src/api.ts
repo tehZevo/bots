@@ -140,6 +140,7 @@ interface TriggerInput {
   kind?: unknown;
   message?: unknown;
   schedule?: unknown;
+  enabled?: unknown;
 }
 
 const TRIGGER_KINDS = ["schedule", "webhook"] as const;
@@ -591,6 +592,7 @@ export function createApp(): Hono {
       id: randomUUID(),
       bot_id: bot.id,
       ...payload,
+      enabled: 1 as number,
       next_run_at:
         payload.kind === "webhook" ? null : nextRunAt(payload.schedule),
       secret,
@@ -603,17 +605,23 @@ export function createApp(): Hono {
   app.patch("/api/triggers/:triggerId", async (c) => {
     const trigger = getTrigger(c.req.param("triggerId"));
     if (!trigger) return c.json({ error: "not found" }, 404);
-    const payload = toTriggerPayload({
-      ...trigger,
-      ...(await c.req.json<TriggerInput>()),
-    });
+    const input = await c.req.json<TriggerInput>();
+    if (input.enabled !== undefined && typeof input.enabled !== "boolean")
+      return c.json({ error: "enabled must be a boolean" }, 400);
+    const payload = toTriggerPayload({ ...trigger, ...input });
     if ("error" in payload) return c.json({ error: payload.error }, 400);
+    const enabled =
+      typeof input.enabled === "boolean" ? (input.enabled ? 1 : 0) : undefined;
+    const resuming = enabled === 1 && trigger.enabled === 0;
     updateTrigger(trigger.id, {
       ...payload,
+      ...(enabled === undefined ? {} : { enabled }),
       next_run_at:
-        payload.kind === "webhook" || payload.schedule === trigger.schedule
+        payload.kind === "webhook"
           ? trigger.next_run_at
-          : nextRunAt(payload.schedule),
+          : resuming || payload.schedule !== trigger.schedule
+            ? nextRunAt(payload.schedule)
+            : trigger.next_run_at,
     });
     const fresh = getTrigger(trigger.id);
     if (!fresh) return c.json({ error: "not found" }, 404);
@@ -651,6 +659,7 @@ export function createApp(): Hono {
       !timingSafeEqual(Buffer.from(token, "utf8"), Buffer.from(secret, "utf8"))
     )
       return c.json({ error: "unauthorized" }, 401);
+    if (!trigger.enabled) return c.json({ error: "trigger is disabled" }, 409);
     const bot = getBot(trigger.bot_id);
     if (!bot?.enabled) return c.json({ error: "bot is disabled" }, 409);
     const body = await c.req.text();
