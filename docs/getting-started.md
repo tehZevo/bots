@@ -9,7 +9,7 @@ Open the web UI (default `http://localhost:8787`). The status bar up top shows t
 1. **Configure a model first** — Settings → LLM providers: add an OpenAI-compatible provider (base URL + API key) and pick a default model. Bots without their own model use the default; with none configured they show **Blocked**.
 2. **Add a bot** — "Add bot" suggests a random name (↻ reshuffles it). System prompt and role are optional.
 3. **Run it** — press **Run now**, or add a trigger (cron / `@every 10m`, or a webhook) so the bot fires itself.
-4. **Watch it work** — open the bot for General / Triggers / Chat / Logs tabs. The colored dot on every card is its health level; every non-disabled dot pulses gently, out of sync (reduced-motion settings show steady dots).
+4. **Watch it work** — open the bot for General / Triggers / Chat / Logs tabs. The colored dot on every card is its health level; it pulses only while a bot has an active run (thinking, LLM calls, or tools), out of sync with other cards. Stopped dots remain steady, including under reduced-motion settings.
 
 ## Health levels at a glance
 
@@ -19,7 +19,7 @@ Open the web UI (default `http://localhost:8787`). The status bar up top shows t
 | 🔵 blue | Idle — enabled and ready, nothing to do |
 | 🟡 yellow | Issues — the agent reported a concern |
 | 🔴 red | Blocked — last run errored, no model, or the agent is stuck |
-| ⚪ gray | Disabled — switched off; steady, nothing fires |
+| ⚪ gray | Disabled — switched off; nothing fires |
 
 ## Next steps
 
