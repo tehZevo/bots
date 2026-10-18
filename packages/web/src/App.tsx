@@ -16,7 +16,7 @@ interface Bot {
   enabled: number;
   created_at: number;
   run_state: "running" | "enabled" | "disabled";
-  health: "green" | "yellow" | "red";
+  health: "green" | "blue" | "yellow" | "red" | "gray";
   status: string | null;
   status_level: "ok" | "issue" | "blocked" | null;
   current_task: string | null;
@@ -209,10 +209,12 @@ function Avatar({ id }: { name: string; id: string }) {
   );
 }
 
-const HEALTH_LABEL: Record<"green" | "yellow" | "red", string> = {
-  green: "healthy",
+const HEALTH_LABEL: Record<Bot["health"], string> = {
+  green: "active",
+  blue: "idle",
   yellow: "issues",
   red: "blocked",
+  gray: "disabled",
 };
 
 function relTime(ts: number): string {

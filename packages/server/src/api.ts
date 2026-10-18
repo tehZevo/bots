@@ -375,15 +375,18 @@ export function createApp(): Hono {
           const noModel = !bot.model_id && !hasDefault;
           const agentRed =
             bot.status !== null && bot.status_level === "blocked";
-          const red =
-            errored.has(bot.id) || !bot.enabled || noModel || agentRed;
+          const red = errored.has(bot.id) || noModel || agentRed;
           return {
             ...bot,
-            health: red
-              ? ("red" as const)
-              : bot.status !== null && bot.status_level === "issue"
-                ? ("yellow" as const)
-                : ("green" as const),
+            health: !bot.enabled
+              ? ("gray" as const)
+              : red
+                ? ("red" as const)
+                : bot.status !== null && bot.status_level === "issue"
+                  ? ("yellow" as const)
+                  : isLoopActive(bot.id)
+                    ? ("green" as const)
+                    : ("blue" as const),
             run_state: isLoopActive(bot.id)
               ? "running"
               : bot.enabled
