@@ -9,7 +9,10 @@ Behaviors agreed on but not yet specced in detail. Each becomes its own spec dir
 - **Chat channels** — talk to bots interactively (web chat first, then external chat apps).
 - **Approvals** — a human-approval layer for sensitive tool actions that the agent cannot bypass.
 - **Auth & multi-user** — protect API/UI; per-user bots and credentials (placeholder tokens so models never see secrets).
+- **Documented REST API + API keys** — the whole UI surface available headlessly over a documented REST API; per-user API keys created/revoked in Settings authenticate it.
+- **MCP server for control** — orchestrator exposes an MCP server (list/create bots, set roles, fire runs, read logs) so external agents drive exactly what the UI can.
 - **Bot avatars** — pick or generate an avatar per bot, shown on cards and the detail modal.
+- **Avatar animations** — status-driven avatar motion: disabled = still and gray, running = active animation, idle = sleeping animation (see web-ui/status-colors.md levels).
 - **Current task** — bots publish what they are working on; the agent can update its current task/activity as it progresses, shown on cards and the detail modal.
 - **PWA** — installable web app with offline shell and push-ready structure.
 - **Teams & groups** — organize bots and users into teams with shared visibility and ownership.
