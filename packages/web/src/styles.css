@@ -719,3 +719,14 @@ aside.rail .sidetabs button {
   gap: 0.4rem;
   cursor: pointer;
 }
+
+.sidetabs button {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+aside.rail .sidetabs button {
+  justify-content: center;
+  padding-inline: 0;
+}
