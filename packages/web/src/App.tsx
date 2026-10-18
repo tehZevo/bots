@@ -277,13 +277,15 @@ export function App() {
                       setDetailOpen(true);
                     }}
                   >
-                    <Avatar name={bot.name} id={bot.id} />
-                    <span className="cardtext">
-                      <strong>{bot.name}</strong>
-                      <span
-                        className={`dot ${bot.status}`}
-                        title={bot.status}
-                      />
+                    <span className="cardhead">
+                      <Avatar name={bot.name} id={bot.id} />
+                      <span className="cardtext">
+                        <strong>{bot.name}</strong>
+                        <span
+                          className={`dot ${bot.status}`}
+                          title={bot.status}
+                        />
+                      </span>
                     </span>
                   </button>
                 ))}
