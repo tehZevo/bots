@@ -14,3 +14,4 @@ Behaviors agreed on but not yet specced in detail. Each becomes its own spec dir
 - **PWA** — installable web app with offline shell and push-ready structure.
 - **Teams & groups** — organize bots and users into teams with shared visibility and ownership.
 - **Health statuses** — extend bot status colors: yellow = issues detected, red = error/blocked.
+- **Yellow health state** — third-level "having issues" color on cards/detail, set by the agent itself reporting trouble via its status-update tool (`set_current_task` surface), not derived from run history.
