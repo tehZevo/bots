@@ -16,20 +16,12 @@ Self-hosted autonomous bots that run against any OpenAI-compatible LLM endpoint 
 
 ```bash
 pnpm install
-cp .env.example .env   # fill in your OpenAI-compatible endpoint
+cp .env.example .env   # optional server settings
 docker build -t bots-sandbox:latest docker/sandbox   # image for bot shells
 pnpm dev               # server on :8787, web UI on :5173
 ```
 
-`.env` values:
-
-| Variable       | Description                                          |
-| -------------- | ---------------------------------------------------- |
-| `LLM_BASE_URL` | OpenAI-compatible base URL (e.g. `https://host/v1`)  |
-| `LLM_API_KEY`  | API key                                              |
-| `LLM_MODEL`    | Model id served by that endpoint                     |
-
-Optional: `PORT` (default `8787`), `DATA_DIR` (default repo `data/`), `DATABASE_PATH`, `SANDBOX_IMAGE` (default `bots-sandbox:latest`).
+`.env` values — LLM providers are configured in the UI (Settings → Providers), not env. Optional: `PORT` (default `8787`), `DATA_DIR` (default repo `data/`), `DATABASE_PATH`, `SANDBOX_IMAGE` (default `bots-sandbox:latest`).
 
 Production — serves the built UI and API together on `:8787`:
 

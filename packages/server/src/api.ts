@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
+import type { Context } from "hono";
 import { Hono } from "hono";
 import {
   injectMessage,
@@ -13,22 +14,29 @@ import { repoRoot } from "./config.ts";
 import {
   clearMessages,
   deleteBot,
+  deleteProvider,
   deleteRole,
+  deleteSetting,
   deleteTrigger,
   getBot,
+  getProvider,
   getRole,
   getSetting,
   getTrigger,
   insertBot,
+  insertProvider,
   insertRole,
   insertTrigger,
   listBots,
+  listProviders,
   listRoles,
   listRuns,
   listTriggers,
   loadMessages,
+  type ProviderRow,
   setSetting,
   updateBot,
+  updateProvider,
   updateRole,
   updateTrigger,
 } from "./db.ts";
@@ -123,26 +131,190 @@ export function createApp(): Hono {
   app.get("/api/health", (c) => c.json({ ok: true }));
 
   app.get("/api/settings", (c) =>
-    c.json({ sandbox_idle_minutes: idleMinutes() }),
+    c.json({
+      sandbox_idle_minutes: idleMinutes(),
+      default_provider_id: getSetting("default_provider_id") ?? null,
+      default_model: getSetting("default_model") ?? null,
+    }),
   );
 
   app.put("/api/settings", async (c) => {
     const body = (await c.req.json().catch(() => null)) as {
       sandbox_idle_minutes?: unknown;
+      default_provider_id?: unknown;
+      default_model?: unknown;
     } | null;
-    const raw = body?.sandbox_idle_minutes;
-    if (
-      typeof raw !== "number" ||
-      !Number.isInteger(raw) ||
-      raw < 0 ||
-      raw > 1440
-    )
+    if (!body || typeof body !== "object")
+      return c.json({ error: "invalid body" }, 400);
+    const out: Record<string, unknown> = {};
+    if (body.sandbox_idle_minutes !== undefined) {
+      const raw = body.sandbox_idle_minutes;
+      if (
+        typeof raw !== "number" ||
+        !Number.isInteger(raw) ||
+        raw < 0 ||
+        raw > 1440
+      )
+        return c.json(
+          { error: "sandbox_idle_minutes must be an integer 0-1440" },
+          400,
+        );
+      setSetting("sandbox_idle_minutes", String(raw));
+      out.sandbox_idle_minutes = raw;
+    }
+    if (body.default_provider_id !== undefined) {
+      const id = body.default_provider_id;
+      if (typeof id !== "string")
+        return c.json({ error: "default_provider_id must be a string" }, 400);
+      if (id && !getProvider(id))
+        return c.json({ error: "unknown provider" }, 400);
+      if (id) setSetting("default_provider_id", id);
+      else deleteSetting("default_provider_id");
+      out.default_provider_id = id || null;
+    }
+    if (body.default_model !== undefined) {
+      const id = body.default_model;
+      if (typeof id !== "string")
+        return c.json({ error: "default_model must be a string" }, 400);
+      if (id) setSetting("default_model", id);
+      else deleteSetting("default_model");
+      out.default_model = id || null;
+    }
+    return c.json(out);
+  });
+
+  app.get("/api/providers", (c) =>
+    c.json(
+      listProviders().map(({ api_key, ...rest }) => ({
+        ...rest,
+        has_key: api_key.length > 0,
+      })),
+    ),
+  );
+
+  const providerBody = async (c: Context) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      name?: unknown;
+      base_url?: unknown;
+      api_key?: unknown;
+      models?: unknown;
+    } | null;
+    if (!body || typeof body !== "object") return null;
+    const errors: string[] = [];
+    const str = (v: unknown): string | undefined =>
+      typeof v === "string" ? v.trim() : undefined;
+    const name = str(body.name);
+    const baseUrl = str(body.base_url);
+    const apiKey =
+      body.api_key === undefined ? undefined : (str(body.api_key) ?? "");
+    let models: string[] | undefined;
+    if (body.models !== undefined) {
+      if (
+        !Array.isArray(body.models) ||
+        !body.models.every((m) => typeof m === "string")
+      )
+        errors.push("models must be an array of strings");
+      else
+        models = [
+          ...new Set((body.models as string[]).map((m) => m.trim())),
+        ].filter(Boolean);
+    }
+    return { name, baseUrl, apiKey, models, errors };
+  };
+
+  app.post("/api/providers", async (c) => {
+    const parsed = await providerBody(c);
+    if (!parsed) return c.json({ error: "invalid body" }, 400);
+    const { name, baseUrl, apiKey, models, errors } = parsed;
+    if (!name) errors.push("name is required");
+    if (!baseUrl?.startsWith("http")) errors.push("base_url must be a URL");
+    if (errors.length > 0) return c.json({ error: errors.join("; ") }, 400);
+    const provider = {
+      id: randomUUID(),
+      name: name as string,
+      base_url: baseUrl as string,
+      api_key: apiKey ?? "",
+      models: models ?? [],
+      created_at: Date.now(),
+    };
+    insertProvider(provider);
+    if (!getSetting("default_provider_id")) {
+      setSetting("default_provider_id", provider.id);
+      if (provider.models[0]) setSetting("default_model", provider.models[0]);
+    }
+    const { api_key, ...rest } = provider;
+    return c.json({ ...rest, has_key: api_key.length > 0 }, 201);
+  });
+
+  app.put("/api/providers/:id", async (c) => {
+    const existing = getProvider(c.req.param("id"));
+    if (!existing) return c.json({ error: "not found" }, 404);
+    const parsed = await providerBody(c);
+    if (!parsed) return c.json({ error: "invalid body" }, 400);
+    const { name, baseUrl, apiKey, models, errors } = parsed;
+    if (name === undefined || !name) errors.push("name is required");
+    if (baseUrl === undefined || !baseUrl?.startsWith("http"))
+      errors.push("base_url must be a URL");
+    if (errors.length > 0) return c.json({ error: errors.join("; ") }, 400);
+    updateProvider(existing.id, {
+      name,
+      base_url: baseUrl,
+      api_key: apiKey ?? existing.api_key,
+      models,
+    });
+    const updated = getProvider(existing.id) as ProviderRow;
+    const { api_key, ...rest } = updated;
+    return c.json({ ...rest, has_key: api_key.length > 0 });
+  });
+
+  app.delete("/api/providers/:id", (c) => {
+    if (!deleteProvider(c.req.param("id")))
+      return c.json({ error: "not found" }, 404);
+    if (getSetting("default_provider_id") === c.req.param("id")) {
+      const next = listProviders()[0];
+      if (next) {
+        setSetting("default_provider_id", next.id);
+        setSetting("default_model", next.models[0] ?? "");
+      } else {
+        deleteSetting("default_provider_id");
+        deleteSetting("default_model");
+      }
+    }
+    return c.json({ ok: true });
+  });
+
+  app.post("/api/providers/detect", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      base_url?: unknown;
+      api_key?: unknown;
+      id?: unknown;
+    } | null;
+    const baseUrl =
+      typeof body?.base_url === "string" ? body.base_url.trim() : "";
+    if (!baseUrl.startsWith("http"))
+      return c.json({ error: "base_url is required" }, 400);
+    let apiKey = typeof body?.api_key === "string" ? body.api_key.trim() : "";
+    if (!apiKey && typeof body?.id === "string")
+      apiKey = getProvider(body.id)?.api_key ?? "";
+    try {
+      const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/models`, {
+        headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok)
+        return c.json({ error: `provider returned ${res.status}` }, 502);
+      const data = (await res.json()) as { data?: { id?: unknown }[] };
+      const models = (data.data ?? [])
+        .map((m) => m.id)
+        .filter((id): id is string => typeof id === "string")
+        .sort();
+      return c.json({ models });
+    } catch (err) {
       return c.json(
-        { error: "sandbox_idle_minutes must be an integer 0-1440" },
-        400,
+        { error: err instanceof Error ? err.message : "detection failed" },
+        502,
       );
-    setSetting("sandbox_idle_minutes", String(raw));
-    return c.json({ sandbox_idle_minutes: raw });
+    }
   });
 
   app.get("/api/bots", (c) =>

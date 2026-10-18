@@ -14,7 +14,7 @@ import {
   insertRun,
   loadMessages,
 } from "./db.ts";
-import { resolveModel } from "./llm.ts";
+import { type ResolvedLlm, resolveDefault } from "./llm.ts";
 import { buildTools } from "./tools.ts";
 
 const DEFAULT_SYSTEM_PROMPT = "You are a helpful autonomous bot.";
@@ -61,16 +61,20 @@ function toTranscriptText(messages: AgentMessage[]): string {
   return lines.join("\n").slice(0, 24_000);
 }
 
-const streamFn: StreamFn = (model, context, options) =>
-  openaiStreamSimple(model as never, context, {
-    ...options,
-    apiKey: config.llm.apiKey,
-  });
+function makeStreamFn(llm: ResolvedLlm): StreamFn {
+  return (model, context, options) =>
+    openaiStreamSimple(model as never, context, {
+      ...options,
+      apiKey: llm.apiKey,
+    });
+}
 
-async function summarize(messages: AgentMessage[]): Promise<string> {
-  const model = resolveModel(null);
+async function summarize(
+  messages: AgentMessage[],
+  llm: ResolvedLlm,
+): Promise<string> {
   const response = await openaiStreamSimple(
-    model,
+    llm.model,
     normalizeContext({
       messages: [
         {
@@ -80,7 +84,7 @@ async function summarize(messages: AgentMessage[]): Promise<string> {
         },
       ],
     }),
-    { apiKey: config.llm.apiKey },
+    { apiKey: llm.apiKey },
   ).result();
   const text = response.content
     .filter(
@@ -119,8 +123,13 @@ export interface InjectResult {
   steered: boolean;
 }
 
-function startLoop(bot: BotRow, runId: string, firstMessage: AgentMessage) {
-  const model = resolveModel(bot.model_id);
+function startLoop(
+  bot: BotRow,
+  runId: string,
+  firstMessage: AgentMessage,
+  llm: ResolvedLlm,
+) {
+  const model = llm.model;
   const history = loadMessages(bot.id)
     .map((row) => JSON.parse(row.payload) as AgentMessage)
     .filter((message) => LLM_ROLES.has((message as Message).role));
@@ -140,8 +149,8 @@ function startLoop(bot: BotRow, runId: string, firstMessage: AgentMessage) {
   };
 
   const agent = new Agent({
-    streamFn,
-    getApiKey: () => config.llm.apiKey,
+    streamFn: makeStreamFn(llm),
+    getApiKey: () => llm.apiKey,
     steeringMode: "all",
     initialState: {
       systemPrompt: effectiveSystemPrompt(bot),
@@ -162,7 +171,7 @@ function startLoop(bot: BotRow, runId: string, firstMessage: AgentMessage) {
       const keep = messages.slice(-config.compaction.keepRecent);
       const drop = messages.slice(0, -config.compaction.keepRecent);
       try {
-        const summary = await summarize(drop);
+        const summary = await summarize(drop, llm);
         const compacted: AgentMessage[] = [
           {
             role: "user",
@@ -246,6 +255,20 @@ export function injectMessage(
     return { runId: live.runId, steered: true };
   }
   const runId = randomUUID();
+  const llm = resolveDefault(bot.model_id);
+  if (!llm) {
+    insertRun({
+      id: runId,
+      bot_id: bot.id,
+      status: "error",
+      trigger: kind,
+      started_at: Date.now(),
+      finished_at: Date.now(),
+      output: null,
+      error: "no model configured",
+    });
+    return { runId, steered: false };
+  }
   insertRun({
     id: runId,
     bot_id: bot.id,
@@ -256,7 +279,7 @@ export function injectMessage(
     output: null,
     error: null,
   });
-  startLoop(bot, runId, message);
+  startLoop(bot, runId, message, llm);
   return { runId, steered: false };
 }
 
