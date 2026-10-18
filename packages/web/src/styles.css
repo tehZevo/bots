@@ -730,3 +730,11 @@ aside.rail .sidetabs button {
   justify-content: center;
   padding-inline: 0;
 }
+.chat-log { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; }
+.chat-turn { display: flex; flex-direction: column; gap: 2px; max-width: 85%; }
+.chat-turn .who { font-size: 11px; opacity: 0.6; text-transform: uppercase; letter-spacing: 0.04em; }
+.chat-turn pre { margin: 0; white-space: pre-wrap; word-break: break-word; padding: 8px 10px; border-radius: 10px; background: var(--surface-2, rgba(127,127,127,0.12)); font-family: inherit; }
+.chat-turn.user { align-self: flex-end; align-items: flex-end; }
+.chat-turn.user pre { background: var(--accent-soft, rgba(80,140,255,0.16)); }
+.chat-input { display: flex; gap: 8px; margin-top: 10px; }
+.chat-input input { flex: 1; }

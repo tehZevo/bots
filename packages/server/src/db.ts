@@ -36,7 +36,7 @@ export interface RunRow {
   id: string;
   bot_id: string;
   status: "running" | "ok" | "error";
-  trigger: "schedule" | "manual";
+  trigger: "schedule" | "manual" | "chat";
   started_at: number;
   finished_at: number | null;
   output: string | null;
