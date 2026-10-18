@@ -43,6 +43,49 @@ interface Trigger {
   next_run_at: number | null;
 }
 
+const AVATAR_COLORS = [
+  "#e5484d",
+  "#e9762c",
+  "#f0b13b",
+  "#46a758",
+  "#12a594",
+  "#0091ff",
+  "#3e63dd",
+  "#8e4ec6",
+  "#d6409f",
+  "#ab441f",
+  "#5f6b7c",
+  "#0f7b6c",
+];
+
+function initialsFor(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "?";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[1][0]).toUpperCase();
+}
+
+function avatarColor(id: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return AVATAR_COLORS[(h >>> 0) % AVATAR_COLORS.length];
+}
+
+function Avatar({ name, id }: { name: string; id: string }) {
+  return (
+    <span
+      className="avatar"
+      style={{ background: avatarColor(id) }}
+      aria-hidden
+    >
+      {initialsFor(name)}
+    </span>
+  );
+}
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init);
   const body = await res.json();
@@ -234,8 +277,14 @@ export function App() {
                       setDetailOpen(true);
                     }}
                   >
-                    <span className={`dot ${bot.status}`} title={bot.status} />
-                    <strong>{bot.name}</strong>
+                    <Avatar name={bot.name} id={bot.id} />
+                    <span className="cardtext">
+                      <strong>{bot.name}</strong>
+                      <span
+                        className={`dot ${bot.status}`}
+                        title={bot.status}
+                      />
+                    </span>
                   </button>
                 ))}
               </div>
@@ -262,6 +311,7 @@ export function App() {
               aria-label={`${openBotRow.name} details`}
             >
               <div className="viewhead">
+                <Avatar name={openBotRow.name} id={openBotRow.id} />
                 <h2>{openBotRow.name}</h2>
                 <button
                   type="button"
