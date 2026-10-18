@@ -2,6 +2,8 @@
 
 Self-hosted autonomous bots that run against any OpenAI-compatible LLM endpoint — scheduled, steerable, and sandboxed. Behavior is specced in `specs/`.
 
+**Documentation:** https://tehzevo.github.io/bots/
+
 ## Features
 
 - **Bots with persistent memory** — each bot keeps one growing conversation; long histories are summarized automatically. Clear it anytime (with confirmation).
@@ -34,13 +36,13 @@ pnpm build && pnpm start
 Every merge to `master` publishes a public orchestrator image to GHCR (`sha-<git-sha>` always, `latest` on successful master builds, semver git tags as version tags — the release line is `v0.x.y` until the first beta):
 
 ```bash
-docker pull ghcr.io/<owner>/bots:latest
+docker pull ghcr.io/tehZevo/bots:latest
 ```
 
 ```yaml
 services:
   orchestrator:
-    image: ghcr.io/<owner>/bots:latest
+    image: ghcr.io/tehZevo/bots:latest
     ports: ["8787:8787"]
     volumes:
       - ./data:/app/data
