@@ -6,4 +6,6 @@
 
 - Agent-reported `blocked` shows identically to system red but never replaces run truth: a failing latest run stays red even after the agent reports `ok`.
  Red stays system-derived and always overrides agent-reported yellow.
+- Task and status share one last-updated timestamp: any `set_current_task` or `set_status` call refreshes it, and the card/detail show a single relative-age label (e.g. `5m ago`) for the pair — not separate ages per line.
+
 - `set_status` takes no bot argument — it always targets the running bot; setting status never counts as output. `GET /api/bots` includes `status`; Clear memory resets task and status to null together.
