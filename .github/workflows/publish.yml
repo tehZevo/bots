@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   changes:
+    if: github.ref_type != 'tag'
     runs-on: ubuntu-latest
     outputs:
       orchestrator: ${{ steps.filter.outputs.orchestrator }}
@@ -32,9 +33,7 @@ jobs:
 
   image:
     needs: changes
-    if: >-
-      github.ref_type == 'tag' ||
-      needs.changes.outputs.orchestrator == 'true'
+    if: github.ref_type == 'tag' || needs.changes.outputs.orchestrator == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -61,9 +60,7 @@ jobs:
 
   sandbox-image:
     needs: changes
-    if: >-
-      github.ref_type == 'tag' ||
-      needs.changes.outputs.sandbox == 'true'
+    if: github.ref_type == 'tag' || needs.changes.outputs.sandbox == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
