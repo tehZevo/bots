@@ -240,6 +240,15 @@ export function removeContainer(botId: string): void {
   void spawnCapture(["rm", "-f", containerName(botId)]).catch(() => {});
 }
 
+export async function restartSandbox(botId: string): Promise<void> {
+  const name = containerName(botId);
+  lastActivity.delete(botId);
+  await spawnCapture(["stop", name, "--time", "5"]).catch(() => null);
+  const removed = await spawnCapture(["rm", "-f", name]);
+  if (removed.code !== 0 && !/no such container/i.test(removed.stderr))
+    throw new Error(`docker rm ${name}: ${removed.stderr.trim()}`);
+}
+
 export function idleMinutes(): number {
   const raw = getSetting(IDLE_SETTING_KEY);
   if (raw === undefined) return DEFAULT_IDLE_MINUTES;

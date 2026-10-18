@@ -65,6 +65,7 @@ import {
   defaultSandboxImage,
   idleMinutes,
   removeContainer,
+  restartSandbox,
 } from "./sandbox.ts";
 import { nextRunAt } from "./scheduler.ts";
 
@@ -649,6 +650,21 @@ export function createApp(): Hono {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
     return c.json({ stopped: interruptBot(bot.id) });
+  });
+
+  app.post("/api/bots/:id/restart-machine", async (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    resetBotRuntime(bot.id);
+    try {
+      await restartSandbox(bot.id);
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        502,
+      );
+    }
+    return c.json({ ok: true });
   });
 
   app.get("/api/bots/:id/runs", (c) => {
