@@ -109,21 +109,21 @@ test("disabled schedule triggers are not due; resume recomputes next_run_at", as
   const t = await json(trigRes);
   const id = t.id as string;
   assert.ok(t.next_run_at !== null);
-  const { dueTriggers, getTrigger } = await import("../src/db.ts");
-  const past = Date.now() + 60_000;
+  const { dueTriggers, getTrigger, updateTrigger } = await import("../src/db.ts");
+  updateTrigger(id, { next_run_at: Date.now() - 5 * 60_000 });
   await app.request(`/api/triggers/${id}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ enabled: false }),
   });
-  const before = dueTriggers(past).filter((x) => x.id === id);
-  assert.equal(before.length, 0);
+  assert.equal(dueTriggers(Date.now()).filter((x) => x.id === id).length, 0);
+  const resumeAt = Date.now();
   await app.request(`/api/triggers/${id}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ enabled: true }),
   });
   const after = getTrigger(id);
-  assert.ok(after && past === Date.now() + 60_000);
-  assert.ok(after!.enabled === 1);
+  assert.ok(after?.enabled === 1);
+  assert.ok((after?.next_run_at ?? 0) >= resumeAt, "resume must schedule from now, not catch up");
 });
