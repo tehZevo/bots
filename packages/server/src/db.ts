@@ -451,3 +451,75 @@ export function setSetting(key: string, value: string): void {
     "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
   ).run(key, value);
 }
+
+export interface McpServerRow {
+  id: string;
+  name: string;
+  transport: "stdio";
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  enabled: number;
+  created_at: number;
+}
+
+db.exec(
+  `CREATE TABLE IF NOT EXISTS mcp_servers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    transport TEXT NOT NULL DEFAULT 'stdio',
+    command TEXT NOT NULL,
+    args TEXT NOT NULL DEFAULT '[]',
+    env TEXT NOT NULL DEFAULT '{}',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL
+  );`,
+);
+
+function hydrateMcp(row: McpServerRow & { args: string; env: string }): McpServerRow {
+  return { ...row, args: JSON.parse(row.args) as string[], env: JSON.parse(row.env) as Record<string, string> };
+}
+
+export function listMcpServers(): McpServerRow[] {
+  return (db
+    .prepare("SELECT * FROM mcp_servers ORDER BY name")
+    .all() as (McpServerRow & { args: string; env: string })[]).map(hydrateMcp);
+}
+
+export function getMcpServer(id: string): McpServerRow | undefined {
+  const row = db
+    .prepare("SELECT * FROM mcp_servers WHERE id = ?")
+    .get(id) as (McpServerRow & { args: string; env: string }) | undefined;
+  return row && hydrateMcp(row);
+}
+
+export function getMcpServerByName(name: string): McpServerRow | undefined {
+  const row = db
+    .prepare("SELECT * FROM mcp_servers WHERE name = ?")
+    .get(name) as (McpServerRow & { args: string; env: string }) | undefined;
+  return row && hydrateMcp(row);
+}
+
+export function insertMcpServer(server: McpServerRow): void {
+  db.prepare(
+    `INSERT INTO mcp_servers (id, name, transport, command, args, env, enabled, created_at)
+     VALUES (@id, @name, @transport, @command, @args, @env, @enabled, @created_at)`,
+  ).run({ ...server, args: JSON.stringify(server.args), env: JSON.stringify(server.env) });
+}
+
+export function updateMcpServer(
+  id: string,
+  patch: Partial<Omit<McpServerRow, "id">>,
+): void {
+  const current = getMcpServer(id);
+  if (!current) return;
+  const next = { ...current, ...patch };
+  db.prepare(
+    `UPDATE mcp_servers SET name=@name, transport=@transport, command=@command,
+       args=@args, env=@env, enabled=@enabled WHERE id=@id`,
+  ).run({ ...next, args: JSON.stringify(next.args), env: JSON.stringify(next.env) });
+}
+
+export function deleteMcpServer(id: string): void {
+  db.prepare("DELETE FROM mcp_servers WHERE id = ?").run(id);
+}
