@@ -2800,6 +2800,7 @@ function MachinesPanel() {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [form, setForm] = useState<Machine | "new" | null>(null);
   const [removing, setRemoving] = useState<Machine | null>(null);
+  const [refreshing, setRefreshing] = useState<string | null>(null);
 
   const reload = useCallback(
     () =>
@@ -2808,6 +2809,19 @@ function MachinesPanel() {
         .catch(() => setMachines([])),
     [],
   );
+
+  const refresh = (m: Machine) => {
+    setRefreshing(m.id);
+    api(
+      m.builtin
+        ? "/api/machines/default/repull"
+        : `/api/machines/${m.id}/rebuild`,
+      { method: "POST" },
+    )
+      .then(reload)
+      .catch((e) => alert(e.message))
+      .finally(() => setRefreshing(null));
+  };
 
   useEffect(() => {
     void reload();
@@ -2828,6 +2842,15 @@ function MachinesPanel() {
           <div className="mcpsrv" key={m.id}>
             <header>
               <strong>{m.name}</strong>
+              {refreshing === m.id ? (
+                <span className="muted">
+                  {m.builtin ? "Pulling…" : "Building…"}
+                </span>
+              ) : (
+                <button type="button" onClick={() => refresh(m)}>
+                  {m.builtin ? "Repull" : "Rebuild"}
+                </button>
+              )}
               {!m.builtin && (
                 <>
                   <button type="button" onClick={() => setForm(m)}>
@@ -2845,7 +2868,7 @@ function MachinesPanel() {
               {m.builtin && <span className="muted">built-in</span>}
             </header>
             {m.description && <p className="line muted">{m.description}</p>}
-            {!m.builtin && m.image && <code>{m.image}</code>}
+            {m.image && <code>{m.image}</code>}
             {!m.builtin && !m.image && !m.build_error && (
               <p className="line muted">Built on first use by a bot.</p>
             )}

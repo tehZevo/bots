@@ -3,7 +3,13 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getBot, getMachine, getSetting, setMachineBuild } from "./db.ts";
+import {
+  getBot,
+  getMachine,
+  getSetting,
+  setMachineBuild,
+  setSetting,
+} from "./db.ts";
 
 const IMAGE =
   process.env.SANDBOX_IMAGE ?? "ghcr.io/tehzevo/bots-sandbox:latest";
@@ -34,10 +40,48 @@ function ensureImage(): Promise<void> {
   return imageReady;
 }
 const BUILD_TIMEOUT_MS = 900_000;
+const DIGEST_SETTING_KEY = "sandbox_image_ref";
 const machineBuilds = new Map<string, Promise<string>>();
 
 function machineTag(dockerfile: string): string {
   return `bots-machine:${createHash("sha256").update(dockerfile).digest("hex").slice(0, 16)}`;
+}
+
+async function buildImage(
+  tag: string,
+  dockerfile: string,
+  force: boolean,
+): Promise<void> {
+  if (!force) {
+    const known = await spawnCapture(["image", "inspect", tag]);
+    if (known.code === 0) return;
+  }
+  const dir = mkdtempSync(join(tmpdir(), "bots-machine-"));
+  try {
+    writeFileSync(
+      join(dir, "Dockerfile"),
+      dockerfile.endsWith("\n") ? dockerfile : `${dockerfile}\n`,
+    );
+    const args = force
+      ? ["build", "--pull", "-t", tag, dir]
+      : ["build", "-t", tag, dir];
+    const built = await spawnCapture(args, { timeoutMs: BUILD_TIMEOUT_MS });
+    if (built.code !== 0)
+      throw new Error(
+        `machine image build failed: ${built.stderr.trim().split("\n").pop() ?? "unknown error"}`,
+      );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function recordBuildFailure(machineId: string, err: unknown): never {
+  setMachineBuild(
+    machineId,
+    getMachine(machineId)?.image ?? null,
+    err instanceof Error ? err.message : String(err),
+  );
+  throw err;
 }
 
 export function buildMachineImage(
@@ -47,40 +91,59 @@ export function buildMachineImage(
   const tag = machineTag(dockerfile);
   let pending = machineBuilds.get(tag);
   if (!pending) {
-    pending = (async () => {
-      const known = await spawnCapture(["image", "inspect", tag]);
-      if (known.code !== 0) {
-        const dir = mkdtempSync(join(tmpdir(), "bots-machine-"));
-        try {
-          writeFileSync(
-            join(dir, "Dockerfile"),
-            dockerfile.endsWith("\n") ? dockerfile : `${dockerfile}\n`,
-          );
-          const built = await spawnCapture(["build", "-t", tag, dir], {
-            timeoutMs: BUILD_TIMEOUT_MS,
-          });
-          if (built.code !== 0)
-            throw new Error(
-              `machine image build failed: ${built.stderr.trim().split("\n").pop() ?? "unknown error"}`,
-            );
-        } finally {
-          rmSync(dir, { recursive: true, force: true });
-        }
-      }
-      setMachineBuild(machineId, tag, null);
-      return tag;
-    })().catch((err) => {
-      setMachineBuild(
-        machineId,
-        null,
-        err instanceof Error ? err.message : String(err),
-      );
-      throw err;
-    });
+    pending = buildImage(tag, dockerfile, false).then(
+      () => {
+        setMachineBuild(machineId, tag, null);
+        return tag;
+      },
+      (err) => recordBuildFailure(machineId, err),
+    );
     pending.finally(() => machineBuilds.delete(tag)).catch(() => {});
     machineBuilds.set(tag, pending);
   }
   return pending;
+}
+
+export function rebuildMachineImage(
+  machineId: string,
+  dockerfile: string,
+): Promise<string> {
+  const tag = machineTag(dockerfile);
+  return buildImage(tag, dockerfile, true).then(
+    () => {
+      setMachineBuild(machineId, tag, null);
+      return tag;
+    },
+    (err) => recordBuildFailure(machineId, err),
+  );
+}
+
+async function defaultDigest(): Promise<void> {
+  const insp = await spawnCapture([
+    "image",
+    "inspect",
+    "-f",
+    "{{index .RepoDigests 0}}",
+    IMAGE,
+  ]);
+  const ref = insp.code === 0 ? insp.stdout.trim() : "";
+  if (ref.includes("@")) setSetting(DIGEST_SETTING_KEY, ref);
+}
+
+export async function repullDefaultImage(): Promise<string> {
+  const pulled = await spawnCapture(["pull", IMAGE], { timeoutMs: 300_000 });
+  if (pulled.code !== 0)
+    throw new Error(
+      `docker pull ${IMAGE} failed: ${pulled.stderr.trim().split("\n").pop() ?? "unknown error"}`,
+    );
+  imageReady = Promise.resolve();
+  await defaultDigest();
+  return defaultImageRef();
+}
+
+export function defaultImageRef(): string {
+  const pinned = getSetting(DIGEST_SETTING_KEY);
+  return pinned?.startsWith(`${IMAGE}@`) ? pinned : IMAGE;
 }
 
 export async function imageForBot(botId: string): Promise<string> {
@@ -88,7 +151,7 @@ export async function imageForBot(botId: string): Promise<string> {
   const machine = bot?.machine_id ? getMachine(bot.machine_id) : undefined;
   if (!machine) {
     await ensureImage();
-    return IMAGE;
+    return defaultImageRef();
   }
   return buildMachineImage(machine.id, machine.dockerfile);
 }
