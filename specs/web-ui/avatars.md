@@ -1,6 +1,6 @@
 # Bot avatars
 
 - Every bot shows an avatar on its card and in the detail modal header.
-- Three ways to set one, all from `General`: upload an image (≤ 1 MB, centered square crop), initials over a solid color, or generated — a deterministic glyph + color derived from the bot id.
-- Generated is the default; nothing is stored until the user picks something else.
-- Avatar images are stored under the data dir and served at `GET /api/bots/:id/avatar`; uploads replace the previous file immediately everywhere.
+- An avatar is initials over a solid color: up to two characters taken from the bot name (first letters of the first two words, else the first two letters), uppercased.
+- The background color is derived deterministically by hashing the bot id into a fixed palette; the same id always yields the same color.
+- Nothing about an avatar is stored or uploaded; changing the bot's name changes only the initials, never the color.
