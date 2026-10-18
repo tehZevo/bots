@@ -14,3 +14,7 @@ Judgement calls baked into the current implementation that deserve a deliberate 
   _Lean: keep plaintext behind a single-file volume until auth/multi-user lands, then encrypt per-user._
 - **Per-bot model overrides** — the default provider/model covers every bot; per-bot selection is deferred.
   _Lean: add the override on the bot once teams/groups define who may pick which models._
+- **External agent state** — headless CLIs (opencode, Claude Code) keep their own session state in-container while pi history lives in SQLite; unclear whether memory survives container reaping.
+  _Lean: store a per-bot CLI session id and use `--resume`/`-s`; fall back to injecting the SQLite transcript when resume is unavailable._
+- **Injection into external agents** — `steer()` has no mid-run equivalent for headless CLIs, so scheduled/chat messages can't steer an in-flight CLI run.
+  _Lean: queue injected messages and start them as the next run when the current one exits; never kill+restart to inject._
