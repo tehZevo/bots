@@ -799,3 +799,101 @@ code.secret { user-select: all; }
 .ok { color: var(--ok); }
 
 
+
+/* ---- flat visual system (specs/web-ui/visual-style.md) ---- */
+
+:root {
+  --radius-card: 12px;
+  --radius-control: 8px;
+  --gap-inner: 0.5rem;
+  --gap-section: 1.25rem;
+  --control-h: 36px;
+  --card-shadow: none;
+  --card-shadow-hover: none;
+}
+
+[data-theme="light"] {
+  --card-shadow: 0 1px 3px rgb(0 0 0 / 8%);
+  --card-shadow-hover: 0 4px 12px rgb(0 0 0 / 12%);
+}
+
+@media (prefers-color-scheme: light) {
+  [data-theme="system"] {
+    --card-shadow: 0 1px 3px rgb(0 0 0 / 8%);
+    --card-shadow-hover: 0 4px 12px rgb(0 0 0 / 12%);
+  }
+}
+
+.card,
+.triggers .trigger,
+.mcpsrv,
+.plist li,
+.secretbox {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 1rem;
+  box-shadow: var(--card-shadow);
+}
+
+.card {
+  transition: box-shadow 120ms ease;
+}
+
+.card:hover {
+  box-shadow: var(--card-shadow-hover);
+}
+
+.cards,
+.grid {
+  gap: var(--gap-section);
+}
+
+.tabbody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-inner);
+}
+
+.triggers > * + *,
+.mcpsection > * + * {
+  margin-top: var(--gap-inner);
+}
+
+.triggers .trigger,
+.mcpsrv,
+.secretbox {
+  margin-bottom: 0;
+}
+
+button:not(.sidetabs button):not(.mtabs button):not(.card) {
+  min-height: var(--control-h);
+  padding: 0 0.85rem;
+  border-radius: var(--radius-control);
+}
+
+input,
+select {
+  min-height: var(--control-h);
+  border-radius: var(--radius-control);
+}
+
+textarea {
+  border-radius: var(--radius-control);
+}
+
+.dialog form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-inner);
+}
+
+.mcpsrv header,
+.prow,
+.plist li {
+  gap: var(--gap-inner);
+}
+
+section > .viewhead {
+  margin-bottom: var(--gap-section);
+}
