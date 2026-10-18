@@ -99,14 +99,41 @@ function toBotPayload(input: BotInput) {
 interface RoleInput {
   name?: unknown;
   instructions?: unknown;
+  mcp_server_ids?: unknown;
+  skill_ids?: unknown;
 }
 
-function toRolePayload(input: RoleInput) {
+function toRolePayload(
+  input: RoleInput,
+  knownMcpIds: Set<string>,
+  knownSkillIds: Set<string>,
+) {
   if (typeof input.name !== "string" || !input.name.trim())
     return { error: "name is required" };
   if (typeof input.instructions !== "string" || !input.instructions.trim())
     return { error: "instructions is required" };
-  return { name: input.name.trim(), instructions: input.instructions };
+  const parseIds = (
+    value: unknown,
+    known: Set<string>,
+    kind: string,
+  ): string[] | { error: string } => {
+    if (value === undefined) return [];
+    if (!Array.isArray(value) || value.some((v) => typeof v !== "string"))
+      return { error: `${kind} must be an array of ids` };
+    for (const id of value as string[])
+      if (!known.has(id)) return { error: `unknown ${kind} id: ${id}` };
+    return value as string[];
+  };
+  const mcp = parseIds(input.mcp_server_ids, knownMcpIds, "mcp_server");
+  if ("error" in mcp) return mcp;
+  const skills = parseIds(input.skill_ids, knownSkillIds, "skill");
+  if ("error" in skills) return skills;
+  return {
+    name: input.name.trim(),
+    instructions: input.instructions,
+    mcp_server_ids: mcp,
+    skill_ids: skills,
+  };
 }
 
 interface TriggerInput {
@@ -387,7 +414,11 @@ export function createApp(): Hono {
   app.get("/api/roles", (c) => c.json(listRoles()));
 
   app.post("/api/roles", async (c) => {
-    const payload = toRolePayload(await c.req.json<RoleInput>());
+    const payload = toRolePayload(
+      await c.req.json<RoleInput>(),
+      new Set(listMcpServers().map((m) => m.id)),
+      new Set(listSkills().map((sk) => sk.id)),
+    );
     if ("error" in payload) return c.json({ error: payload.error }, 400);
     const role = { id: randomUUID(), ...payload, created_at: Date.now() };
     insertRole(role);
@@ -403,10 +434,14 @@ export function createApp(): Hono {
   app.patch("/api/roles/:roleId", async (c) => {
     const role = getRole(c.req.param("roleId"));
     if (!role) return c.json({ error: "not found" }, 404);
-    const payload = toRolePayload({
-      ...role,
-      ...(await c.req.json<RoleInput>()),
-    });
+    const payload = toRolePayload(
+      {
+        ...role,
+        ...(await c.req.json<RoleInput>()),
+      },
+      new Set(listMcpServers().map((m) => m.id)),
+      new Set(listSkills().map((sk) => sk.id)),
+    );
     if ("error" in payload) return c.json({ error: payload.error }, 400);
     updateRole(role.id, payload);
     return c.json(getRole(role.id));

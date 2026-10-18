@@ -23,11 +23,18 @@ interface Bot {
   current_task_updated_at: number | null;
 }
 
+interface GrantOption {
+  id: string;
+  name: string;
+}
+
 interface Role {
   id: string;
   name: string;
   instructions: string;
   created_at: number;
+  mcp_server_ids: string[];
+  skill_ids: string[];
 }
 
 interface Run {
@@ -1295,7 +1302,29 @@ function RoleFormModal({
   const [instructions, setInstructions] = useState(role?.instructions ?? "");
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
-  const [roleTab, setRoleTab] = useState<"general">("general");
+  const [roleTab, setRoleTab] = useState<"general" | "capabilities">("general");
+  const [mcpOptions, setMcpOptions] = useState<GrantOption[]>([]);
+  const [skillOptions, setSkillOptions] = useState<GrantOption[]>([]);
+  const [mcpIds, setMcpIds] = useState<string[]>(role?.mcp_server_ids ?? []);
+  const [skillIds, setSkillIds] = useState<string[]>(role?.skill_ids ?? []);
+
+  useEffect(() => {
+    void api<GrantOption[]>("/api/mcp-servers")
+      .then(setMcpOptions)
+      .catch(() => setMcpOptions([]));
+    void api<GrantOption[]>("/api/skills")
+      .then(setSkillOptions)
+      .catch(() => setSkillOptions([]));
+  }, []);
+
+  const toggleId = (
+    id: string,
+    current: string[],
+    setter: (v: string[]) => void,
+  ) =>
+    setter(
+      current.includes(id) ? current.filter((x) => x !== id) : [...current, id],
+    );
   const nameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -1327,7 +1356,12 @@ function RoleFormModal({
           void (async () => {
             setBusy(true);
             try {
-              const body = JSON.stringify({ name, instructions });
+              const body = JSON.stringify({
+                name,
+                instructions,
+                mcp_server_ids: mcpIds,
+                skill_ids: skillIds,
+              });
               if (role)
                 await api(`/api/roles/${role.id}`, {
                   method: "PATCH",
@@ -1360,31 +1394,67 @@ function RoleFormModal({
           </button>
         </div>
         <nav className="mtabs">
-          {(["general"] as const).map((t) => (
+          {(["general", "capabilities"] as const).map((t) => (
             <button
               key={t}
               type="button"
               className={roleTab === t ? "sel" : ""}
               onClick={() => setRoleTab(t)}
             >
-              General
+              {t === "general" ? "General" : "Capabilities"}
             </button>
           ))}
         </nav>
-        <input
-          ref={nameRef}
-          placeholder="role name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-        />
-        <textarea
-          placeholder="instructions added to assigned bots' prompts"
-          rows={5}
-          value={instructions}
-          onChange={(e) => setInstructions(e.target.value)}
-          required
-        />
+        {roleTab === "general" && (
+          <>
+            <input
+              ref={nameRef}
+              placeholder="role name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+            <textarea
+              placeholder="instructions added to assigned bots' prompts"
+              rows={5}
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              required
+            />
+          </>
+        )}
+        {roleTab === "capabilities" && (
+          <div className="grantlist">
+            <h3>MCP servers</h3>
+            {mcpOptions.length === 0 && (
+              <p className="muted">No MCP servers — add one in Integrations.</p>
+            )}
+            {mcpOptions.map((opt) => (
+              <label key={opt.id} className="grantrow">
+                <input
+                  type="checkbox"
+                  checked={mcpIds.includes(opt.id)}
+                  onChange={() => toggleId(opt.id, mcpIds, setMcpIds)}
+                />
+                {opt.name}
+              </label>
+            ))}
+            <h3>Skills</h3>
+            {skillOptions.length === 0 && (
+              <p className="muted">No skills — add one in Skills.</p>
+            )}
+            {skillOptions.map((opt) => (
+              <label key={opt.id} className="grantrow">
+                <input
+                  type="checkbox"
+                  checked={skillIds.includes(opt.id)}
+                  onChange={() => toggleId(opt.id, skillIds, setSkillIds)}
+                />
+                {opt.name}
+              </label>
+            ))}
+          </div>
+        )}
         <div className="actions">
           <button type="submit" disabled={busy}>
             {role ? "Save role" : "Create role"}

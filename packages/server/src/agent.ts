@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
+import type {
+  AgentMessage,
+  AgentTool,
+  StreamFn,
+} from "@earendil-works/pi-agent-core";
 import { Agent } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
 import { normalizeContext } from "@earendil-works/pi-ai";
@@ -10,21 +14,85 @@ import {
   type BotRow,
   clearMessages,
   finishRun,
+  getMcpServer,
   getRole,
+  getSkill,
   insertRun,
+  listMcpServers,
   loadMessages,
 } from "./db.ts";
 import { type ResolvedLlm, resolveDefault } from "./llm.ts";
+import { connectMcpServer, type McpSession } from "./mcp.ts";
 import { buildTools } from "./tools.ts";
 
 const DEFAULT_SYSTEM_PROMPT = "You are a helpful autonomous bot.";
 
 function effectiveSystemPrompt(bot: BotRow): string {
   const role = bot.role_id ? getRole(bot.role_id) : undefined;
-  const parts = [bot.system_prompt.trim(), role?.instructions.trim()].filter(
-    Boolean,
-  );
+  const skillTexts = (role?.skill_ids ?? [])
+    .map((id) => getSkill(id)?.instructions.trim())
+    .filter((t): t is string => Boolean(t));
+  const parts = [
+    bot.system_prompt.trim(),
+    role?.instructions.trim(),
+    ...skillTexts,
+  ].filter(Boolean);
   return parts.join("\n\n") || DEFAULT_SYSTEM_PROMPT;
+}
+
+const MCP_NAME_SAFE = /[^a-zA-Z0-9_-]/g;
+
+async function connectRoleMcpTools(
+  bot: BotRow,
+): Promise<{ sessions: McpSession[]; tools: AgentTool<never>[] }> {
+  const role = bot.role_id ? getRole(bot.role_id) : undefined;
+  const ids = (role?.mcp_server_ids ?? []).filter((id) =>
+    listMcpServers().some((m) => m.id === id && m.enabled === 1),
+  );
+  const sessions: McpSession[] = [];
+  const tools: AgentTool<never>[] = [];
+  for (const id of ids) {
+    const server = getMcpServer(id);
+    if (!server) continue;
+    try {
+      const session = await connectMcpServer(server);
+      sessions.push(session);
+      const prefix = server.name.replace(MCP_NAME_SAFE, "_");
+      for (const def of await session.listTools()) {
+        const toolName = `${prefix}_${def.name}`.slice(0, 64);
+        tools.push({
+          name: toolName,
+          label: `${server.name}: ${def.name}`,
+          description: def.description ?? `Call ${def.name} on ${server.name}`,
+          parameters: (def.inputSchema ?? {}) as never,
+          execute: async (_id: string, params: unknown) => {
+            try {
+              const text = await session.callTool(def.name, params);
+              return {
+                content: [{ type: "text" as const, text }],
+                details: {},
+              };
+            } catch (err) {
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: `mcp call failed (${server.name}/${def.name}): ${
+                      err instanceof Error ? err.message : String(err)
+                    }`,
+                  },
+                ],
+                details: {},
+              };
+            }
+          },
+        } as AgentTool<never>);
+      }
+    } catch {
+      // server unreachable at loop start: skip its tools, keep the loop alive
+    }
+  }
+  return { sessions, tools };
 }
 const LLM_ROLES = new Set(["user", "assistant", "toolResult"]);
 
@@ -123,12 +191,13 @@ export interface InjectResult {
   steered: boolean;
 }
 
-function startLoop(
+async function startLoop(
   bot: BotRow,
   runId: string,
   firstMessage: AgentMessage,
   llm: ResolvedLlm,
 ) {
+  const mcp = await connectRoleMcpTools(bot);
   const model = llm.model;
   const history = loadMessages(bot.id)
     .map((row) => JSON.parse(row.payload) as AgentMessage)
@@ -155,7 +224,7 @@ function startLoop(
     initialState: {
       systemPrompt: effectiveSystemPrompt(bot),
       model,
-      tools: buildTools(bot.id),
+      tools: [...buildTools(bot.id), ...mcp.tools],
       messages: history,
     },
     transformContext: async (messages) => {
@@ -230,6 +299,7 @@ function startLoop(
             : String(err),
       );
     } finally {
+      for (const session of mcp.sessions) session.close();
       liveLoops.delete(bot.id);
     }
   })();
