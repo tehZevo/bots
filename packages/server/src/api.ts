@@ -411,7 +411,6 @@ export function createApp(): Hono {
     return c.json({ runId, steered }, 202);
   });
 
-
   app.get("/api/bots/:id/messages", (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
@@ -430,7 +429,9 @@ export function createApp(): Hono {
           : Array.isArray(content)
             ? content
                 .map((b) =>
-                  b && typeof b === "object" && (b as { type?: string}).type === "text"
+                  b &&
+                  typeof b === "object" &&
+                  (b as { type?: string }).type === "text"
                     ? String((b as { text?: string }).text ?? "")
                     : "",
                 )
@@ -447,7 +448,9 @@ export function createApp(): Hono {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
     if (!bot.enabled) return c.json({ error: "bot is disabled" }, 409);
-    const body = (await c.req.json().catch(() => null)) as { text?: unknown } | null;
+    const body = (await c.req.json().catch(() => null)) as {
+      text?: unknown;
+    } | null;
     const text = typeof body?.text === "string" ? body.text.trim() : "";
     if (!text) return c.json({ error: "text is required" }, 400);
     const { runId, steered } = injectMessage(bot, text, "chat");

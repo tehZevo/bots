@@ -58,9 +58,9 @@ export function App() {
   const [bots, setBots] = useState<Bot[]>([]);
   const [tab, setTab] = useState<"bots" | "roles" | "settings">("bots");
   const [openBot, setOpenBot] = useState<string | null>(null);
-  const [modalTab, setModalTab] = useState<"general" | "triggers" | "chat" | "logs">(
-    "general",
-  );
+  const [modalTab, setModalTab] = useState<
+    "general" | "triggers" | "chat" | "logs"
+  >("general");
   const [detailOpen, setDetailOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [botQuery, setBotQuery] = useState("");
@@ -1541,7 +1541,11 @@ function Chat({ botId }: { botId: string }) {
 
   const loadChat = useCallback(async () => {
     try {
-      setTurns(await api<{ role: string; text: string }[]>(`/api/bots/${botId}/messages`));
+      setTurns(
+        await api<{ role: string; text: string }[]>(
+          `/api/bots/${botId}/messages`,
+        ),
+      );
     } catch {
       /* keep last */
     }
