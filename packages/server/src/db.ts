@@ -14,6 +14,8 @@ export interface BotRow {
   enabled: number;
   current_task: string | null;
   current_task_updated_at: number | null;
+  status: string | null;
+  status_level: "ok" | "issue" | "blocked" | null;
   created_at: number;
 }
 
@@ -166,6 +168,13 @@ if (!botColumns.has("description"))
     "ALTER TABLE bots ADD COLUMN description TEXT NOT NULL DEFAULT ''",
   ).run();
 
+if (!botColumns.has("status")) {
+  db.prepare("ALTER TABLE bots ADD COLUMN status TEXT").run();
+  db.prepare(
+    "ALTER TABLE bots ADD COLUMN status_level TEXT DEFAULT 'ok'",
+  ).run();
+}
+
 if (!botColumns.has("current_task")) {
   db.prepare("ALTER TABLE bots ADD COLUMN current_task TEXT").run();
   db.prepare(
@@ -315,6 +324,18 @@ export function finishRun(
   ).run(status, Date.now(), output, error, id);
 }
 
+export function latestErrorBotIds(): Set<string> {
+  const rows = db
+    .prepare(
+      `SELECT bot_id FROM runs r
+     WHERE status = 'error' AND started_at = (
+       SELECT MAX(started_at) FROM runs WHERE bot_id = r.bot_id AND status != 'running'
+     )`,
+    )
+    .all() as { bot_id: string }[];
+  return new Set(rows.map((r) => r.bot_id));
+}
+
 export function listRuns(botId: string, limit = 50): RunRow[] {
   return db
     .prepare(
@@ -343,12 +364,24 @@ export function loadMessages(botId: string): MessageRow[] {
 export function clearMessages(botId: string): void {
   db.prepare("DELETE FROM messages WHERE bot_id = ?").run(botId);
   setCurrentTask(botId, null);
+  setBotStatus(botId, null);
+}
+
+export function setBotStatus(
+  botId: string,
+  text: string | null,
+  level: "ok" | "issue" | "blocked" = "ok",
+): void {
+  const value = text && text.trim() ? text.trim() : null;
+  db.prepare(
+    "UPDATE bots SET status = ?, status_level = ?, current_task_updated_at = ? WHERE id = ?",
+  ).run(value, value ? level : null, value ? Date.now() : null, botId);
 }
 
 export function setCurrentTask(botId: string, text: string | null): void {
   const value = text && text.trim() ? text.trim() : null;
   db.prepare(
-    "UPDATE bots SET current_task = ?, current_task_updated_at = ? WHERE id = ?",
+    "UPDATE bots SET current_task = ?, status = NULL, status_level = NULL, current_task_updated_at = ? WHERE id = ?",
   ).run(value, value ? Date.now() : null, botId);
 }
 
@@ -476,20 +509,28 @@ db.exec(
   );`,
 );
 
-function hydrateMcp(row: McpServerRow & { args: string; env: string }): McpServerRow {
-  return { ...row, args: JSON.parse(row.args) as string[], env: JSON.parse(row.env) as Record<string, string> };
+function hydrateMcp(
+  row: McpServerRow & { args: string; env: string },
+): McpServerRow {
+  return {
+    ...row,
+    args: JSON.parse(row.args) as string[],
+    env: JSON.parse(row.env) as Record<string, string>,
+  };
 }
 
 export function listMcpServers(): McpServerRow[] {
-  return (db
-    .prepare("SELECT * FROM mcp_servers ORDER BY name")
-    .all() as (McpServerRow & { args: string; env: string })[]).map(hydrateMcp);
+  return (
+    db
+      .prepare("SELECT * FROM mcp_servers ORDER BY name")
+      .all() as (McpServerRow & { args: string; env: string })[]
+  ).map(hydrateMcp);
 }
 
 export function getMcpServer(id: string): McpServerRow | undefined {
-  const row = db
-    .prepare("SELECT * FROM mcp_servers WHERE id = ?")
-    .get(id) as (McpServerRow & { args: string; env: string }) | undefined;
+  const row = db.prepare("SELECT * FROM mcp_servers WHERE id = ?").get(id) as
+    | (McpServerRow & { args: string; env: string })
+    | undefined;
   return row && hydrateMcp(row);
 }
 
@@ -504,7 +545,11 @@ export function insertMcpServer(server: McpServerRow): void {
   db.prepare(
     `INSERT INTO mcp_servers (id, name, transport, command, args, env, enabled, created_at)
      VALUES (@id, @name, @transport, @command, @args, @env, @enabled, @created_at)`,
-  ).run({ ...server, args: JSON.stringify(server.args), env: JSON.stringify(server.env) });
+  ).run({
+    ...server,
+    args: JSON.stringify(server.args),
+    env: JSON.stringify(server.env),
+  });
 }
 
 export function updateMcpServer(
@@ -517,7 +562,11 @@ export function updateMcpServer(
   db.prepare(
     `UPDATE mcp_servers SET name=@name, transport=@transport, command=@command,
        args=@args, env=@env, enabled=@enabled WHERE id=@id`,
-  ).run({ ...next, args: JSON.stringify(next.args), env: JSON.stringify(next.env) });
+  ).run({
+    ...next,
+    args: JSON.stringify(next.args),
+    env: JSON.stringify(next.env),
+  });
 }
 
 export function deleteMcpServer(id: string): void {

@@ -31,6 +31,7 @@ import {
   insertProvider,
   insertRole,
   insertTrigger,
+  latestErrorBotIds,
   listBots,
   listMcpServers,
   listProviders,
@@ -333,14 +334,32 @@ export function createApp(): Hono {
 
   app.get("/api/bots", (c) =>
     c.json(
-      listBots().map((bot) => ({
-        ...bot,
-        status: isLoopActive(bot.id)
-          ? "running"
-          : bot.enabled
-            ? "enabled"
-            : "disabled",
-      })),
+      (() => {
+        const errored = latestErrorBotIds();
+        const hasDefault = Boolean(
+          getSetting("default_provider_id") && getSetting("default_model"),
+        );
+        return listBots().map((bot) => {
+          const noModel = !bot.model_id && !hasDefault;
+          const agentRed =
+            bot.status !== null && bot.status_level === "blocked";
+          const red =
+            errored.has(bot.id) || !bot.enabled || noModel || agentRed;
+          return {
+            ...bot,
+            health: red
+              ? ("red" as const)
+              : bot.status !== null && bot.status_level === "issue"
+                ? ("yellow" as const)
+                : ("green" as const),
+            run_state: isLoopActive(bot.id)
+              ? "running"
+              : bot.enabled
+                ? "enabled"
+                : "disabled",
+          };
+        });
+      })(),
     ),
   );
 
@@ -351,6 +370,8 @@ export function createApp(): Hono {
       id: randomUUID(),
       current_task: null,
       current_task_updated_at: null,
+      status: null,
+      status_level: null,
       ...payload,
       created_at: Date.now(),
     };
@@ -576,8 +597,7 @@ export function createApp(): Hono {
 
   app.post("/api/webhooks/:triggerId", async (c) => {
     const trigger = getTrigger(c.req.param("triggerId"));
-    if (trigger?.kind !== "webhook")
-      return c.json({ error: "not found" }, 404);
+    if (trigger?.kind !== "webhook") return c.json({ error: "not found" }, 404);
     const auth = c.req.header("authorization") ?? "";
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
     const secret = trigger.secret ?? "";
@@ -587,7 +607,6 @@ export function createApp(): Hono {
       token.length !== secret.length ||
       !timingSafeEqual(Buffer.from(token, "utf8"), Buffer.from(secret, "utf8"))
     )
-     
       return c.json({ error: "unauthorized" }, 401);
     const bot = getBot(trigger.bot_id);
     if (!bot?.enabled) return c.json({ error: "bot is disabled" }, 409);
