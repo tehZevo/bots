@@ -18,4 +18,4 @@ Behaviors agreed on but not yet specced in detail. Each becomes its own spec dir
 - **PWA** — installable web app with offline shell and push-ready structure.
 - **In-app notifications** — notification list for failed runs and pending approvals with an unread badge; delivered as native browser push through the PWA service worker once subscriptions exist.
 - **Teams & groups** — organize bots and users into teams with shared visibility and ownership.
-- **Health statuses** — extend bot status colors: yellow = issues detected, red = error/blocked.
+- **Yellow health state** — third-level color driven by the agent-reported `status` line (`bots/status-line.md`, `set_status` tool), not derived from run history.
