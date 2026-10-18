@@ -1818,6 +1818,14 @@ function Chat({ botId }: { botId: string }) {
   );
 }
 
+interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  instructions: string;
+  created_at: number;
+}
+
 interface McpServer {
   id: string;
   name: string;
@@ -1830,6 +1838,9 @@ interface McpServer {
 
 function IntegrationsPanel() {
   const [servers, setServers] = useState<McpServer[]>([]);
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [skillForm, setSkillForm] = useState<Skill | "new" | null>(null);
+  const [removingSkill, setRemovingSkill] = useState<Skill | null>(null);
   const [form, setForm] = useState<McpServer | "new" | null>(null);
   const [removing, setRemoving] = useState<McpServer | null>(null);
   const [results, setResults] = useState<
@@ -1844,9 +1855,18 @@ function IntegrationsPanel() {
     [],
   );
 
+  const reloadSkills = useCallback(
+    () =>
+      api<Skill[]>("/api/skills")
+        .then(setSkills)
+        .catch(() => setSkills([])),
+    [],
+  );
+
   useEffect(() => {
     void reload();
-  }, [reload]);
+    void reloadSkills();
+  }, [reload, reloadSkills]);
 
   const test = (server: McpServer) => {
     setResults((r) => ({ ...r, [server.id]: { busy: true } }));
@@ -1938,7 +1958,145 @@ function IntegrationsPanel() {
           }}
         />
       )}
+
+      <div className="viewhead skillshead">
+        <h3>Skills</h3>
+        <button type="button" onClick={() => setSkillForm("new")}>
+          Add skill
+        </button>
+      </div>
+      <div className="mcpsection">
+        {skills.length === 0 && (
+          <p className="muted">No skills yet — add one above.</p>
+        )}
+        {skills.map((sk) => (
+          <div className="mcpsrv" key={sk.id}>
+            <header>
+              <strong>{sk.name}</strong>
+              <button type="button" onClick={() => setSkillForm(sk)}>
+                Edit
+              </button>
+              <button
+                type="button"
+                className="danger"
+                onClick={() => setRemovingSkill(sk)}
+              >
+                Delete
+              </button>
+            </header>
+            {sk.description && <p className="muted">{sk.description}</p>}
+          </div>
+        ))}
+      </div>
+      {removingSkill && (
+        <ConfirmDialog
+          text={`Delete skill ${removingSkill.name}? Grants referencing it will drop on next run.`}
+          confirmLabel="Delete skill"
+          onCancel={() => setRemovingSkill(null)}
+          onConfirm={() => {
+            const target = removingSkill;
+            setRemovingSkill(null);
+            api(`/api/skills/${target.id}`, { method: "DELETE" })
+              .then(reloadSkills)
+              .catch((e) => alert(e.message));
+          }}
+        />
+      )}
+      {skillForm && (
+        <SkillModal
+          skill={skillForm === "new" ? null : skillForm}
+          onClose={() => setSkillForm(null)}
+          onSaved={() => {
+            setSkillForm(null);
+            void reloadSkills();
+          }}
+        />
+      )}
     </section>
+  );
+}
+
+function SkillModal({
+  skill,
+  onClose,
+  onSaved,
+}: {
+  skill: Skill | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(skill?.name ?? "");
+  const [description, setDescription] = useState(skill?.description ?? "");
+  const [instructions, setInstructions] = useState(skill?.instructions ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <div className="modal">
+      <button
+        type="button"
+        className="mscrim"
+        aria-label="Close"
+        onClick={onClose}
+      />
+      <div className="dialog" role="dialog" aria-label="Skill">
+        <h2>{skill ? "Edit skill" : "Add skill"}</h2>
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setBusy(true);
+            setError(null);
+            try {
+              await api(skill ? `/api/skills/${skill.id}` : "/api/skills", {
+                method: skill ? "PATCH" : "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ name, description, instructions }),
+              });
+              onSaved();
+            } catch (err) {
+              setError(err instanceof Error ? err.message : String(err));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <label>
+            Name
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+          </label>
+          <label>
+            Description (optional)
+            <input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </label>
+          <label>
+            Instructions (markdown)
+            <textarea
+              className="fixed"
+              rows={12}
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              required
+            />
+          </label>
+          {error && <p className="error">{error}</p>}
+          <div className="actions">
+            <button type="submit" disabled={busy}>
+              {busy ? "Saving…" : skill ? "Save" : "Create"}
+            </button>
+            <button type="button" onClick={onClose}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 

@@ -18,6 +18,7 @@ import {
   deleteProvider,
   deleteRole,
   deleteSetting,
+  deleteSkill,
   deleteTrigger,
   getBot,
   getMcpServer,
@@ -25,11 +26,13 @@ import {
   getProvider,
   getRole,
   getSetting,
+  getSkill,
   getTrigger,
   insertBot,
   insertMcpServer,
   insertProvider,
   insertRole,
+  insertSkill,
   insertTrigger,
   latestErrorBotIds,
   listBots,
@@ -37,6 +40,7 @@ import {
   listProviders,
   listRoles,
   listRuns,
+  listSkills,
   listTriggers,
   loadMessages,
   type ProviderRow,
@@ -46,6 +50,7 @@ import {
   updateMcpServer,
   updateProvider,
   updateRole,
+  updateSkill,
   updateTrigger,
 } from "./db.ts";
 import { testMcpConnection } from "./mcp.ts";
@@ -618,6 +623,54 @@ export function createApp(): Hono {
       : trigger.message;
     const { runId } = injectMessage(bot, text, "webhook");
     return c.json({ ok: true, runId });
+  });
+
+  app.get("/api/skills", (c) => c.json(listSkills()));
+
+  app.post("/api/skills", async (c) => {
+    const body = await c.req.json<Record<string, unknown>>();
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const description =
+      typeof body.description === "string" ? body.description.trim() : "";
+    const instructions =
+      typeof body.instructions === "string" ? body.instructions.trim() : "";
+    if (!name) return c.json({ error: "name is required" }, 400);
+    if (!instructions)
+      return c.json({ error: "instructions are required" }, 400);
+    const skill = {
+      id: randomUUID(),
+      name,
+      description,
+      instructions,
+      created_at: Date.now(),
+    };
+    insertSkill(skill);
+    return c.json(skill, 201);
+  });
+
+  app.patch("/api/skills/:skillId", async (c) => {
+    const id = c.req.param("skillId");
+    if (!getSkill(id)) return c.json({ error: "not found" }, 404);
+    const body = await c.req.json<Record<string, unknown>>();
+    const fields: Record<string, string> = {};
+    for (const key of ["name", "description", "instructions"] as const) {
+      if (body[key] === undefined) continue;
+      if (typeof body[key] !== "string")
+        return c.json({ error: `${key} must be a string` }, 400);
+      const value = (body[key] as string).trim();
+      if ((key === "name" || key === "instructions") && !value)
+        return c.json({ error: `${key} is required` }, 400);
+      fields[key] = value;
+    }
+    updateSkill(id, fields);
+    return c.json(getSkill(id));
+  });
+
+  app.delete("/api/skills/:skillId", (c) => {
+    const id = c.req.param("skillId");
+    if (!getSkill(id)) return c.json({ error: "not found" }, 404);
+    deleteSkill(id);
+    return c.json({ ok: true });
   });
 
   app.get("/api/mcp-servers", (c) => c.json(listMcpServers()));
