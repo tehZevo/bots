@@ -91,6 +91,25 @@ function fnv(id: string): number {
   return h >>> 0;
 }
 
+function StatusDot({
+  id,
+  health,
+  label,
+}: {
+  id: string;
+  health: Bot["health"];
+  label?: string;
+}) {
+  const delay = -(fnv(id) % 1200) / 1000;
+  return (
+    <span
+      className={`dot ${health}${health === "gray" ? "" : " pulse"}`}
+      style={{ animationDelay: `${delay}s` }}
+      {...(label ? { title: label } : {})}
+    />
+  );
+}
+
 const SHAPE_PRESETS: ((r: () => number) => [number, number, number][])[] = [
   // pebble — near-circle with a tiny two-harmonic ripple
   (r) => [
@@ -435,9 +454,10 @@ export function App() {
                       <Avatar name={bot.name} id={bot.id} />
                       <span className="cardtext">
                         <strong>{bot.name}</strong>
-                        <span
-                          className={`dot ${bot.health}${bot.run_state === "running" ? " pulse" : ""}`}
-                          title={HEALTH_LABEL[bot.health]}
+                        <StatusDot
+                          id={bot.id}
+                          health={bot.health}
+                          label={HEALTH_LABEL[bot.health]}
                         />
                       </span>
                     </span>
@@ -536,22 +556,11 @@ export function App() {
               </nav>
               <div className="tabbody">
                 {modalTab === "general" && (
-                  <>
-                    <BotProfile
-                      key={openBotRow.id}
-                      bot={openBotRow}
-                      onChanged={load}
-                    />
-                    <p className="statusline">
-                      Status:{" "}
-                      <span
-                        className={`dot ${openBotRow.health}${openBotRow.run_state === "running" ? " pulse" : ""}`}
-                      />{" "}
-                      {HEALTH_LABEL[openBotRow.health]}
-                    </p>
-                    <BotActions bot={openBotRow} onChanged={load} />
-                    <RoleSelect bot={openBotRow} onChanged={load} />
-                  </>
+                  <BotGeneral
+                    key={openBotRow.id}
+                    bot={openBotRow}
+                    onChanged={load}
+                  />
                 )}
                 {modalTab === "triggers" && <Triggers botId={openBotRow.id} />}
                 {modalTab === "chat" && <Chat botId={openBotRow.id} />}
@@ -1615,7 +1624,7 @@ function RoleFormModal({
   );
 }
 
-function RoleSelect({
+function BotGeneral({
   bot,
   onChanged,
 }: {
@@ -1623,76 +1632,54 @@ function RoleSelect({
   onChanged: () => void;
 }) {
   const [roles, setRoles] = useState<Role[]>([]);
+  const [name, setName] = useState(bot?.name ?? "");
+  const [description, setDescription] = useState(bot?.description ?? "");
+  const [roleId, setRoleId] = useState(bot?.role_id ?? "");
+  const [busy, setBusy] = useState(false);
+  const [toggling, setToggling] = useState(false);
+  const [pending, setPending] = useState<"delete" | "clear" | null>(null);
 
   useEffect(() => {
     void api<Role[]>("/api/roles").then(setRoles, () => setRoles([]));
   }, []);
 
   if (!bot) return null;
-  return (
-    <p className="rolepick">
-      Role{" "}
-      <select
-        value={bot.role_id ?? ""}
-        onChange={(e) =>
-          api(`/api/bots/${bot.id}`, {
-            method: "PATCH",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ role_id: e.target.value || null }),
-          })
-            .then(onChanged)
-            .catch((e) => alert(e.message))
-        }
-      >
-        <option value="">None</option>
-        {roles.map((role) => (
-          <option key={role.id} value={role.id}>
-            {role.name}
-          </option>
-        ))}
-      </select>
-    </p>
-  );
-}
+  const dirty =
+    name.trim() !== bot.name ||
+    description !== bot.description ||
+    roleId !== (bot.role_id ?? "");
+  const patchBot = (body: Record<string, unknown>) =>
+    api(`/api/bots/${bot.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
 
-function BotProfile({
-  bot,
-  onChanged,
-}: {
-  bot: Bot | undefined;
-  onChanged: () => void;
-}) {
-  const [name, setName] = useState(bot?.name ?? "");
-  const [description, setDescription] = useState(bot?.description ?? "");
-  const [busy, setBusy] = useState(false);
-
-  if (!bot) return null;
-  const dirty = name.trim() !== bot.name || description !== bot.description;
   return (
-    <div className="profile">
-      <input
-        aria-label="Bot name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-      />
-      <textarea
-        aria-label="Description"
-        placeholder="description (optional)"
-        rows={2}
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-      />
-      {dirty && (
+    <>
+      <div className="profile">
+        <input
+          aria-label="Bot name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <textarea
+          aria-label="Description"
+          placeholder="description (optional)"
+          rows={2}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
         <div className="actions">
           <button
             type="button"
-            disabled={busy || !name.trim()}
+            disabled={busy || !dirty || !name.trim()}
             onClick={() => {
               setBusy(true);
-              api(`/api/bots/${bot.id}`, {
-                method: "PATCH",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ name, description }),
+              patchBot({
+                name: name.trim(),
+                description,
+                role_id: roleId || null,
               })
                 .then(onChanged)
                 .catch((e) => alert(e.message))
@@ -1702,49 +1689,41 @@ function BotProfile({
             Save
           </button>
         </div>
-      )}
-    </div>
-  );
-}
-
-function BotActions({
-  bot,
-  onChanged,
-}: {
-  bot: Bot | undefined;
-  onChanged: () => void;
-}) {
-  const [pending, setPending] = useState<"delete" | "clear" | null>(null);
-  if (!bot) return null;
-  const post = (path: string, init?: RequestInit) =>
-    api(path, init).catch((e) => alert(e.message));
-  return (
-    <>
+      </div>
+      <p className="statusline">
+        Status: <StatusDot id={bot.id} health={bot.health} />{" "}
+        {HEALTH_LABEL[bot.health]}
+      </p>
       <div className="actions">
+        <label className="switch">
+          <input
+            type="checkbox"
+            aria-label="Bot enabled"
+            checked={bot.enabled !== 0}
+            disabled={toggling}
+            onChange={() => {
+              setToggling(true);
+              patchBot({ enabled: bot.enabled === 0 })
+                .then(onChanged)
+                .catch((e) => alert(e.message))
+                .finally(() => setToggling(false));
+            }}
+          />
+          <span className="knob" />
+          <span className="state">{bot.enabled ? "Enabled" : "Disabled"}</span>
+        </label>
         {bot.run_state === "running" && (
           <button
             type="button"
             onClick={() =>
-              post(`/api/bots/${bot.id}/interrupt`, { method: "POST" }).then(
-                onChanged,
-              )
+              api(`/api/bots/${bot.id}/interrupt`, { method: "POST" })
+                .then(onChanged)
+                .catch((e) => alert(e.message))
             }
           >
             Stop
           </button>
         )}
-        <button
-          type="button"
-          onClick={() =>
-            post(`/api/bots/${bot.id}`, {
-              method: "PATCH",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ enabled: bot.enabled === 0 }),
-            }).then(onChanged)
-          }
-        >
-          {bot.enabled ? "Disable" : "Enable"}
-        </button>
         <button type="button" onClick={() => setPending("clear")}>
           Clear memory
         </button>
@@ -1756,6 +1735,21 @@ function BotActions({
           Delete
         </button>
       </div>
+      <p className="rolepick">
+        Role{" "}
+        <select
+          value={roleId}
+          aria-label="Bot role"
+          onChange={(e) => setRoleId(e.target.value)}
+        >
+          <option value="">None</option>
+          {roles.map((role) => (
+            <option key={role.id} value={role.id}>
+              {role.name}
+            </option>
+          ))}
+        </select>
+      </p>
       {pending === "delete" && (
         <ConfirmDialog
           text={`Delete bot ${bot.name}? This removes the bot, its triggers and run history.`}
@@ -1763,7 +1757,7 @@ function BotActions({
           onCancel={() => setPending(null)}
           onConfirm={async () => {
             setPending(null);
-            await post(`/api/bots/${bot.id}`, { method: "DELETE" });
+            await api(`/api/bots/${bot.id}`, { method: "DELETE" });
             onChanged();
           }}
         />
@@ -1775,7 +1769,9 @@ function BotActions({
           onCancel={() => setPending(null)}
           onConfirm={() => {
             setPending(null);
-            post(`/api/bots/${bot.id}/messages`, { method: "DELETE" });
+            api(`/api/bots/${bot.id}/messages`, { method: "DELETE" }).catch(
+              (e) => alert(e.message),
+            );
           }}
         />
       )}
