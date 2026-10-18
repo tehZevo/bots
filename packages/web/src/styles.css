@@ -774,3 +774,10 @@ aside.rail .sidetabs button {
 .chat-input input {
   flex: 1;
 }
+
+.avatar { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; color: #fff; font-weight: 700; font-size: 13px; flex-shrink: 0; letter-spacing: 0.02em; }
+.card .avatar { width: 40px; height: 40px; font-size: 15px; }
+.cardtext { display: flex; align-items: center; gap: 6px; min-width: 0; }
+
+.cardhead { display: flex; align-items: flex-start; gap: 0.6rem; width: 100
+.cardhead { display: flex; align-items: flex-start; gap: 0.6rem; width: 100%; }
