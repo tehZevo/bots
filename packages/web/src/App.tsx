@@ -250,9 +250,9 @@ export function App() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [botQuery, setBotQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<
-    "all" | "running" | "enabled" | "disabled"
-  >("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | Bot["health"]>(
+    "all",
+  );
   const [runs, setRuns] = useState<Run[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(false);
@@ -303,7 +303,7 @@ export function App() {
   const botFilter = botQuery.trim().toLowerCase();
   const visibleBots = bots.filter(
     (bot) =>
-      (statusFilter === "all" || bot.run_state === statusFilter) &&
+      (statusFilter === "all" || bot.health === statusFilter) &&
       (!botFilter || bot.name.toLowerCase().includes(botFilter)),
   );
 
@@ -402,18 +402,21 @@ export function App() {
                 onChange={(e) => setBotQuery(e.target.value)}
               />
               <nav className="mtabs">
-                {(["all", "running", "enabled", "disabled"] as const).map(
-                  (s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      className={statusFilter === s ? "sel" : ""}
-                      onClick={() => setStatusFilter(s)}
-                    >
-                      {s[0].toUpperCase() + s.slice(1)}
-                    </button>
-                  ),
-                )}
+                {(
+                  ["all", "green", "blue", "yellow", "red", "gray"] as const
+                ).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    className={statusFilter === s ? "sel" : ""}
+                    onClick={() => setStatusFilter(s)}
+                  >
+                    {s === "all"
+                      ? "All"
+                      : HEALTH_LABEL[s][0].toUpperCase() +
+                        HEALTH_LABEL[s].slice(1)}
+                  </button>
+                ))}
               </nav>
               <div className="cards">
                 {visibleBots.map((bot) => (
