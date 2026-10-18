@@ -16,7 +16,7 @@
 
 ## Pull requests
 
-- UI changes: attach **light and dark mode screenshots** to the PR when able.
+- UI changes: attach **light-mode, dark-mode, and one mobile-width (390px) screenshot** to the PR when able.
 
 ## Commands
 

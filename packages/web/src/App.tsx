@@ -117,9 +117,14 @@ export function App() {
 
   const openBotRow = bots.find((b) => b.id === openBot);
 
-  const nav = (
+  const [rail, setRail] = useState(
+    () => localStorage.getItem("bots-sidebar") === "rail",
+  );
+
+  const renderNav = (collapsed: boolean) => (
     <Nav
       tab={tab}
+      rail={collapsed}
       onSelect={(t) => {
         setTab(t);
         setDetailOpen(false);
@@ -128,22 +133,33 @@ export function App() {
     />
   );
 
+  const toggleRail = () => {
+    setRail((r) => {
+      localStorage.setItem("bots-sidebar", r ? "full" : "rail");
+      return !r;
+    });
+  };
+
   return (
     <div className="app">
       <header className="statusbar">
-        <h2>Bots</h2>
         <span className="counts">
           {bots.length} total ·{" "}
           {bots.filter((b) => b.status === "running").length} running
         </span>
       </header>
       <div className="layout">
-        <aside>
-          <div className="hdr">
-            <h1>Bots</h1>
-          </div>
+        <aside className={rail ? "rail" : ""}>
           {error && <p className="error">{error}</p>}
-          {nav}
+          {renderNav(rail)}
+          <button
+            type="button"
+            className="railtoggle"
+            aria-label={rail ? "Expand sidebar" : "Collapse sidebar"}
+            onClick={toggleRail}
+          >
+            {rail ? "»" : "«"}
+          </button>
         </aside>
         <div className="topbar">
           <button
@@ -168,7 +184,7 @@ export function App() {
                 <h1>Bots</h1>
               </div>
               {error && <p className="error">{error}</p>}
-              {nav}
+              {renderNav(false)}
             </div>
           </div>
         )}
@@ -176,6 +192,7 @@ export function App() {
           {tab === "bots" && (
             <>
               <div className="mainhead">
+                <h2>Bots</h2>
                 <button type="button" onClick={() => setAddOpen(true)}>
                   Add bot
                 </button>
@@ -264,7 +281,11 @@ export function App() {
               <div className="tabbody">
                 {modalTab === "general" && (
                   <>
-                    <BotProfile bot={openBotRow} onChanged={load} />
+                    <BotProfile
+                      key={openBotRow.id}
+                      bot={openBotRow}
+                      onChanged={load}
+                    />
                     <p className="statusline">
                       Status: <span className={`dot ${openBotRow.status}`} />{" "}
                       {openBotRow.status}
@@ -412,36 +433,34 @@ function AddBotModal({
   );
 }
 
+const NAV_ITEMS = [
+  { id: "bots", label: "Bots", icon: "▣" },
+  { id: "roles", label: "Roles", icon: "❖" },
+  { id: "settings", label: "Settings", icon: "⚙" },
+] as const;
+
 function Nav({
   tab,
+  rail,
   onSelect,
 }: {
   tab: "bots" | "roles" | "settings";
+  rail: boolean;
   onSelect: (tab: "bots" | "roles" | "settings") => void;
 }) {
   return (
     <nav className="sidetabs">
-      <button
-        type="button"
-        className={tab === "bots" ? "sel" : ""}
-        onClick={() => onSelect("bots")}
-      >
-        Bots
-      </button>
-      <button
-        type="button"
-        className={tab === "roles" ? "sel" : ""}
-        onClick={() => onSelect("roles")}
-      >
-        Roles
-      </button>
-      <button
-        type="button"
-        className={tab === "settings" ? "sel" : ""}
-        onClick={() => onSelect("settings")}
-      >
-        Settings
-      </button>
+      {NAV_ITEMS.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          title={item.label}
+          className={tab === item.id ? "sel" : ""}
+          onClick={() => onSelect(item.id)}
+        >
+          {rail ? item.icon : item.label}
+        </button>
+      ))}
     </nav>
   );
 }
@@ -488,7 +507,9 @@ function SettingsPanel() {
 
   return (
     <section>
-      <h2>Settings</h2>
+      <div className="mainhead">
+        <h2>Settings</h2>
+      </div>
       <p className="muted">Theme</p>
       <nav className="sidetabs wide">
         {THEMES.map((t) => (
@@ -788,11 +809,6 @@ function BotProfile({
   const [name, setName] = useState(bot?.name ?? "");
   const [description, setDescription] = useState(bot?.description ?? "");
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    setName(bot?.name ?? "");
-    setDescription(bot?.description ?? "");
-  }, [bot?.id, bot?.name, bot?.description]);
 
   if (!bot) return null;
   const dirty = name.trim() !== bot.name || description !== bot.description;
