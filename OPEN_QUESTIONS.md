@@ -10,8 +10,6 @@ Judgement calls baked into the current implementation that deserve a deliberate 
   _Lean: on boot mark stale `running` rows `error("interrupted")` and persist incrementally via agent events._
 - **Token estimation** — compaction budget uses chars/4 against 75% of `LLM_CONTEXT_WINDOW`.
   _Lean: keep until the context window is actually hit in practice, then tune ratio or adopt provider token counts._
-- **Trigger enable/disable** — only whole bots can be disabled; individual triggers always fire while their bot is enabled.
-  _Lean: add per-trigger flags when hook triggers (with secrets/pausing) land._
 - **Clear memory vs active loop** — clearing memory aborts the running agent immediately and wipes context; the aborted run lands as `error`.
   _Lean: acceptable until approvals/chat exist, then confirm with the user before nuking a working loop._
 - **Provider API key storage** — provider keys are planned for plaintext rows in SQLite (see `specs/llm/providers.md`).
