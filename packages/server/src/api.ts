@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
@@ -35,6 +35,7 @@ import {
   loadMessages,
   type ProviderRow,
   setSetting,
+  setTriggerSecret,
   updateBot,
   updateProvider,
   updateRole,
@@ -101,7 +102,7 @@ interface TriggerInput {
   schedule?: unknown;
 }
 
-const TRIGGER_KINDS = ["schedule"] as const;
+const TRIGGER_KINDS = ["schedule", "webhook"] as const;
 
 function toTriggerPayload(input: TriggerInput) {
   const kind = input.kind === undefined ? "schedule" : input.kind;
@@ -114,6 +115,12 @@ function toTriggerPayload(input: TriggerInput) {
     return { error: "message is required" };
   const schedule =
     typeof input.schedule === "string" ? input.schedule.trim() : "";
+  if (kind === "webhook")
+    return {
+      kind: kind as (typeof TRIGGER_KINDS)[number],
+      message: input.message,
+      schedule: "",
+    };
   if (!schedule)
     return { error: "schedule is required (cron expression or @every 30m)" };
   if (nextRunAt(schedule) === null)
@@ -497,7 +504,9 @@ export function createApp(): Hono {
   app.get("/api/bots/:id/triggers", (c) => {
     const botId = c.req.param("id");
     if (!getBot(botId)) return c.json({ error: "not found" }, 404);
-    return c.json(listTriggers(botId));
+    return c.json(
+      listTriggers(botId).map(({ secret: _secret, ...rest }) => rest),
+    );
   });
 
   app.post("/api/bots/:id/triggers", async (c) => {
@@ -505,15 +514,19 @@ export function createApp(): Hono {
     if (!bot) return c.json({ error: "not found" }, 404);
     const payload = toTriggerPayload(await c.req.json<TriggerInput>());
     if ("error" in payload) return c.json({ error: payload.error }, 400);
+    const secret =
+      payload.kind === "webhook" ? randomBytes(24).toString("hex") : null;
     const trigger = {
       id: randomUUID(),
       bot_id: bot.id,
       ...payload,
-      next_run_at: nextRunAt(payload.schedule),
+      next_run_at:
+        payload.kind === "webhook" ? null : nextRunAt(payload.schedule),
+      secret,
       created_at: Date.now(),
     };
     insertTrigger(trigger);
-    return c.json(trigger, 201);
+    return c.json({ ...trigger, url: `/api/webhooks/${trigger.id}` }, 201);
   });
 
   app.patch("/api/triggers/:triggerId", async (c) => {
@@ -527,11 +540,14 @@ export function createApp(): Hono {
     updateTrigger(trigger.id, {
       ...payload,
       next_run_at:
-        payload.schedule === trigger.schedule
+        payload.kind === "webhook" || payload.schedule === trigger.schedule
           ? trigger.next_run_at
           : nextRunAt(payload.schedule),
     });
-    return c.json(getTrigger(trigger.id));
+    const fresh = getTrigger(trigger.id);
+    if (!fresh) return c.json({ error: "not found" }, 404);
+    const { secret: _secret, ...rest } = fresh;
+    return c.json(rest);
   });
 
   app.delete("/api/triggers/:triggerId", (c) => {
@@ -539,6 +555,43 @@ export function createApp(): Hono {
     if (!trigger) return c.json({ error: "not found" }, 404);
     deleteTrigger(trigger.id);
     return c.json({ ok: true });
+  });
+
+  app.post("/api/triggers/:triggerId/rotate-secret", (c) => {
+    const trigger = getTrigger(c.req.param("triggerId"));
+    if (!trigger) return c.json({ error: "not found" }, 404);
+    if (trigger.kind !== "webhook")
+      return c.json({ error: "not a webhook trigger" }, 400);
+    const secret = randomBytes(24).toString("hex");
+    setTriggerSecret(trigger.id, secret);
+    return c.json({ secret });
+  });
+
+  app.post("/api/webhooks/:triggerId", async (c) => {
+    const trigger = getTrigger(c.req.param("triggerId"));
+    if (trigger?.kind !== "webhook")
+      return c.json({ error: "not found" }, 404);
+    const auth = c.req.header("authorization") ?? "";
+    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+    const secret = trigger.secret ?? "";
+    if (
+      !token ||
+      !secret ||
+      token.length !== secret.length ||
+      !timingSafeEqual(Buffer.from(token, "utf8"), Buffer.from(secret, "utf8"))
+    )
+     
+      return c.json({ error: "unauthorized" }, 401);
+    const bot = getBot(trigger.bot_id);
+    if (!bot?.enabled) return c.json({ error: "bot is disabled" }, 409);
+    const body = await c.req.text();
+    if (body.length > 64 * 1024)
+      return c.json({ error: "payload too large" }, 413);
+    const text = body.trim()
+      ? `${trigger.message}\n\nEvent payload:\n${body}`
+      : trigger.message;
+    const { runId } = injectMessage(bot, text, "webhook");
+    return c.json({ ok: true, runId });
   });
 
   const webDist = resolve(repoRoot, "packages/web/dist");

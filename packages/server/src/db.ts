@@ -27,10 +27,11 @@ export interface RoleRow {
 export interface TriggerRow {
   id: string;
   bot_id: string;
-  kind: "schedule";
+  kind: "schedule" | "webhook";
   message: string;
   schedule: string;
   next_run_at: number | null;
+  secret: string | null;
   created_at: number;
 }
 
@@ -38,7 +39,7 @@ export interface RunRow {
   id: string;
   bot_id: string;
   status: "running" | "ok" | "error";
-  trigger: "schedule" | "manual" | "chat";
+  trigger: "schedule" | "manual" | "chat" | "webhook";
   started_at: number;
   finished_at: number | null;
   output: string | null;
@@ -177,6 +178,14 @@ if (!botColumns.has("role_id"))
     "ALTER TABLE bots ADD COLUMN role_id TEXT REFERENCES roles(id)",
   ).run();
 
+const triggerColumns = new Set(
+  (db.prepare("PRAGMA table_info(triggers)").all() as { name: string }[]).map(
+    (column) => column.name,
+  ),
+);
+if (!triggerColumns.has("secret"))
+  db.prepare("ALTER TABLE triggers ADD COLUMN secret TEXT").run();
+
 export function listBots(): BotRow[] {
   return db.prepare("SELECT * FROM bots ORDER BY created_at").all() as BotRow[];
 }
@@ -253,8 +262,8 @@ export function getTrigger(id: string): TriggerRow | undefined {
 
 export function insertTrigger(trigger: TriggerRow): void {
   db.prepare(
-    `INSERT INTO triggers (id, bot_id, kind, message, schedule, next_run_at, created_at)
-     VALUES (@id, @bot_id, @kind, @message, @schedule, @next_run_at, @created_at)`,
+    `INSERT INTO triggers (id, bot_id, kind, message, schedule, next_run_at, secret, created_at)
+     VALUES (@id, @bot_id, @kind, @message, @schedule, @next_run_at, @secret, @created_at)`,
   ).run(trigger);
 }
 
@@ -266,6 +275,13 @@ export function updateTrigger(id: string, patch: Partial<TriggerRow>): void {
     ...patch,
     id,
   });
+}
+
+export function setTriggerSecret(triggerId: string, secret: string): void {
+  db.prepare("UPDATE triggers SET secret = ? WHERE id = ?").run(
+    secret,
+    triggerId,
+  );
 }
 
 export function deleteTrigger(id: string): void {
