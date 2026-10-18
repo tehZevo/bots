@@ -1858,6 +1858,7 @@ function Triggers({ botId }: { botId: string }) {
         <div className={`trigger${t.enabled ? "" : " off"}`} key={t.id}>
           <label
             className="switch trig-switch"
+            aria-label="Trigger enabled"
             title={t.enabled ? "Disable trigger" : "Enable trigger"}
           >
             <input
@@ -1876,7 +1877,9 @@ function Triggers({ botId }: { botId: string }) {
               }
             />
             <span className="knob" />
-            {t.enabled === 1 ? "" : "paused"}
+            <span className="state">
+              {t.enabled === 1 ? "Enabled" : "Disabled"}
+            </span>
           </label>
           {t.kind === "webhook" ? (
             <>
