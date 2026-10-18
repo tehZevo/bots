@@ -522,7 +522,19 @@ function AddBotModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const [name, setName] = useState(() => pickBotName(usedNames));
+  const initialName = pickBotName(usedNames);
+  const [name, setName] = useState(initialName);
+  const [suggestion, setSuggestion] = useState(initialName);
+
+  const reshuffle = () => {
+    if (name !== suggestion) return;
+    let next = pickBotName([...usedNames, name]);
+    while (next === name && BOT_NAMES.length > 1) {
+      next = pickBotName([...usedNames, name]);
+    }
+    setSuggestion(next);
+    setName(next);
+  };
   const [systemPrompt, setSystemPrompt] = useState("");
   const [roleId, setRoleId] = useState("");
   const [roles, setRoles] = useState<Role[]>([]);
@@ -575,13 +587,26 @@ function AddBotModal({
             ×
           </button>
         </div>
-        <input
-          ref={(el) => el?.focus()}
-          placeholder="name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-        />
+        <div className="namerow">
+          <input
+            ref={(el) => el?.focus()}
+            placeholder="name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
+          {BOT_NAMES.length > 1 && (
+            <button
+              type="button"
+              className="shuffle"
+              aria-label="Suggest another name"
+              title="Suggest another name"
+              onClick={reshuffle}
+            >
+              ↻
+            </button>
+          )}
+        </div>
         <textarea
           placeholder="system prompt (optional)"
           rows={3}
