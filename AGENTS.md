@@ -10,6 +10,7 @@
 ## Specs workflow
 
 - Specs are the source of truth for behavior.
+- Specs never reference PR/issue numbers — state behavior alone, present tense.
 - When a new behavior is agreed on, open a **spec-only PR** touching just `specs/**`.
 - Implementation happens in separate code PRs that reference the spec they implement.
 - Behavior changes require a spec update in the same or an earlier PR than the code change.
