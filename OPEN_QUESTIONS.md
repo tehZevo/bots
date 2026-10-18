@@ -14,3 +14,7 @@ Judgement calls baked into the current implementation that deserve a deliberate 
   _Lean: add per-trigger flags when hook triggers (with secrets/pausing) land._
 - **Clear memory vs active loop** — clearing memory aborts the running agent immediately and wipes context; the aborted run lands as `error`.
   _Lean: acceptable until approvals/chat exist, then confirm with the user before nuking a working loop._
+- **Provider API key storage** — provider keys are planned for plaintext rows in SQLite (see `specs/llm/providers.md`).
+  _Lean: keep plaintext behind a single-file volume until auth/multi-user lands, then encrypt per-user._
+- **Per-bot model overrides** — the default provider/model covers every bot; per-bot selection is deferred.
+  _Lean: add the override on the bot once teams/groups define who may pick which models._
