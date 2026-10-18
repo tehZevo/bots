@@ -29,6 +29,28 @@ Production — serves the built UI and API together on `:8787`:
 pnpm build && pnpm start
 ```
 
+### Published image (no local build)
+
+Every merge to `master` publishes a public orchestrator image to GHCR (`sha-<git-sha>` always, `latest` on successful master builds, `v*` git tags as version tags):
+
+```bash
+docker pull ghcr.io/<owner>/bots:latest
+```
+
+```yaml
+services:
+  orchestrator:
+    image: ghcr.io/<owner>/bots:latest
+    ports: ["8787:8787"]
+    volumes:
+      - ./data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      SANDBOX_IMAGE: bots-sandbox:latest
+```
+
+The orchestrator shells out to the host Docker daemon for bot sandboxes, so the socket must be mounted and `bots-sandbox:latest` built (or pulled) on that host.
+
 ## Development
 
 ```bash
