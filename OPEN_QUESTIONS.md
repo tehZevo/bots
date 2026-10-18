@@ -2,8 +2,6 @@
 
 Judgement calls baked into the current implementation that deserve a deliberate decision. Each lists the recommended lean; resolving one means updating the spec + code and removing the entry.
 
-- **Default manual run message text** — when no message is provided, `POST /api/bots/:id/run` injects "Continue with your current work."
-  _Lean: keep generic phrasing; revisit when a chat UI exists so users can see/edit what gets injected._
 - **Trigger→response mapping** — all triggers steered into one active loop are recorded in that single run; `output` is only the final assistant reply of the whole cycle, so individual trigger messages have no receipt.
   _Lean: keep runs as "working cycles" (matches spec) and defer per-trigger receipts until a channel needs them._
 - **Crash/restart recovery** — runs interrupted by a restart stay `running` forever, and in-flight context is only persisted when the loop goes quiet (crash loses that turn's messages).
