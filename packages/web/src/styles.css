@@ -439,18 +439,6 @@ article header {
   display: inline-block;
 }
 
-.dot.green {
-  background: var(--ok);
-}
-
-.dot.yellow {
-  background: var(--warn);
-}
-
-.dot.red {
-  background: var(--err);
-}
-
 @keyframes dotpulse {
   50% {
     opacity: 0.35;
@@ -901,3 +889,15 @@ section > .viewhead {
 .card .statline { margin-top: 2px; flex-basis: 100%; }
 .statline em { font-style: normal; opacity: 0.7; }
 .redcount { color: var(--err); }
+
+.dot.green {
+  background: var(--ok);
+}
+
+.dot.yellow {
+  background: var(--warn);
+}
+
+.dot.red {
+  background: var(--err);
+}
