@@ -16,4 +16,4 @@ The orchestrator builds one image per machine, tagged by a content hash of its D
 
 ## Choosing a machine for a bot
 
-Pick a machine when creating a bot, or switch it later in the bot's **General** tab (Machine select). Switching takes effect on the next sandbox — after the idle reap or once the container is recreated — not mid-run. Per-bot CPU/memory limits are unrelated to machine selection and apply either way.
+Pick a machine when creating a bot, or switch it later in the bot's **General** tab (Machine select). Switching takes effect on the next sandbox — after the idle reap, or immediately via **Restart machine** in the same tab — not mid-run. Per-bot CPU/memory limits are unrelated to machine selection and apply either way.

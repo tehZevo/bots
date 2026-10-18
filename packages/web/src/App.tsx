@@ -1697,7 +1697,9 @@ function BotGeneral({
   const [machines, setMachines] = useState<Machine[]>([]);
   const [busy, setBusy] = useState(false);
   const [toggling, setToggling] = useState(false);
-  const [pending, setPending] = useState<"delete" | "clear" | null>(null);
+  const [pending, setPending] = useState<"delete" | "clear" | "restart" | null>(
+    null,
+  );
 
   useEffect(() => {
     void api<Role[]>("/api/roles").then(setRoles, () => setRoles([]));
@@ -1794,6 +1796,9 @@ function BotGeneral({
             Stop
           </button>
         )}
+        <button type="button" onClick={() => setPending("restart")}>
+          Restart machine
+        </button>
         <button type="button" onClick={() => setPending("clear")}>
           Clear memory
         </button>
@@ -1857,6 +1862,19 @@ function BotGeneral({
             api(`/api/bots/${bot.id}/messages`, { method: "DELETE" }).catch(
               (e) => alert(e.message),
             );
+          }}
+        />
+      )}
+      {pending === "restart" && (
+        <ConfirmDialog
+          text={`Restart the machine of ${bot.name}? A running task is interrupted and the container is recreated on next shell use; anything installed outside /workspace is lost.`}
+          confirmLabel="Restart machine"
+          onCancel={() => setPending(null)}
+          onConfirm={() => {
+            setPending(null);
+            api(`/api/bots/${bot.id}/restart-machine`, { method: "POST" })
+              .then(onChanged)
+              .catch((e) => alert(e.message));
           }}
         />
       )}
