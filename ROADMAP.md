@@ -13,4 +13,6 @@ Behaviors agreed on but not yet specced in detail. Each becomes its own spec dir
 - **Avatar animations** — status-driven avatar motion: disabled = still and gray, running = active animation, idle = sleeping animation (see web-ui/status-colors.md levels).
 - **Bot templates** — reusable bundles of machine + role (+ description, system prompt, starter triggers) created from any bot or from scratch; "New bot from template" pre-fills the create dialog and can be instantiated repeatedly.
 
+- **Docs site on GitHub Pages** — user-facing documentation under `docs/` (how to use the app, capabilities, API) published via Pages Actions (see `docs/github-pages.md`).
+
 - **In-app notifications** — notification list for failed runs and pending approvals with an unread badge; delivered as native browser push through the PWA service worker once subscriptions exist.
