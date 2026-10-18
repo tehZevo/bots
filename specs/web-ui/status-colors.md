@@ -7,4 +7,4 @@
 - Blocked: latest completed run ended `error`, the bot has no model configured (`llm/providers.md`), or the agent's status line carries level `blocked` (`bots/status-line.md`). Being switched off is not Blocked — it is Disabled.
 - Disabled: the bot's enabled flag is off; gray outranks every other color.
 - The status bar counts show `N total · M running`, plus a blocked count when any bot is red.
-- Every status dot except Disabled pulses gently (opacity/scale breathing) so live bots read as alive at a glance; the pulse's start offset is derived from the bot id so dots on different cards are never in sync. Reduced-motion users get steady dots.
+- Only the Active status dot pulses gently (opacity/scale breathing) while its bot loop is actually running; Idle, Issues, Blocked, and Disabled stay steady. The pulse's start offset is derived from the bot id so dots on different cards are never in sync. Reduced-motion users get steady dots.
