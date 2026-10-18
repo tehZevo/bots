@@ -324,6 +324,7 @@ export function App() {
         )}
         {addOpen && (
           <AddBotModal
+            usedNames={bots.map((b) => b.name)}
             onClose={() => setAddOpen(false)}
             onCreated={() => {
               setAddOpen(false);
@@ -336,14 +337,56 @@ export function App() {
   );
 }
 
+const BOT_NAMES = [
+  "atlas",
+  "juno",
+  "marlow",
+  "sable",
+  "wren",
+  "nova",
+  "kestrel",
+  "orbit",
+  "tundra",
+  "quill",
+  "vesper",
+  "bramble",
+  "cinder",
+  "dune",
+  "ember",
+  "flint",
+  "gale",
+  "harbor",
+  "iris",
+  "juniper",
+  "kelp",
+  "lyra",
+  "onyx",
+  "rowan",
+  "sage",
+  "cobalt",
+  "indigo",
+  "zenith",
+  "zephyr",
+  "lark",
+];
+
+function pickBotName(used: string[]): string {
+  const taken = new Set(used.map((n) => n.toLowerCase()));
+  const free = BOT_NAMES.filter((n) => !taken.has(n));
+  const pool = free.length > 0 ? free : BOT_NAMES;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
 function AddBotModal({
+  usedNames,
   onClose,
   onCreated,
 }: {
+  usedNames: string[];
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const [name, setName] = useState("");
+  const [name, setName] = useState(() => pickBotName(usedNames));
   const [systemPrompt, setSystemPrompt] = useState("");
   const [roleId, setRoleId] = useState("");
   const [roles, setRoles] = useState<Role[]>([]);
