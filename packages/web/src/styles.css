@@ -795,6 +795,14 @@ code.secret { user-select: all; }
 .mcpsrv .line, .mcpsrv .envline { margin: 0.3rem 0 0; font-size: 13px; }
 .ok { color: var(--ok); }
 
+textarea.code {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  resize: none;
+  height: 16rem;
+  white-space: pre;
+}
+
 
 
 /* ---- flat visual system (specs/web-ui/visual-style.md) ---- */

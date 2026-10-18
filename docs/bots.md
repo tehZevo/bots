@@ -4,7 +4,7 @@ A bot is a persistent agent loop: system prompt + model + tools + memory. Cards 
 
 ## Detail tabs
 
-- **General** — name/description editing and role picker, with Save disabled until one of them changes; enable toggle switch, Stop while running, Clear memory, Delete.
+- **General** — name/description editing, role and machine pickers, with Save disabled until one of them changes; enable toggle switch, Stop while running, Clear memory, Delete.
 - **Triggers** — schedule and webhook triggers, each with its own pause switch ([details](/triggers-scheduling)).
 - **Chat** — talk to the bot directly; your message appears instantly and a typing indicator shows until the reply lands. Chat turns enter the same persistent context as everything else.
 - **Logs** — run history: trigger source, status (ok/error), output, errors.

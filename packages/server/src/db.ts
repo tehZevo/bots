@@ -11,6 +11,7 @@ export interface BotRow {
   system_prompt: string;
   model_id: string | null;
   role_id: string | null;
+  machine_id: string | null;
   enabled: number;
   current_task: string | null;
   current_task_updated_at: number | null;
@@ -167,7 +168,9 @@ if (botColumns.has("task")) {
 }
 
 const trigCols = new Set(
-  (db.prepare("PRAGMA table_info(triggers)").all() as { name: string }[]).map((c) => c.name),
+  (db.prepare("PRAGMA table_info(triggers)").all() as { name: string }[]).map(
+    (c) => c.name,
+  ),
 );
 if (!trigCols.has("enabled")) {
   db.prepare(
@@ -223,6 +226,23 @@ const triggerColumns = new Set(
 if (!triggerColumns.has("secret"))
   db.prepare("ALTER TABLE triggers ADD COLUMN secret TEXT").run();
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS machines (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
+    dockerfile TEXT NOT NULL,
+    image TEXT,
+    build_error TEXT,
+    created_at INTEGER NOT NULL
+  );
+`);
+
+if (!botColumns.has("machine_id"))
+  db.prepare(
+    "ALTER TABLE bots ADD COLUMN machine_id TEXT REFERENCES machines(id)",
+  ).run();
+
 export function listBots(): BotRow[] {
   return db.prepare("SELECT * FROM bots ORDER BY created_at").all() as BotRow[];
 }
@@ -235,9 +255,78 @@ export function getBot(id: string): BotRow | undefined {
 
 export function insertBot(bot: BotRow): void {
   db.prepare(
-    `INSERT INTO bots (id, name, description, system_prompt, model_id, role_id, enabled, created_at)
-     VALUES (@id, @name, @description, @system_prompt, @model_id, @role_id, @enabled, @created_at)`,
+    `INSERT INTO bots (id, name, description, system_prompt, model_id, role_id, machine_id, enabled, created_at)
+     VALUES (@id, @name, @description, @system_prompt, @model_id, @role_id, @machine_id, @enabled, @created_at)`,
   ).run(bot);
+}
+
+export interface MachineRow {
+  id: string;
+  name: string;
+  description: string;
+  dockerfile: string;
+  image: string | null;
+  build_error: string | null;
+  created_at: number;
+}
+
+export function listMachines(): MachineRow[] {
+  return db
+    .prepare("SELECT * FROM machines ORDER BY name COLLATE NOCASE")
+    .all() as MachineRow[];
+}
+
+export function getMachine(id: string): MachineRow | undefined {
+  return db.prepare("SELECT * FROM machines WHERE id = ?").get(id) as
+    | MachineRow
+    | undefined;
+}
+
+export function insertMachine(machine: MachineRow): void {
+  db.prepare(
+    `INSERT INTO machines (id, name, description, dockerfile, image, build_error, created_at)
+     VALUES (@id, @name, @description, @dockerfile, @image, @build_error, @created_at)`,
+  ).run(machine);
+}
+
+export function updateMachine(
+  id: string,
+  patch: Partial<Pick<MachineRow, "name" | "description" | "dockerfile">>,
+): void {
+  const keys = Object.keys(patch);
+  if (keys.length === 0) return;
+  const sets = keys.map((k) => `${k} = @${k}`).join(", ");
+  db.prepare(`UPDATE machines SET ${sets} WHERE id = @id`).run({
+    ...patch,
+    id,
+  });
+}
+
+export function setMachineBuild(
+  id: string,
+  image: string | null,
+  buildError: string | null,
+): void {
+  db.prepare("UPDATE machines SET image = ?, build_error = ? WHERE id = ?").run(
+    image,
+    buildError,
+    id,
+  );
+}
+
+export function deleteMachine(id: string): void {
+  db.prepare("UPDATE bots SET machine_id = NULL WHERE machine_id = ?").run(id);
+  db.prepare("DELETE FROM machines WHERE id = ?").run(id);
+}
+
+export function botsUsingMachine(
+  machineId: string,
+): { id: string; name: string }[] {
+  return db
+    .prepare(
+      "SELECT id, name FROM bots WHERE machine_id = ? ORDER BY created_at",
+    )
+    .all(machineId) as { id: string; name: string }[];
 }
 
 export function updateBot(id: string, patch: Partial<BotRow>): void {
