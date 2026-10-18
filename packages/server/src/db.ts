@@ -23,6 +23,8 @@ export interface RoleRow {
   id: string;
   name: string;
   instructions: string;
+  mcp_server_ids: string[];
+  skill_ids: string[];
   created_at: number;
 }
 
@@ -163,6 +165,22 @@ if (botColumns.has("task")) {
   }
 }
 
+const roleCols = new Set(
+  (db.prepare("PRAGMA table_info(roles)").all() as { name: string }[]).map(
+    (c) => c.name,
+  ),
+);
+if (!roleCols.has("mcp_server_ids")) {
+  db.prepare(
+    "ALTER TABLE roles ADD COLUMN mcp_server_ids TEXT NOT NULL DEFAULT '[]'",
+  ).run();
+}
+if (!roleCols.has("skill_ids")) {
+  db.prepare(
+    "ALTER TABLE roles ADD COLUMN skill_ids TEXT NOT NULL DEFAULT '[]'",
+  ).run();
+}
+
 if (!botColumns.has("description"))
   db.prepare(
     "ALTER TABLE bots ADD COLUMN description TEXT NOT NULL DEFAULT ''",
@@ -226,30 +244,63 @@ export function deleteBot(id: string): void {
   db.prepare("DELETE FROM bots WHERE id = ?").run(id);
 }
 
+interface RawRoleRow extends Omit<RoleRow, "mcp_server_ids" | "skill_ids"> {
+  mcp_server_ids: string;
+  skill_ids: string;
+}
+
+function parseRole(row: RawRoleRow): RoleRow {
+  const parse = (v: string): string[] => {
+    try {
+      const list = JSON.parse(v) as unknown;
+      return Array.isArray(list)
+        ? (list.filter((x) => typeof x === "string") as string[])
+        : [];
+    } catch {
+      return [];
+    }
+  };
+  return {
+    ...row,
+    mcp_server_ids: parse(row.mcp_server_ids),
+    skill_ids: parse(row.skill_ids),
+  };
+}
+
 export function listRoles(): RoleRow[] {
-  return db
-    .prepare("SELECT * FROM roles ORDER BY created_at")
-    .all() as RoleRow[];
+  return (
+    db.prepare("SELECT * FROM roles ORDER BY created_at").all() as RawRoleRow[]
+  ).map(parseRole);
 }
 
 export function getRole(id: string): RoleRow | undefined {
-  return db.prepare("SELECT * FROM roles WHERE id = ?").get(id) as
-    | RoleRow
+  const row = db.prepare("SELECT * FROM roles WHERE id = ?").get(id) as
+    | RawRoleRow
     | undefined;
+  return row ? parseRole(row) : undefined;
 }
 
 export function insertRole(role: RoleRow): void {
   db.prepare(
-    `INSERT INTO roles (id, name, instructions, created_at)
-     VALUES (@id, @name, @instructions, @created_at)`,
-  ).run(role);
+    `INSERT INTO roles (id, name, instructions, mcp_server_ids, skill_ids, created_at)
+     VALUES (@id, @name, @instructions, @mcp_server_ids, @skill_ids, @created_at)`,
+  ).run({
+    ...role,
+    mcp_server_ids: JSON.stringify(role.mcp_server_ids),
+    skill_ids: JSON.stringify(role.skill_ids),
+  });
 }
 
 export function updateRole(id: string, patch: Partial<RoleRow>): void {
   const keys = Object.keys(patch).filter((k) => k !== "id");
   if (keys.length === 0) return;
   const sets = keys.map((k) => `${k} = @${k}`).join(", ");
-  db.prepare(`UPDATE roles SET ${sets} WHERE id = @id`).run({ ...patch, id });
+  db.prepare(`UPDATE roles SET ${sets} WHERE id = @id`).run({
+    ...patch,
+    mcp_server_ids: JSON.stringify(patch.mcp_server_ids),
+    skill_ids: JSON.stringify(patch.skill_ids),
+    id,
+  });
 }
 
 export function deleteRole(id: string): void {

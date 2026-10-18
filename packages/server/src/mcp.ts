@@ -12,18 +12,25 @@ interface JsonRpcMessage {
   error?: { code: number; message: string };
 }
 
-export async function testMcpConnection(
+export interface McpToolDef {
+  name: string;
+  description?: string;
+  inputSchema?: unknown;
+}
+
+export interface McpSession {
+  listTools(): Promise<McpToolDef[]>;
+  callTool(name: string, args: unknown): Promise<string>;
+  close(): void;
+}
+
+export async function connectMcpServer(
   server: McpServerRow,
-): Promise<{ tools: number }> {
+): Promise<McpSession> {
   if (!server.command.trim()) throw new Error("command is empty");
   const child = spawn(server.command, server.args, {
     env: { ...process.env, ...server.env },
     stdio: ["pipe", "pipe", "pipe"],
-  });
-
-  let stderr = "";
-  child.stderr.on("data", (chunk) => {
-    stderr += String(chunk);
   });
 
   const pending = new Map<number, (msg: JsonRpcMessage) => void>();
@@ -48,11 +55,9 @@ export async function testMcpConnection(
   });
 
   type Outgoing = { id?: number; method?: string; params?: unknown };
-
   const send = (msg: Outgoing): void => {
     child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...msg })}\n`);
   };
-
   const request = (method: string, params: unknown): Promise<JsonRpcMessage> =>
     new Promise((resolve, reject) => {
       const id = nextId++;
@@ -72,32 +77,56 @@ export async function testMcpConnection(
       send({ id, method, params });
     });
 
-  child.on("error", (err) => {
+  const failAll = (message: string) => {
     for (const resolve of pending.values())
-      resolve({
-        jsonrpc: "2.0",
-        error: { code: -1, message: `spawn failed: ${err.message}` },
-      });
-  });
+      resolve({ jsonrpc: "2.0", error: { code: -1, message } });
+  };
+  child.on("error", (err) => failAll(`spawn failed: ${err.message}`));
+  child.on("close", () => failAll("mcp server exited"));
 
+  const init = await request("initialize", {
+    protocolVersion: "2025-03-26",
+    capabilities: {},
+    clientInfo: { name: "bots", version: "0.1" },
+  });
+  if (init.error) throw new Error(init.error.message);
+  send({ method: "notifications/initialized" });
+
+  return {
+    async listTools() {
+      const res = await request("tools/list", {});
+      if (res.error) throw new Error(res.error.message);
+      const list = (res.result as { tools?: McpToolDef[] })?.tools ?? [];
+      return Array.isArray(list) ? list : [];
+    },
+    async callTool(name, args) {
+      const res = await request("tools/call", { name, arguments: args });
+      if (res.error) throw new Error(res.error.message);
+      const content =
+        (res.result as { content?: { type: string; text?: string }[] })
+          ?.content ?? [];
+      return content
+        .map((c) => (c.type === "text" ? (c.text ?? "") : `[${c.type}]`))
+        .join("\n");
+    },
+    close() {
+      child.kill();
+    },
+  };
+}
+
+export async function testMcpConnection(
+  server: McpServerRow,
+): Promise<{ tools: number }> {
+  const stderrNote = "";
+  const session = await connectMcpServer(server).catch((err: unknown) => {
+    throw err;
+  });
   try {
-    const init = await request("initialize", {
-      protocolVersion: "2025-03-26",
-      capabilities: {},
-      clientInfo: { name: "bots", version: "0.1" },
-    });
-    if (init.error) throw new Error(init.error.message);
-    send({ method: "notifications/initialized" });
-    const tools = await request("tools/list", {});
-    if (tools.error) throw new Error(tools.error.message);
-    const list = (tools.result as { tools?: unknown[] })?.tools ?? [];
-    return { tools: Array.isArray(list) ? list.length : 0 };
-  } catch (err) {
-    const detail = stderr.trim() ? ` — ${stderr.trim().slice(0, 300)}` : "";
-    throw new Error(
-      err instanceof Error ? `${err.message}${detail}` : `test failed${detail}`,
-    );
+    const tools = await session.listTools();
+    return { tools: tools.length };
   } finally {
-    child.kill();
+    session.close();
+    void stderrNote;
   }
 }

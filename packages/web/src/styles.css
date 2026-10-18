@@ -919,3 +919,7 @@ section > .viewhead {
 .namerow { display: flex; gap: var(--gap-inner, 0.5rem); }
 .namerow input { flex: 1; }
 button.shuffle { min-width: var(--control-h, 36px); padding: 0; font-size: 18px; line-height: 1; }
+.grantlist { display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow-y: auto; }
+.grantlist h3 { margin: 10px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.grantrow { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+.grantrow:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); }
