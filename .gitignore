@@ -1,5 +1,8 @@
 node_modules/
 dist/
 .env
-data/
-packages/web/.vite/
+*.db
+*.db-shm
+*.db-wal
+docs/.vitepress/cache/
+docs/.vitepress/dist/

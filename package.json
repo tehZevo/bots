@@ -15,11 +15,15 @@
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "test": "node --import ./packages/server/node_modules/tsx/dist/loader.mjs --experimental-test-coverage --test-coverage-include='packages/server/src/**' --test-coverage-lines=50 --test packages/server/test/*.test.ts"
+    "test": "node --import ./packages/server/node_modules/tsx/dist/loader.mjs --experimental-test-coverage --test-coverage-include='packages/server/src/**' --test-coverage-lines=50 --test packages/server/test/*.test.ts",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.0",
     "concurrently": "^9.2.0",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "vitepress": "^1.6.4"
   }
 }
