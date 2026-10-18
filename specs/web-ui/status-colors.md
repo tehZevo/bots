@@ -1,8 +1,9 @@
 # Bot health colors
 
-- The card status circle and detail status line use three levels, named Active (green), Issues (yellow) and Blocked (red). These words are what users see everywhere — hover text, detail line and bar counts; the internal color keys may stay `green`/`yellow`/`red`.
-- Blocked: latest completed run ended `error`, the bot is blocked operationally (disabled, or no model configured per `llm/providers.md`), or the agent's status line carries level `blocked` (`bots/status-line.md`) — the agent declaring it cannot proceed shows as Blocked too.
+- The card status circle and detail status line use four levels — Active (green), Idle (blue), Issues (yellow), Blocked (red) — plus Disabled (gray). These words are what users see everywhere (hover text, detail line, bar counts); internal color keys may stay `green`/`blue`/`yellow`/`red`/`gray`.
+- Active: the bot's loop is currently running; the green dot carries the live pulse.
+- Idle: enabled, not running, and no Issues or Blocked condition holds — ready and waiting.
 - Issues: the agent's status line carries level `issue` while no Blocked condition holds — self-report can raise concern but never hide a real failure.
-- Active otherwise; an actively running loop keeps its live pulse on top of the level color.
-- The status bar counts follow: `N total · M running` stays, plus a blocked count when any bot is red.
-
+- Blocked: latest completed run ended `error`, the bot has no model configured (`llm/providers.md`), or the agent's status line carries level `blocked` (`bots/status-line.md`). Being switched off is not Blocked — it is Disabled.
+- Disabled: the bot's enabled flag is off; gray outranks every other color.
+- The status bar counts show `N total · M running`, plus a blocked count when any bot is red.
