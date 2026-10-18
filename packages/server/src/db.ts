@@ -102,6 +102,15 @@ db.exec(`
     value TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS providers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    base_url TEXT NOT NULL,
+    api_key TEXT NOT NULL DEFAULT '',
+    models TEXT NOT NULL DEFAULT '[]',
+    created_at INTEGER NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS roles (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -312,11 +321,96 @@ export function clearMessages(botId: string): void {
 
 export { db };
 
+export interface ProviderRow {
+  id: string;
+  name: string;
+  base_url: string;
+  api_key: string;
+  models: string[];
+  created_at: number;
+}
+
+interface ProviderDbRow {
+  id: string;
+  name: string;
+  base_url: string;
+  api_key: string;
+  models: string;
+  created_at: number;
+}
+
+function toProvider(row: ProviderDbRow): ProviderRow {
+  let models: string[] = [];
+  try {
+    const parsed: unknown = JSON.parse(row.models);
+    if (Array.isArray(parsed))
+      models = parsed.filter((m): m is string => typeof m === "string");
+  } catch {
+    // fall through with empty list
+  }
+  return { ...row, models };
+}
+
+export function listProviders(): ProviderRow[] {
+  const rows = db
+    .prepare("SELECT * FROM providers ORDER BY name COLLATE NOCASE")
+    .all() as ProviderDbRow[];
+  return rows.map(toProvider);
+}
+
+export function getProvider(id: string): ProviderRow | undefined {
+  const row = db.prepare("SELECT * FROM providers WHERE id = ?").get(id) as
+    | ProviderDbRow
+    | undefined;
+  return row ? toProvider(row) : undefined;
+}
+
+export function insertProvider(p: ProviderRow): void {
+  db.prepare(
+    "INSERT INTO providers (id, name, base_url, api_key, models, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+  ).run(
+    p.id,
+    p.name,
+    p.base_url,
+    p.api_key,
+    JSON.stringify(p.models),
+    p.created_at,
+  );
+}
+
+export function updateProvider(
+  id: string,
+  fields: Partial<Omit<ProviderRow, "id">>,
+): boolean {
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  for (const key of ["name", "base_url", "api_key", "models"] as const) {
+    if (fields[key] !== undefined) {
+      sets.push(`${key} = ?`);
+      vals.push(key === "models" ? JSON.stringify(fields.models) : fields[key]);
+    }
+  }
+  if (sets.length === 0) return false;
+  vals.push(id);
+  const result = db
+    .prepare(`UPDATE providers SET ${sets.join(", ")} WHERE id = ?`)
+    .run(...vals);
+  return result.changes > 0;
+}
+
+export function deleteProvider(id: string): boolean {
+  return db.prepare("DELETE FROM providers WHERE id = ?").run(id).changes > 0;
+}
+
 export function getSetting(key: string): string | undefined {
   const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as
     | { value: string }
     | undefined;
   return row?.value;
+}
+
+export function deleteSetting(key: string): void {
+  db.prepare("DELETE FROM settings WHERE key = ?").run(key);
 }
 
 export function setSetting(key: string, value: string): void {
