@@ -28,7 +28,7 @@ interface Role {
 interface Run {
   id: string;
   status: "running" | "ok" | "error";
-  trigger: "schedule" | "manual";
+  trigger: "schedule" | "manual" | "chat";
   started_at: number;
   finished_at: number | null;
   output: string | null;
@@ -58,9 +58,9 @@ export function App() {
   const [bots, setBots] = useState<Bot[]>([]);
   const [tab, setTab] = useState<"bots" | "roles" | "settings">("bots");
   const [openBot, setOpenBot] = useState<string | null>(null);
-  const [modalTab, setModalTab] = useState<"general" | "triggers" | "logs">(
-    "general",
-  );
+  const [modalTab, setModalTab] = useState<
+    "general" | "triggers" | "chat" | "logs"
+  >("general");
   const [detailOpen, setDetailOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [botQuery, setBotQuery] = useState("");
@@ -273,7 +273,7 @@ export function App() {
                 </button>
               </div>
               <nav className="mtabs">
-                {(["general", "triggers", "logs"] as const).map((t) => (
+                {(["general", "triggers", "chat", "logs"] as const).map((t) => (
                   <button
                     key={t}
                     type="button"
@@ -301,6 +301,7 @@ export function App() {
                   </>
                 )}
                 {modalTab === "triggers" && <Triggers botId={openBotRow.id} />}
+                {modalTab === "chat" && <Chat botId={openBotRow.id} />}
                 {modalTab === "logs" && (
                   <>
                     {runs.length === 0 && (
@@ -1526,6 +1527,89 @@ function Triggers({ botId }: { botId: string }) {
         />
         <button type="submit" disabled={busy}>
           Add trigger
+        </button>
+      </form>
+    </section>
+  );
+}
+
+function Chat({ botId }: { botId: string }) {
+  const [turns, setTurns] = useState<{ role: string; text: string }[]>([]);
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const loadChat = useCallback(async () => {
+    try {
+      setTurns(
+        await api<{ role: string; text: string }[]>(
+          `/api/bots/${botId}/messages`,
+        ),
+      );
+    } catch {
+      /* keep last */
+    }
+  }, [botId]);
+
+  useEffect(() => {
+    void loadChat();
+    const t = setInterval(loadChat, 3000);
+    return () => clearInterval(t);
+  }, [loadChat]);
+
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ block: "end" });
+  }, [turns.length]);
+
+  const send = async () => {
+    const text = draft.trim();
+    if (!text || sending) return;
+    setSending(true);
+    setErr(null);
+    try {
+      await api(`/api/bots/${botId}/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      setDraft("");
+      await loadChat();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <section className="chat">
+      <div className="chat-log">
+        {turns.length === 0 && <p>No conversation yet. Say something below.</p>}
+        {turns.map((t, i) => (
+          <div key={i} className={`chat-turn ${t.role}`}>
+            <span className="who">{t.role === "user" ? "you" : "bot"}</span>
+            <pre>{t.text}</pre>
+          </div>
+        ))}
+        <div ref={bottomRef} />
+      </div>
+      {err && <p className="error">{err}</p>}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void send();
+        }}
+        className="chat-input"
+      >
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Message the bot…"
+          disabled={sending}
+        />
+        <button type="submit" disabled={sending || !draft.trim()}>
+          {sending ? "Sending…" : "Send"}
         </button>
       </form>
     </section>

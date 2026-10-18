@@ -411,6 +411,51 @@ export function createApp(): Hono {
     return c.json({ runId, steered }, 202);
   });
 
+  app.get("/api/bots/:id/messages", (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    const turns: { role: string; text: string }[] = [];
+    for (const row of loadMessages(bot.id)) {
+      let msg: unknown;
+      try {
+        msg = JSON.parse(row.payload);
+      } catch {
+        continue;
+      }
+      const content = (msg as { content?: unknown }).content;
+      const text =
+        typeof content === "string"
+          ? content
+          : Array.isArray(content)
+            ? content
+                .map((b) =>
+                  b &&
+                  typeof b === "object" &&
+                  (b as { type?: string }).type === "text"
+                    ? String((b as { text?: string }).text ?? "")
+                    : "",
+                )
+                .join("")
+            : "";
+      if (!text.trim()) continue;
+      const stripped = text.replace(/^\[(schedule|manual|chat) [^\]]*\]\n/, "");
+      turns.push({ role: row.role, text: stripped });
+    }
+    return c.json(turns);
+  });
+
+  app.post("/api/bots/:id/messages", async (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    if (!bot.enabled) return c.json({ error: "bot is disabled" }, 409);
+    const body = (await c.req.json().catch(() => null)) as {
+      text?: unknown;
+    } | null;
+    const text = typeof body?.text === "string" ? body.text.trim() : "";
+    if (!text) return c.json({ error: "text is required" }, 400);
+    const { runId, steered } = injectMessage(bot, text, "chat");
+    return c.json({ runId, steered });
+  });
   app.post("/api/bots/:id/interrupt", (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
