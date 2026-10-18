@@ -923,3 +923,13 @@ button.shuffle { min-width: var(--control-h, 36px); padding: 0; font-size: 18px;
 .grantlist h3 { margin: 10px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .grantrow { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; font-size: 13px; cursor: pointer; }
 .grantrow:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+
+.modal form > label { display: flex; flex-direction: column; gap: 4px; }
+.modal form > label > input:not([type="checkbox"]),
+.modal form > label > textarea { width: 100%; box-sizing: border-box; }
+.envrows { border: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; min-height: 92px; max-height: 140px; overflow-y: auto; }
+.envrows legend { padding: 0; font-size: inherit; color: inherit; margin-bottom: 2px; }
+.envrow { display: flex; gap: 6px; align-items: center; }
+.envrow input:first-child { flex: 0 0 40%; }
+button.linklike { background: none; border: none; color: var(--accent); padding: 2px 0; width: fit-content; text-align: left; cursor: pointer; }
+button.danger.ghost { min-width: 30px; padding: 4px 8px; }

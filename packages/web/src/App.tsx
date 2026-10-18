@@ -2316,11 +2316,10 @@ function McpServerModal({
   const [name, setName] = useState(server?.name ?? "");
   const [command, setCommand] = useState(server?.command ?? "");
   const [args, setArgs] = useState((server?.args ?? []).join("\n"));
-  const [env, setEnv] = useState(
-    Object.entries(server?.env ?? {})
-      .map(([k, v]) => `${k}=${v}`)
-      .join("\n"),
-  );
+  const [envRows, setEnvRows] = useState<[string, string][]>(() => {
+    const entries = Object.entries(server?.env ?? {}) as [string, string][];
+    return entries.length > 0 ? entries : [["", ""]];
+  });
   const [enabled, setEnabled] = useState(server ? server.enabled === 1 : true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -2341,9 +2340,9 @@ function McpServerModal({
             setBusy(true);
             setError(null);
             const envMap: Record<string, string> = {};
-            for (const line of env.split("\n")) {
-              const i = line.indexOf("=");
-              if (i > 0) envMap[line.slice(0, i).trim()] = line.slice(i + 1);
+            for (const [k, v] of envRows) {
+              const key = k.trim();
+              if (key) envMap[key] = v;
             }
             const body = {
               name,
@@ -2398,14 +2397,50 @@ function McpServerModal({
               onChange={(e) => setArgs(e.target.value)}
             />
           </label>
-          <label>
-            Env vars (KEY=value per line)
-            <textarea
-              rows={3}
-              value={env}
-              onChange={(e) => setEnv(e.target.value)}
-            />
-          </label>
+          <fieldset className="envrows">
+            <legend>Env vars</legend>
+            {envRows.map(([k, v], i) => (
+              <div className="envrow" key={i}>
+                <input
+                  placeholder="KEY"
+                  value={k}
+                  onChange={(e) =>
+                    setEnvRows(
+                      envRows.map((r, j) =>
+                        j === i ? [e.target.value, r[1]] : r,
+                      ),
+                    )
+                  }
+                />
+                <input
+                  placeholder="value"
+                  value={v}
+                  onChange={(e) =>
+                    setEnvRows(
+                      envRows.map((r, j) =>
+                        j === i ? [r[0], e.target.value] : r,
+                      ),
+                    )
+                  }
+                />
+                <button
+                  type="button"
+                  className="danger ghost"
+                  aria-label={`Remove env var ${i + 1}`}
+                  onClick={() => setEnvRows(envRows.filter((_, j) => j !== i))}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="linklike"
+              onClick={() => setEnvRows([...envRows, ["", ""]])}
+            >
+              + Add variable
+            </button>
+          </fieldset>
           <label className="checkrow">
             <input
               type="checkbox"
