@@ -95,7 +95,7 @@ export function buildTools(botId: string): AgentTool<any>[] {
     name: "set_current_task",
     label: "Set current task",
     description:
-      "Set the one-line status describing what you are working on right now. Pass an empty string to clear it.",
+      "Set the one-line status describing what this bot is working on right now; always applies to this bot only. Pass an empty string to clear it.",
     parameters: taskSchema,
     execute: async (_id, params) => {
       setCurrentTask(botId, params.text);
