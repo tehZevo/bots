@@ -12,3 +12,5 @@
 - Tapping another card switches the modal to that bot in place; on phones the modal spans the full screen.
 
 See also: `bots/interrupt.md` (Stop), `triggers/model.md`, `dashboard.md`.
+
+- The detail header shows the bot's current task and status substep under its name when set — task plain, status italic muted below, one shared relative-age label for the pair (see `bots/status-line.md`); an empty status line clears with it.
