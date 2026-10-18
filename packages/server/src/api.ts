@@ -62,9 +62,11 @@ import {
 } from "./db.ts";
 import { testMcpConnection } from "./mcp.ts";
 import {
-  defaultSandboxImage,
+  defaultImageRef,
   idleMinutes,
+  rebuildMachineImage,
   removeContainer,
+  repullDefaultImage,
   restartSandbox,
 } from "./sandbox.ts";
 import { nextRunAt } from "./scheduler.ts";
@@ -511,7 +513,7 @@ export function createApp(): Hono {
         description: "Built-in sandbox image",
         builtin: true,
         dockerfile: "",
-        image: defaultSandboxImage(),
+        image: defaultImageRef(),
         build_error: null,
       },
       ...listMachines().map((m) => ({ ...m, builtin: false })),
@@ -561,6 +563,29 @@ export function createApp(): Hono {
       );
     deleteMachine(id);
     return c.json({ ok: true });
+  });
+
+  app.post("/api/machines/default/repull", async (c) => {
+    try {
+      const image = await repullDefaultImage();
+      return c.json({ ok: true, image });
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        502,
+      );
+    }
+  });
+
+  app.post("/api/machines/:machineId/rebuild", async (c) => {
+    const machine = getMachine(c.req.param("machineId"));
+    if (!machine) return c.json({ error: "not found" }, 404);
+    try {
+      await rebuildMachineImage(machine.id, machine.dockerfile);
+    } catch {
+      // failure is recorded on the row; surfaced inline per spec
+    }
+    return c.json({ ...getMachine(machine.id), builtin: false });
   });
 
   app.get("/api/bots/:id", (c) => {
