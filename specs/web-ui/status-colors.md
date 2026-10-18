@@ -6,4 +6,3 @@
 - Active otherwise; an actively running loop keeps its live pulse on top of the level color.
 - The status bar counts follow: `N total · M running` stays, plus a blocked count when any bot is red.
 
-This also restores the three-level rules lost when #68's merge re-applied a pre-#89 snapshot of this file.
