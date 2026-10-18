@@ -31,7 +31,7 @@ pnpm build && pnpm start
 
 ### Published image (no local build)
 
-Every merge to `master` publishes a public orchestrator image to GHCR (`sha-<git-sha>` always, `latest` on successful master builds, `v*` git tags as version tags):
+Every merge to `master` publishes a public orchestrator image to GHCR (`sha-<git-sha>` always, `latest` on successful master builds, semver git tags as version tags — the release line is `v0.x.y` until the first beta):
 
 ```bash
 docker pull ghcr.io/<owner>/bots:latest
