@@ -939,3 +939,7 @@ button.danger.ghost { min-width: 30px; padding: 4px 8px; }
 .envrows { min-height: 0; max-height: 160px; }
 
 .avatar-svg { filter: drop-shadow(0 0 6px var(--avatar-glow, transparent)); }
+.dot.blue { background: #4c8dff; }
+.dot.gray { background: #6b7280; }
+[data-theme="light"] .dot.blue { background: #3b82f6; }
+[data-theme="light"] .dot.gray { background: #9ca3af; }
