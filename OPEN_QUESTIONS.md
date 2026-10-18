@@ -18,3 +18,5 @@ Judgement calls baked into the current implementation that deserve a deliberate 
   _Lean: keep plaintext behind a single-file volume until auth/multi-user lands, then encrypt per-user._
 - **Per-bot model overrides** — the default provider/model covers every bot; per-bot selection is deferred.
   _Lean: add the override on the bot once teams/groups define who may pick which models._
+- **Container registry choice** — publish spec assumes a public registry reachable by free GitHub Actions.
+  _Lean: ghcr.io (free for public images, no second account beyond GitHub); revisit only if rate limits bite._
