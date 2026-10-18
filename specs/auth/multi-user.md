@@ -1,7 +1,8 @@
-# Multi-user accounts and ownership
+# Multi-user accounts and sessions
 
 - The API and UI are protected by login sessions: email + password credentials, cookie-based session after sign-in, a `Logout` action in Settings; unauthenticated API calls return 401.
-- First-run bootstrap: with no users configured the server opens normally (single-operator mode); creating the first account claims admin and locks registration — further accounts are added by admins.
-- Every bot has exactly one owner (the creating user; admins can transfer). Non-owner, non-admin users get 404 for another user's bots and their runs, triggers and messages, matching existing privacy phrasing.
-- Admins manage all bots and own server-wide settings: providers, default model and MCP servers are admin-only to view and edit (API keys never leave the server); roles and skills stay shared readable, editable by admins only.
+- Registration is controlled by the container env var `ALLOW_REGISTRATION` (`true`/`false`, default `false` when unset): with it on anyone may create an account; with it off only admins can add users from Settings, and the sign-up screen hides itself.
+- The first account ever created claims admin regardless of the flag, so a fresh install stays bootstrap-able.
+- No ownership model yet: every authenticated user sees and edits all bots, triggers, runs and messages equally; per-user visibility/ownership returns to the ROADMAP for later.
+- Admins alone manage server-wide settings: providers, default model and MCP servers (API keys never leave the server); roles and skills are editable by admins only, readable by everyone signed in.
 - Credentials are stored hashed; placeholder tokens stand in for provider secrets inside agent-facing surfaces so models never see them (`llm/providers.md`).
