@@ -15,7 +15,10 @@ interface Bot {
   role_id: string | null;
   enabled: number;
   created_at: number;
-  status: "running" | "enabled" | "disabled";
+  run_state: "running" | "enabled" | "disabled";
+  health: "green" | "yellow" | "red";
+  status: string | null;
+  status_level: "ok" | "issue" | "blocked" | null;
   current_task: string | null;
   current_task_updated_at: number | null;
 }
@@ -87,6 +90,12 @@ function Avatar({ name, id }: { name: string; id: string }) {
     </span>
   );
 }
+
+const HEALTH_LABEL: Record<"green" | "yellow" | "red", string> = {
+  green: "healthy",
+  yellow: "issues",
+  red: "blocked",
+};
 
 function relTime(ts: number): string {
   const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
@@ -174,7 +183,7 @@ export function App() {
   const botFilter = botQuery.trim().toLowerCase();
   const visibleBots = bots.filter(
     (bot) =>
-      (statusFilter === "all" || bot.status === statusFilter) &&
+      (statusFilter === "all" || bot.run_state === statusFilter) &&
       (!botFilter || bot.name.toLowerCase().includes(botFilter)),
   );
 
@@ -203,6 +212,7 @@ export function App() {
     });
   };
 
+  const redCount = bots.filter((b) => b.health === "red").length;
   return (
     <div className="app">
       <header className="statusbar">
@@ -216,7 +226,13 @@ export function App() {
         </button>
         <span className="counts">
           {bots.length} total ·{" "}
-          {bots.filter((b) => b.status === "running").length} running
+          {bots.filter((b) => b.run_state === "running").length} running
+          {redCount > 0 && (
+            <>
+              {" "}
+              · <span className="redcount">{redCount} red</span>
+            </>
+          )}
         </span>
       </header>
       <div className="layout">
@@ -296,12 +312,12 @@ export function App() {
                       <span className="cardtext">
                         <strong>{bot.name}</strong>
                         <span
-                          className={`dot ${bot.status}`}
-                          title={bot.status}
+                          className={`dot ${bot.health}${bot.run_state === "running" ? " pulse" : ""}`}
+                          title={HEALTH_LABEL[bot.health]}
                         />
                       </span>
                     </span>
-                    {bot.current_task && (
+                    {bot.current_task && !bot.status && (
                       <span className="taskline" title={bot.current_task}>
                         {bot.current_task}
                         {bot.current_task_updated_at && (
@@ -309,6 +325,21 @@ export function App() {
                         )}
                       </span>
                     )}
+                    {bot.status ? (
+                      <>
+                        {bot.current_task && (
+                          <span className="taskline" title={bot.current_task}>
+                            {bot.current_task}
+                          </span>
+                        )}
+                        <span className="statline" title={bot.status}>
+                          {bot.status}
+                          {bot.current_task_updated_at && (
+                            <em> · {relTime(bot.current_task_updated_at)}</em>
+                          )}
+                        </span>
+                      </>
+                    ) : null}
                   </button>
                 ))}
               </div>
@@ -338,9 +369,20 @@ export function App() {
               <div className="viewhead">
                 <Avatar name={openBotRow.name} id={openBotRow.id} />
                 <h2>{openBotRow.name}</h2>
-                {openBotRow.current_task && (
+                {openBotRow.current_task && !openBotRow.status && (
                   <p className="taskline">
                     {openBotRow.current_task}
+                    {openBotRow.current_task_updated_at && (
+                      <em> · {relTime(openBotRow.current_task_updated_at)}</em>
+                    )}
+                  </p>
+                )}
+                {openBotRow.current_task && openBotRow.status && (
+                  <p className="taskline">{openBotRow.current_task}</p>
+                )}
+                {openBotRow.status && (
+                  <p className="statline">
+                    {openBotRow.status}
                     {openBotRow.current_task_updated_at && (
                       <em> · {relTime(openBotRow.current_task_updated_at)}</em>
                     )}
@@ -376,8 +418,11 @@ export function App() {
                       onChanged={load}
                     />
                     <p className="statusline">
-                      Status: <span className={`dot ${openBotRow.status}`} />{" "}
-                      {openBotRow.status}
+                      Status:{" "}
+                      <span
+                        className={`dot ${openBotRow.health}${openBotRow.run_state === "running" ? " pulse" : ""}`}
+                      />{" "}
+                      {HEALTH_LABEL[openBotRow.health]}
                     </p>
                     <BotActions bot={openBotRow} onChanged={load} />
                     <RoleSelect bot={openBotRow} onChanged={load} />
@@ -1441,7 +1486,7 @@ function BotActions({
   return (
     <>
       <div className="actions">
-        {bot.status === "running" && (
+        {bot.run_state === "running" && (
           <button
             type="button"
             onClick={() =>
