@@ -19,11 +19,10 @@ Self-hosted autonomous bots that run against any OpenAI-compatible LLM endpoint 
 ```bash
 pnpm install
 cp .env.example .env   # optional server settings
-docker build -t bots-sandbox:latest docker/sandbox   # image for bot shells
-pnpm dev               # server on :8787, web UI on :5173
+pnpm dev               # server on :8787, web UI on :5173 (pulls the sandbox image automatically)
 ```
 
-`.env` values — LLM providers are configured in the UI (Settings → Providers), not env. Optional: `PORT` (default `8787`), `DATA_DIR` (default repo `data/`), `DATABASE_PATH`, `SANDBOX_IMAGE` (default `bots-sandbox:latest`).
+`.env` values — LLM providers are configured in the UI (Settings → Providers), not env. Optional: `PORT` (default `8787`), `DATA_DIR` (default repo `data/`), `DATABASE_PATH`, `SANDBOX_IMAGE` (default `ghcr.io/tehzevo/bots-sandbox:latest`, pulled automatically).
 
 Production — serves the built UI and API together on `:8787`:
 
@@ -33,7 +32,7 @@ pnpm build && pnpm start
 
 ### Published image (no local build)
 
-Every merge to `master` publishes a public orchestrator image to GHCR (`sha-<git-sha>` always, `latest` on successful master builds, semver git tags as version tags — the release line is `v0.x.y` until the first beta):
+Every merge to `master` publishes public orchestrator and sandbox images to GHCR (`ghcr.io/tehZevo/bots` and `ghcr.io/tehZevo/bots-sandbox`; `sha-<git-sha>` always, `latest` on successful master builds, semver git tags as version tags — the release line is `v0.x.y` until the first beta):
 
 ```bash
 docker pull ghcr.io/tehZevo/bots:latest
@@ -47,11 +46,10 @@ services:
     volumes:
       - ./data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      SANDBOX_IMAGE: bots-sandbox:latest
+    # SANDBOX_IMAGE only needed to point at a custom sandbox build
 ```
 
-The orchestrator shells out to the host Docker daemon for bot sandboxes, so the socket must be mounted and `bots-sandbox:latest` built (or pulled) on that host.
+The orchestrator shells out to the host Docker daemon for bot sandboxes, so the socket must be mounted; it pulls `ghcr.io/tehzevo/bots-sandbox:latest` automatically before a bot's first shell command.
 
 ## Development
 

@@ -2,7 +2,30 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { getSetting } from "./db.ts";
 
-const IMAGE = process.env.SANDBOX_IMAGE ?? "bots-sandbox:latest";
+const IMAGE =
+  process.env.SANDBOX_IMAGE ?? "ghcr.io/tehzevo/bots-sandbox:latest";
+
+let imageReady: Promise<void> | null = null;
+
+function ensureImage(): Promise<void> {
+  if (!imageReady) {
+    imageReady = (async () => {
+      const known = await spawnCapture(["image", "inspect", IMAGE]);
+      if (known.code === 0) return;
+      const pulled = await spawnCapture(["pull", IMAGE], {
+        timeoutMs: 300_000,
+      });
+      if (pulled.code !== 0)
+        throw new Error(
+          `sandbox image ${IMAGE} unavailable — docker pull failed: ${pulled.stderr.trim().split("\n").pop() ?? "unknown error"}`,
+        );
+    })();
+    imageReady.catch(() => {
+      imageReady = null;
+    });
+  }
+  return imageReady;
+}
 const EXEC_TIMEOUT_MS = 60_000;
 const IDLE_SETTING_KEY = "sandbox_idle_minutes";
 export const DEFAULT_IDLE_MINUTES = 5;
@@ -78,6 +101,7 @@ export async function ensureContainer(
   workspaceDir: string,
 ): Promise<string> {
   const name = containerName(botId);
+  await ensureImage();
   lastActivity.set(botId, Date.now());
   const state = await spawnCapture([
     "inspect",
@@ -111,7 +135,7 @@ export async function ensureContainer(
     const err = run.stderr.trim();
     throw new Error(
       /manifest unknown|not found/i.test(err)
-        ? `sandbox image ${IMAGE} missing — build docker/sandbox/Dockerfile first`
+        ? `sandbox image ${IMAGE} missing — build docker/sandbox/Dockerfile or check network access to the registry`
         : `docker run ${name}: ${err}`,
     );
   }
