@@ -4,4 +4,6 @@
 - Server tests live in `packages/server/test/*.test.ts`, named after the module under test; pure logic first: trigger payload validation and schedule parsing, webhook auth semantics (401/404/409/413), provider registry default/model rules, MCP JSON-RPC message framing against a fake stdio child, task/status tool behavior.
 - Every test gets an isolated temp `DATA_DIR`/`DATABASE_PATH`; the suite never touches `./data`, host Docker or real provider keys.
 - API-level tests drive the Hono app in-process (no listening socket) and assert on status codes and JSON bodies as specced.
-- The suite must pass before an implementation PR merges, same bar as typecheck; a failing test is fixed by changing code or the spec, never by deleting the assertion without a spec change.
+- CI runs on every pull request: install, typecheck (`pnpm -r typecheck`) and `pnpm test` must all pass before merge; the workflow lives in `.github/workflows/ci.yml`.
+- CI also enforces coverage with a target of 90% (server package statements); below-target fails the check with the uncovered-report attached, and any waiver is temporary and commented.
+- The suite must pass locally before an implementation PR merges too; a failing test is fixed by changing code or the spec, never by deleting the assertion without a spec change.
