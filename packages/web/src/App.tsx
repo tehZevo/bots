@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 interface Bot {
   id: string;
@@ -476,11 +482,77 @@ function AddBotModal({
   );
 }
 
-const NAV_ITEMS = [
-  { id: "bots", label: "Bots", icon: "▣" },
-  { id: "roles", label: "Roles", icon: "❖" },
-  { id: "settings", label: "Settings", icon: "⚙" },
-] as const;
+function BotIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      aria-hidden
+    >
+      <rect x="5" y="8" width="14" height="11" rx="2.5" />
+      <line x1="12" y1="4.5" x2="12" y2="8" />
+      <circle cx="12" cy="3.6" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="9.2" cy="13" r="1.05" fill="currentColor" stroke="none" />
+      <circle cx="14.8" cy="13" r="1.05" fill="currentColor" stroke="none" />
+      <line x1="9.5" y1="16.3" x2="14.5" y2="16.3" />
+    </svg>
+  );
+}
+
+function RoleIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M12 3l7 3v5.2c0 4.4-3 7.9-7 9.3-4-1.4-7-4.9-7-9.3V6l7-3z" />
+      <circle cx="12" cy="10.2" r="2.1" />
+      <path
+        d="M8.5 16.6c.8-1.7 2-2.5 3.5-2.5s2.7.8 3.5 2.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function GearIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="3.1" />
+      <path d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3M5.5 5.5l2.1 2.1M16.4 16.4l2.1 2.1M18.5 5.5l-2.1 2.1M7.6 16.4l-2.1 2.1" />
+    </svg>
+  );
+}
+
+const NAV_ITEMS: {
+  id: "bots" | "roles" | "settings";
+  label: string;
+  Icon: (p: { size?: number }) => ReactElement;
+}[] = [
+  { id: "bots", label: "Bots", Icon: BotIcon },
+  { id: "roles", label: "Roles", Icon: RoleIcon },
+  { id: "settings", label: "Settings", Icon: GearIcon },
+];
 
 function Nav({
   tab,
@@ -493,15 +565,16 @@ function Nav({
 }) {
   return (
     <nav className="sidetabs">
-      {NAV_ITEMS.map((item) => (
+      {NAV_ITEMS.map(({ id, label, Icon }) => (
         <button
-          key={item.id}
+          key={id}
           type="button"
-          title={item.label}
-          className={tab === item.id ? "sel" : ""}
-          onClick={() => onSelect(item.id)}
+          title={label}
+          className={tab === id ? "sel" : ""}
+          onClick={() => onSelect(id)}
         >
-          {rail ? item.icon : item.label}
+          <Icon size={rail ? 20 : 17} />
+          {!rail && label}
         </button>
       ))}
     </nav>
