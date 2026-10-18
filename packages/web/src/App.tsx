@@ -95,15 +95,17 @@ function StatusDot({
   id,
   health,
   label,
+  active,
 }: {
   id: string;
   health: Bot["health"];
   label?: string;
+  active: boolean;
 }) {
   const delay = -(fnv(id) % 1200) / 1000;
   return (
     <span
-      className={`dot ${health}${health === "gray" ? "" : " pulse"}`}
+      className={`dot ${health}${active ? " pulse" : ""}`}
       style={{ animationDelay: `${delay}s` }}
       {...(label ? { title: label } : {})}
     />
@@ -458,6 +460,7 @@ export function App() {
                           id={bot.id}
                           health={bot.health}
                           label={HEALTH_LABEL[bot.health]}
+                          active={bot.run_state === "running"}
                         />
                       </span>
                     </span>
@@ -1691,7 +1694,12 @@ function BotGeneral({
         </div>
       </div>
       <p className="statusline">
-        Status: <StatusDot id={bot.id} health={bot.health} />{" "}
+        Status:{" "}
+        <StatusDot
+          id={bot.id}
+          health={bot.health}
+          active={bot.run_state === "running"}
+        />{" "}
         {HEALTH_LABEL[bot.health]}
       </p>
       <div className="actions">
