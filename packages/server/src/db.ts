@@ -253,7 +253,10 @@ export function getBot(id: string): BotRow | undefined {
     | undefined;
 }
 
-export function insertBot(bot: BotRow): void {
+type NewBot = Omit<BotRow, "model_id" | "role_id" | "machine_id"> &
+  Partial<Pick<BotRow, "model_id" | "role_id" | "machine_id">>;
+
+export function insertBot(bot: NewBot): void {
   db.prepare(
     `INSERT INTO bots (id, name, description, system_prompt, model_id, role_id, machine_id, enabled, created_at)
      VALUES (@id, @name, @description, @system_prompt, @model_id, @role_id, @machine_id, @enabled, @created_at)`,
