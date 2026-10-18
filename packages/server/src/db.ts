@@ -132,6 +132,12 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_triggers_due ON triggers (next_run_at);
 `);
 
+db.prepare(
+  `DELETE FROM messages WHERE id NOT IN (
+     SELECT MIN(id) FROM messages GROUP BY bot_id, role, payload
+   )`,
+).run();
+
 const botColumns = new Set(
   (db.prepare("PRAGMA table_info(bots)").all() as { name: string }[]).map(
     (column) => column.name,
@@ -508,14 +514,64 @@ export function appendMessage(
   ).run(botId, runId, role, JSON.stringify(payload), Date.now());
 }
 
+export function appendMessages(
+  botId: string,
+  runId: string | null,
+  messages: readonly { role: string; payload: unknown }[],
+): void {
+  if (messages.length === 0) return;
+  const insert = db.prepare(
+    "INSERT INTO messages (bot_id, run_id, role, payload, created_at) VALUES (?, ?, ?, ?, ?)",
+  );
+  const tx = db.transaction(() => {
+    for (const message of messages) {
+      insert.run(
+        botId,
+        runId,
+        message.role,
+        JSON.stringify(message.payload),
+        Date.now(),
+      );
+    }
+  });
+  tx();
+}
+
 export function loadMessages(botId: string): MessageRow[] {
   return db
     .prepare("SELECT * FROM messages WHERE bot_id = ? ORDER BY id")
     .all(botId) as MessageRow[];
 }
 
-export function clearMessages(botId: string): void {
+function clearMessageRows(botId: string): void {
   db.prepare("DELETE FROM messages WHERE bot_id = ?").run(botId);
+}
+
+export function replaceMessages(
+  botId: string,
+  runId: string | null,
+  messages: readonly { role: string; payload: unknown }[],
+): void {
+  const insert = db.prepare(
+    "INSERT INTO messages (bot_id, run_id, role, payload, created_at) VALUES (?, ?, ?, ?, ?)",
+  );
+  const tx = db.transaction(() => {
+    clearMessageRows(botId);
+    for (const message of messages) {
+      insert.run(
+        botId,
+        runId,
+        message.role,
+        JSON.stringify(message.payload),
+        Date.now(),
+      );
+    }
+  });
+  tx();
+}
+
+export function clearMessages(botId: string): void {
+  clearMessageRows(botId);
   setCurrentTask(botId, null);
   setBotStatus(botId, null);
 }
