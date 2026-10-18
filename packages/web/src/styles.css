@@ -913,3 +913,7 @@ section > .viewhead {
 [data-theme="light"] .dot.red {
   background: #ef4444;
 }
+
+.namerow { display: flex; gap: var(--gap-inner, 0.5rem); }
+.namerow input { flex: 1; }
+button.shuffle { min-width: var(--control-h, 36px); padding: 0; font-size: 18px; line-height: 1; }
