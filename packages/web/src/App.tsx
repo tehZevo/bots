@@ -111,7 +111,9 @@ function fmt(ts: number | null): string {
 
 export function App() {
   const [bots, setBots] = useState<Bot[]>([]);
-  const [tab, setTab] = useState<"bots" | "roles" | "settings">("bots");
+  const [tab, setTab] = useState<
+    "bots" | "roles" | "integrations" | "settings"
+  >("bots");
   const [openBot, setOpenBot] = useState<string | null>(null);
   const [modalTab, setModalTab] = useState<
     "general" | "triggers" | "chat" | "logs"
@@ -317,6 +319,7 @@ export function App() {
             </>
           )}
           {tab === "roles" && <RolesPanel />}
+          {tab === "integrations" && <IntegrationsPanel />}
           {tab === "settings" && <SettingsPanel />}
         </main>
         {detailOpen && openBotRow && (
@@ -625,13 +628,34 @@ function GearIcon({ size = 18 }: { size?: number }) {
   );
 }
 
+function PlugIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      aria-hidden
+    >
+      <path d="M9 3v5" />
+      <path d="M15 3v5" />
+      <path d="M6.5 8h11v3a5.5 5.5 0 0 1-11 0V8Z" />
+      <path d="M12 16.5V21" />
+    </svg>
+  );
+}
+
 const NAV_ITEMS: {
-  id: "bots" | "roles" | "settings";
+  id: "bots" | "roles" | "integrations" | "settings";
   label: string;
   Icon: (p: { size?: number }) => ReactElement;
 }[] = [
   { id: "bots", label: "Bots", Icon: BotIcon },
   { id: "roles", label: "Roles", Icon: RoleIcon },
+  { id: "integrations", label: "Integrations", Icon: PlugIcon },
   { id: "settings", label: "Settings", Icon: GearIcon },
 ];
 
@@ -640,9 +664,9 @@ function Nav({
   rail,
   onSelect,
 }: {
-  tab: "bots" | "roles" | "settings";
+  tab: "bots" | "roles" | "integrations" | "settings";
   rail: boolean;
-  onSelect: (tab: "bots" | "roles" | "settings") => void;
+  onSelect: (tab: "bots" | "roles" | "integrations" | "settings") => void;
 }) {
   return (
     <nav className="sidetabs">
@@ -1746,5 +1770,248 @@ function Chat({ botId }: { botId: string }) {
         </button>
       </form>
     </section>
+  );
+}
+
+interface McpServer {
+  id: string;
+  name: string;
+  transport: "stdio";
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  enabled: number;
+}
+
+function IntegrationsPanel() {
+  const [servers, setServers] = useState<McpServer[]>([]);
+  const [form, setForm] = useState<McpServer | "new" | null>(null);
+  const [removing, setRemoving] = useState<McpServer | null>(null);
+  const [results, setResults] = useState<
+    Record<string, { tools?: number; error?: string; busy?: boolean }>
+  >({});
+
+  const reload = useCallback(
+    () =>
+      api<McpServer[]>("/api/mcp-servers")
+        .then(setServers)
+        .catch(() => setServers([])),
+    [],
+  );
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  const test = (server: McpServer) => {
+    setResults((r) => ({ ...r, [server.id]: { busy: true } }));
+    api<{ tools: number }>(`/api/mcp-servers/${server.id}/test`, {
+      method: "POST",
+    })
+      .then((res) =>
+        setResults((r) => ({ ...r, [server.id]: { tools: res.tools } })),
+      )
+      .catch((e: Error) =>
+        setResults((r) => ({ ...r, [server.id]: { error: e.message } })),
+      );
+  };
+
+  return (
+    <section>
+      <div className="viewhead">
+        <h2>Integrations</h2>
+        <button type="button" onClick={() => setForm("new")}>
+          Add MCP server
+        </button>
+      </div>
+      <h3>MCP Servers</h3>
+      {servers.length === 0 && (
+        <p className="muted">No MCP servers yet — add one above.</p>
+      )}
+      {servers.map((s) => {
+        const r = results[s.id];
+        return (
+          <div className="mcpsrv" key={s.id}>
+            <header>
+              <strong>{s.name}</strong>
+              {!s.enabled && <span className="muted">(disabled)</span>}
+              <button type="button" onClick={() => test(s)} disabled={r?.busy}>
+                {r?.busy ? "Testing…" : "Test connection"}
+              </button>
+              <button type="button" onClick={() => setForm(s)}>
+                Edit
+              </button>
+              <button
+                type="button"
+                className="danger"
+                onClick={() => setRemoving(s)}
+              >
+                Delete
+              </button>
+            </header>
+            <code>{[s.command, ...s.args].join(" ")}</code>
+            {Object.keys(s.env).length > 0 && (
+              <p className="muted envline">
+                {Object.keys(s.env)
+                  .map((k) => `${k}=••••`)
+                  .join("  ")}
+              </p>
+            )}
+            {r?.tools !== undefined && (
+              <p className="ok line">Connected — {r.tools} tools</p>
+            )}
+            {r?.error && <p className="error line">{r.error}</p>}
+          </div>
+        );
+      })}
+      {removing && (
+        <ConfirmDialog
+          text={`Delete MCP server ${removing.name}? Bots granted this server will lose its tools.`}
+          confirmLabel="Delete server"
+          onCancel={() => setRemoving(null)}
+          onConfirm={() => {
+            setRemoving(null);
+            api(`/api/mcp-servers/${removing.id}`, { method: "DELETE" })
+              .then(reload)
+              .catch((e) => alert(e.message));
+          }}
+        />
+      )}
+      {form && (
+        <McpServerModal
+          server={form === "new" ? null : form}
+          onClose={() => setForm(null)}
+          onSaved={() => {
+            setForm(null);
+            void reload();
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+function McpServerModal({
+  server,
+  onClose,
+  onSaved,
+}: {
+  server: McpServer | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(server?.name ?? "");
+  const [command, setCommand] = useState(server?.command ?? "");
+  const [args, setArgs] = useState((server?.args ?? []).join("\n"));
+  const [env, setEnv] = useState(
+    Object.entries(server?.env ?? {})
+      .map(([k, v]) => `${k}=${v}`)
+      .join("\n"),
+  );
+  const [enabled, setEnabled] = useState(server ? server.enabled === 1 : true);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <div className="modal">
+      <button
+        type="button"
+        className="mscrim"
+        aria-label="Close"
+        onClick={onClose}
+      />
+      <div className="dialog" role="dialog" aria-label="MCP server">
+        <h2>{server ? "Edit MCP server" : "Add MCP server"}</h2>
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setBusy(true);
+            setError(null);
+            const envMap: Record<string, string> = {};
+            for (const line of env.split("\n")) {
+              const i = line.indexOf("=");
+              if (i > 0) envMap[line.slice(0, i).trim()] = line.slice(i + 1);
+            }
+            const body = {
+              name,
+              command,
+              args: args
+                .split("\n")
+                .map((a) => a.trim())
+                .filter(Boolean),
+              env: envMap,
+              enabled,
+            };
+            try {
+              await api(
+                server ? `/api/mcp-servers/${server.id}` : "/api/mcp-servers",
+                {
+                  method: server ? "PATCH" : "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify(body),
+                },
+              );
+              onSaved();
+            } catch (err) {
+              setError(err instanceof Error ? err.message : String(err));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <label>
+            Name
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+          </label>
+          <label>
+            Command
+            <input
+              value={command}
+              placeholder="npx"
+              onChange={(e) => setCommand(e.target.value)}
+              required
+            />
+          </label>
+          <label>
+            Args (one per line)
+            <textarea
+              rows={3}
+              value={args}
+              placeholder={"-y\n@example/mcp-server"}
+              onChange={(e) => setArgs(e.target.value)}
+            />
+          </label>
+          <label>
+            Env vars (KEY=value per line)
+            <textarea
+              rows={3}
+              value={env}
+              onChange={(e) => setEnv(e.target.value)}
+            />
+          </label>
+          <label className="checkrow">
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(e) => setEnabled(e.target.checked)}
+            />
+            Enabled
+          </label>
+          {error && <p className="error">{error}</p>}
+          <div className="actions">
+            <button type="button" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" disabled={busy}>
+              {busy ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }

@@ -788,3 +788,11 @@ aside.rail .sidetabs button {
 .secretbox p { margin: 0.2rem 0; font-size: 13px; overflow-wrap: anywhere; }
 code.secret { user-select: all; }
 
+
+.mcpsrv { border: 1px solid var(--border); border-radius: 8px; padding: 0.7rem 0.9rem; margin-bottom: 0.6rem; }
+.mcpsrv header { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.mcpsrv code { display: block; margin-top: 0.35rem; font-size: 12px; opacity: 0.85; overflow-wrap: anywhere; }
+.mcpsrv .line, .mcpsrv .envline { margin: 0.3rem 0 0; font-size: 13px; }
+.ok { color: var(--ok); }
+
+

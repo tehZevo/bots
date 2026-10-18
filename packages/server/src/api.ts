@@ -14,20 +14,25 @@ import { repoRoot } from "./config.ts";
 import {
   clearMessages,
   deleteBot,
+  deleteMcpServer,
   deleteProvider,
   deleteRole,
   deleteSetting,
   deleteTrigger,
   getBot,
+  getMcpServer,
+  getMcpServerByName,
   getProvider,
   getRole,
   getSetting,
   getTrigger,
   insertBot,
+  insertMcpServer,
   insertProvider,
   insertRole,
   insertTrigger,
   listBots,
+  listMcpServers,
   listProviders,
   listRoles,
   listRuns,
@@ -37,10 +42,12 @@ import {
   setSetting,
   setTriggerSecret,
   updateBot,
+  updateMcpServer,
   updateProvider,
   updateRole,
   updateTrigger,
 } from "./db.ts";
+import { testMcpConnection } from "./mcp.ts";
 import { idleMinutes, removeContainer } from "./sandbox.ts";
 import { nextRunAt } from "./scheduler.ts";
 
@@ -592,6 +599,78 @@ export function createApp(): Hono {
       : trigger.message;
     const { runId } = injectMessage(bot, text, "webhook");
     return c.json({ ok: true, runId });
+  });
+
+  app.get("/api/mcp-servers", (c) => c.json(listMcpServers()));
+
+  function toMcpPayload(input: {
+    name?: unknown;
+    command?: unknown;
+    args?: unknown;
+    env?: unknown;
+    enabled?: unknown;
+  }) {
+    const name = typeof input.name === "string" ? input.name.trim() : "";
+    if (!name) return { error: "name is required" };
+    const command =
+      typeof input.command === "string" ? input.command.trim() : "";
+    if (!command) return { error: "command is required" };
+    const args = Array.isArray(input.args)
+      ? input.args.filter((a): a is string => typeof a === "string")
+      : [];
+    const env: Record<string, string> = {};
+    if (input.env && typeof input.env === "object" && !Array.isArray(input.env))
+      for (const [k, v] of Object.entries(input.env))
+        if (typeof v === "string") env[k] = v;
+    const enabled = input.enabled === false ? 0 : 1;
+    return { name, command, args, env, enabled };
+  }
+
+  app.post("/api/mcp-servers", async (c) => {
+    const payload = toMcpPayload(await c.req.json());
+    if ("error" in payload) return c.json({ error: payload.error }, 400);
+    if (getMcpServerByName(payload.name))
+      return c.json({ error: "name already exists" }, 400);
+    const server = {
+      id: randomUUID(),
+      transport: "stdio" as const,
+      ...payload,
+      created_at: Date.now(),
+    };
+    insertMcpServer(server);
+    return c.json(server, 201);
+  });
+
+  app.patch("/api/mcp-servers/:serverId", async (c) => {
+    const existing = getMcpServer(c.req.param("serverId"));
+    if (!existing) return c.json({ error: "not found" }, 404);
+    const payload = toMcpPayload({ ...existing, ...(await c.req.json()) });
+    if ("error" in payload) return c.json({ error: payload.error }, 400);
+    const clash = getMcpServerByName(payload.name);
+    if (clash && clash.id !== existing.id)
+      return c.json({ error: "name already exists" }, 400);
+    updateMcpServer(existing.id, payload);
+    return c.json(getMcpServer(existing.id));
+  });
+
+  app.delete("/api/mcp-servers/:serverId", (c) => {
+    if (!getMcpServer(c.req.param("serverId")))
+      return c.json({ error: "not found" }, 404);
+    deleteMcpServer(c.req.param("serverId"));
+    return c.json({ ok: true });
+  });
+
+  app.post("/api/mcp-servers/:serverId/test", async (c) => {
+    const server = getMcpServer(c.req.param("serverId"));
+    if (!server) return c.json({ error: "not found" }, 404);
+    try {
+      return c.json(await testMcpConnection(server));
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        502,
+      );
+    }
   });
 
   const webDist = resolve(repoRoot, "packages/web/dist");
