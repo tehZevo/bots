@@ -63,30 +63,106 @@ const AVATAR_COLORS = [
   "#0f7b6c",
 ];
 
-function initialsFor(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return "?";
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return (words[0][0] + words[1][0]).toUpperCase();
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a += 0x6d2b79f5;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
-function avatarColor(id: string): string {
+function fnv(id: string): number {
   let h = 2166136261;
   for (let i = 0; i < id.length; i++) {
     h ^= id.charCodeAt(i);
     h = Math.imul(h, 16777619);
   }
-  return AVATAR_COLORS[(h >>> 0) % AVATAR_COLORS.length];
+  return h >>> 0;
 }
 
-function Avatar({ name, id }: { name: string; id: string }) {
+function shapeRadii(rand: () => number): number[] {
+  const family = Math.floor(rand() * 4);
+  const terms: [number, number, number][] = [];
+  if (family === 0) {
+    const count = 3 + Math.floor(rand() * 2);
+    for (let i = 0; i < count; i++)
+      terms.push([
+        2 + Math.floor(rand() * 4),
+        0.05 + rand() * 0.13,
+        rand() * Math.PI * 2,
+      ]);
+  } else if (family === 1) {
+    terms.push([2, 0.15, rand() < 0.5 ? 0 : Math.PI / 2]);
+    terms.push([3, rand() * 0.04, rand() * Math.PI * 2]);
+  } else if (family === 2) {
+    const k = rand() < 0.5 ? 3 : 6;
+    terms.push([k, 0.09 + rand() * 0.03, rand() * Math.PI * 2]);
+  } else {
+    terms.push([2, 0.16, rand() < 0.5 ? Math.PI / 4 : (5 * Math.PI) / 4]);
+    terms.push([1, 0.05 + rand() * 0.03, rand() * Math.PI * 2]);
+  }
+  const n = 72;
+  return Array.from({ length: n }, (_, i) => {
+    const th = (i / n) * Math.PI * 2;
+    return (
+      1 + terms.reduce((r, [k, w, ph]) => r + w * Math.sin(k * th + ph), 0)
+    );
+  });
+}
+
+function smoothClosedPath(radii: number[], cx: number, baseR: number): string {
+  const n = radii.length;
+  const pts = radii.map((r, i) => {
+    const th = (i / n) * Math.PI * 2;
+    return [cx + Math.cos(th) * r * baseR, cx + Math.sin(th) * r * baseR];
+  });
+  let d = `M ${pts[0][0].toFixed(2)} ${pts[0][1].toFixed(2)}`;
+  for (let i = 0; i < n; i++) {
+    const p0 = pts[(i - 1 + n) % n];
+    const p1 = pts[i];
+    const p2 = pts[(i + 1) % n];
+    const p3 = pts[(i + 2) % n];
+    const c1x = p1[0] + (p2[0] - p0[0]) / 6;
+    const c1y = p1[1] + (p2[1] - p0[1]) / 6;
+    const c2x = p2[0] - (p3[0] - p1[0]) / 6;
+    const c2y = p2[1] - (p3[1] - p1[1]) / 6;
+    d += ` C ${c1x.toFixed(2)} ${c1y.toFixed(2)}, ${c2x.toFixed(2)} ${c2y.toFixed(2)}, ${p2[0].toFixed(2)} ${p2[1].toFixed(2)}`;
+  }
+  return `${d} Z`;
+}
+
+function avatarColor(id: string): string {
+  return AVATAR_COLORS[fnv(id) % AVATAR_COLORS.length];
+}
+
+function Avatar({ id }: { name: string; id: string }) {
+  const rand = mulberry32(fnv(id));
+  const radii = shapeRadii(rand);
+  const maxR = Math.max(...radii);
+  const base = 46 / maxR;
+  const eyeGap = 7 + rand() * 5;
+  const eyeRx = 2.8 + rand() * 1.6;
+  const eyeRy = eyeRx * (1.25 + rand() * 0.5);
+  const gaze = (rand() - 0.5) * 3;
+  const droop = rand() < 0.3;
   return (
-    <span
-      className="avatar"
-      style={{ background: avatarColor(id) }}
-      aria-hidden
-    >
-      {initialsFor(name)}
+    <span className="avatar" style={{ color: avatarColor(id) }} aria-hidden>
+      <svg viewBox="0 0 100 100" width="100%" height="100%">
+        <path d={smoothClosedPath(radii, 50, base)} fill="currentColor" />
+        {[-1, 1].map((side) => (
+          <ellipse
+            key={side}
+            className="eye"
+            cx={(50 + side * eyeGap + gaze).toFixed(2)}
+            cy={45 - (rand() - 0.5) * 3}
+            rx={eyeRx.toFixed(2)}
+            ry={droop ? (eyeRy * 0.45).toFixed(2) : eyeRy.toFixed(2)}
+          />
+        ))}
+      </svg>
     </span>
   );
 }
