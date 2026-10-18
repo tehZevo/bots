@@ -31,6 +31,7 @@
 
 - NodeNext ESM everywhere; relative imports in the server include the `.ts` extension (`rewriteRelativeImportExtensions` handles emit).
 - Keep secrets out of git: env lives in `.env` (gitignored); never commit real keys or base URLs.
+- Never expose sensitive user config, settings, or environment in commits — installed applications, usernames, service URLs/hosts, API keys, paths like `/home/<user>/…`. Scrub diffs, screenshots, PR bodies, and test fixtures before they land; use placeholders (`example.com`, `<user>`) instead.
 - `better-sqlite3` is a native dep — if bindings are missing after install, run its install script inside the pnpm store dir (`prebuild-install || node-gyp rebuild --release`).
 - Agent LLM access goes through `@earendil-works/pi-*` v1.x: stream via `streamSimple` from `@earendil-works/pi-ai/api/openai-completions`, agent state is set with `initialState`, and `systemPrompt` on the live agent state is read-only. Inject into a busy loop with `agent.steer()` (see `injectMessage` in `agent.ts`).
 - Trigger firing and message injection are fire-and-forget; every run row must reach a terminal status (`ok`/`error`) — keep the try/catch/finally around the loop in `agent.ts` intact.
