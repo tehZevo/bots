@@ -33,7 +33,7 @@ jobs:
   image:
     needs: changes
     if: >-
-      github.event_name == 'tag' ||
+      github.ref_type == 'tag' ||
       needs.changes.outputs.orchestrator == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -62,7 +62,7 @@ jobs:
   sandbox-image:
     needs: changes
     if: >-
-      github.event_name == 'tag' ||
+      github.ref_type == 'tag' ||
       needs.changes.outputs.sandbox == 'true'
     runs-on: ubuntu-latest
     steps:
