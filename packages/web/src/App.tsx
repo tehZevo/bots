@@ -121,7 +121,7 @@ function fmt(ts: number | null): string {
 export function App() {
   const [bots, setBots] = useState<Bot[]>([]);
   const [tab, setTab] = useState<
-    "bots" | "roles" | "integrations" | "settings"
+    "bots" | "roles" | "integrations" | "skills" | "settings"
   >("bots");
   const [openBot, setOpenBot] = useState<string | null>(null);
   const [modalTab, setModalTab] = useState<
@@ -351,6 +351,7 @@ export function App() {
           )}
           {tab === "roles" && <RolesPanel />}
           {tab === "integrations" && <IntegrationsPanel />}
+          {tab === "skills" && <SkillsPanel />}
           {tab === "settings" && <SettingsPanel />}
         </main>
         {detailOpen && openBotRow && (
@@ -655,6 +656,25 @@ function RoleIcon({ size = 18 }: { size?: number }) {
   );
 }
 
+function BookIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5v13z" />
+      <path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5" />
+    </svg>
+  );
+}
+
 function GearIcon({ size = 18 }: { size?: number }) {
   return (
     <svg
@@ -694,13 +714,14 @@ function PlugIcon({ size = 18 }: { size?: number }) {
 }
 
 const NAV_ITEMS: {
-  id: "bots" | "roles" | "integrations" | "settings";
+  id: "bots" | "roles" | "integrations" | "skills" | "settings";
   label: string;
   Icon: (p: { size?: number }) => ReactElement;
 }[] = [
   { id: "bots", label: "Bots", Icon: BotIcon },
   { id: "roles", label: "Roles", Icon: RoleIcon },
   { id: "integrations", label: "Integrations", Icon: PlugIcon },
+  { id: "skills", label: "Skills", Icon: BookIcon },
   { id: "settings", label: "Settings", Icon: GearIcon },
 ];
 
@@ -709,9 +730,11 @@ function Nav({
   rail,
   onSelect,
 }: {
-  tab: "bots" | "roles" | "integrations" | "settings";
+  tab: "bots" | "roles" | "integrations" | "skills" | "settings";
   rail: boolean;
-  onSelect: (tab: "bots" | "roles" | "integrations" | "settings") => void;
+  onSelect: (
+    tab: "bots" | "roles" | "integrations" | "skills" | "settings",
+  ) => void;
 }) {
   return (
     <nav className="sidetabs">
@@ -1838,9 +1861,6 @@ interface McpServer {
 
 function IntegrationsPanel() {
   const [servers, setServers] = useState<McpServer[]>([]);
-  const [skills, setSkills] = useState<Skill[]>([]);
-  const [skillForm, setSkillForm] = useState<Skill | "new" | null>(null);
-  const [removingSkill, setRemovingSkill] = useState<Skill | null>(null);
   const [form, setForm] = useState<McpServer | "new" | null>(null);
   const [removing, setRemoving] = useState<McpServer | null>(null);
   const [results, setResults] = useState<
@@ -1855,18 +1875,9 @@ function IntegrationsPanel() {
     [],
   );
 
-  const reloadSkills = useCallback(
-    () =>
-      api<Skill[]>("/api/skills")
-        .then(setSkills)
-        .catch(() => setSkills([])),
-    [],
-  );
-
   useEffect(() => {
     void reload();
-    void reloadSkills();
-  }, [reload, reloadSkills]);
+  }, [reload]);
 
   const test = (server: McpServer) => {
     setResults((r) => ({ ...r, [server.id]: { busy: true } }));
@@ -1958,9 +1969,31 @@ function IntegrationsPanel() {
           }}
         />
       )}
+    </section>
+  );
+}
 
-      <div className="viewhead skillshead">
-        <h3>Skills</h3>
+function SkillsPanel() {
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [skillForm, setSkillForm] = useState<Skill | "new" | null>(null);
+  const [removingSkill, setRemovingSkill] = useState<Skill | null>(null);
+
+  const reloadSkills = useCallback(
+    () =>
+      api<Skill[]>("/api/skills")
+        .then(setSkills)
+        .catch(() => setSkills([])),
+    [],
+  );
+
+  useEffect(() => {
+    void reloadSkills();
+  }, [reloadSkills]);
+
+  return (
+    <section>
+      <div className="viewhead">
+        <h2>Skills</h2>
         <button type="button" onClick={() => setSkillForm("new")}>
           Add skill
         </button>
