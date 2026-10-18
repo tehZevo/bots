@@ -257,7 +257,7 @@ export function insertBot(bot: BotRow): void {
   db.prepare(
     `INSERT INTO bots (id, name, description, system_prompt, model_id, role_id, machine_id, enabled, created_at)
      VALUES (@id, @name, @description, @system_prompt, @model_id, @role_id, @machine_id, @enabled, @created_at)`,
-  ).run(bot);
+  ).run({ model_id: null, role_id: null, machine_id: null, ...bot });
 }
 
 export interface MachineRow {
