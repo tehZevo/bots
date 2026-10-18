@@ -143,6 +143,14 @@ export function App() {
   return (
     <div className="app">
       <header className="statusbar">
+        <button
+          type="button"
+          className="railtoggle"
+          aria-label={rail ? "Expand sidebar" : "Collapse sidebar"}
+          onClick={toggleRail}
+        >
+          {rail ? "›" : "‹"}
+        </button>
         <span className="counts">
           {bots.length} total ·{" "}
           {bots.filter((b) => b.status === "running").length} running
@@ -152,14 +160,6 @@ export function App() {
         <aside className={rail ? "rail" : ""}>
           {error && <p className="error">{error}</p>}
           {renderNav(rail)}
-          <button
-            type="button"
-            className="railtoggle"
-            aria-label={rail ? "Expand sidebar" : "Collapse sidebar"}
-            onClick={toggleRail}
-          >
-            {rail ? "»" : "«"}
-          </button>
         </aside>
         <div className="topbar">
           <button
