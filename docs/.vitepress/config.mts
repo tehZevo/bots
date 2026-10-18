@@ -1,6 +1,7 @@
 import { defineConfig } from "vitepress";
 
 export default defineConfig({
+  base: "/bots/",
   title: "bots",
   description: "Self-hosted bot orchestrator — operator documentation",
   appearance: true,
