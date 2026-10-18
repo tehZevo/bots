@@ -6,4 +6,4 @@
 - A random generator seeded from the bot id picks the family, wobble, fill color, and eye size/spacing; the same bot always gets the same avatar, and renaming changes nothing.
 - Fills come from a fixed bright palette readable in both themes; eyes are dark theme-aware ovals slightly above center.
 - On a card, the avatar sits at the left with the bot's name to its right, top-aligned.
-- Motion (blink/wobble per health level) is separate (#109); the static avatar must stand on its own.
+- Motion (blink/wobble per health level) is deferred to its own spec once avatars ship; the static avatar must stand on its own.
