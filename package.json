@@ -14,7 +14,8 @@
     "start": "node --env-file-if-exists=.env packages/server/dist/index.js",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",
-    "format": "biome format --write ."
+    "format": "biome format --write .",
+    "test": "node --import ./packages/server/node_modules/tsx/dist/loader.mjs --experimental-test-coverage --test-coverage-lines=50 --test packages/server/test/*.test.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.0",
