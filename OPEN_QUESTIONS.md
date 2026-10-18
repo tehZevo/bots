@@ -18,3 +18,5 @@ Judgement calls baked into the current implementation that deserve a deliberate 
   _Lean: keep plaintext behind a single-file volume until auth/multi-user lands, then encrypt per-user._
 - **Per-bot model overrides** — the default provider/model covers every bot; per-bot selection is deferred.
   _Lean: add the override on the bot once teams/groups define who may pick which models._
+- **MCP registry source** — discovery spec pins the MCP Registry REST API shape but not which service to point at.
+  _Lean: official registry `registry.modelcontextprotocol.io` (backed by Anthropic/GitHub/Microsoft, no-auth reads, standardized server.json with install/env metadata; preview-stage v0.1 frozen). Alternatives: aggregators mcp.so / Smithery / Glama / MCP Harbor (~30k entries, some speak the same API or expose search as their own MCP tool), or a self-hosted sub-registry (open-source `modelcontextprotocol/registry`, ghcr image) when private servers need cataloging._
