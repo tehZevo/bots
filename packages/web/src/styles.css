@@ -901,3 +901,15 @@ section > .viewhead {
 .dot.red {
   background: var(--err);
 }
+
+[data-theme="light"] .dot.green {
+  background: #22c55e;
+}
+
+[data-theme="light"] .dot.yellow {
+  background: #facc15;
+}
+
+[data-theme="light"] .dot.red {
+  background: #ef4444;
+}
