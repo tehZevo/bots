@@ -1757,3 +1757,16 @@ button.danger.ghost {
   color: #fff;
   z-index: 1;
 }
+
+.tlist .trow {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.trowsub {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--muted);
+}

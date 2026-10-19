@@ -220,6 +220,7 @@ function toRolePayload(
 
 interface TriggerInput {
   kind?: unknown;
+  name?: unknown;
   message?: unknown;
   schedule?: unknown;
   enabled?: unknown;
@@ -236,11 +237,19 @@ function toTriggerPayload(input: TriggerInput) {
     return { error: `unknown kind: ${String(input.kind)}` };
   if (typeof input.message !== "string" || !input.message.trim())
     return { error: "message is required" };
+  let name: string | null = null;
+  if (input.name !== undefined && input.name !== null && input.name !== "") {
+    if (typeof input.name !== "string" || !input.name.trim())
+      return { error: "name must be a non-empty string" };
+    if (input.name.length > 120) return { error: "name too long (max 120)" };
+    name = input.name.trim();
+  }
   const schedule =
     typeof input.schedule === "string" ? input.schedule.trim() : "";
   if (kind === "webhook")
     return {
       kind: kind as (typeof TRIGGER_KINDS)[number],
+      name,
       message: input.message,
       schedule: "",
     };
@@ -250,6 +259,7 @@ function toTriggerPayload(input: TriggerInput) {
     return { error: `invalid schedule: ${schedule}` };
   return {
     kind: kind as (typeof TRIGGER_KINDS)[number],
+    name,
     message: input.message,
     schedule,
   };

@@ -36,6 +36,7 @@ export interface TriggerRow {
   id: string;
   bot_id: string;
   kind: "schedule" | "webhook";
+  name: string | null;
   message: string;
   schedule: string;
   next_run_at: number | null;
@@ -97,6 +98,7 @@ db.exec(`
     id TEXT PRIMARY KEY,
     bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
     kind TEXT NOT NULL DEFAULT 'schedule',
+    name TEXT,
     message TEXT NOT NULL,
     schedule TEXT NOT NULL,
     next_run_at INTEGER,
@@ -288,6 +290,8 @@ const triggerColumns = new Set(
 );
 if (!triggerColumns.has("secret"))
   db.prepare("ALTER TABLE triggers ADD COLUMN secret TEXT").run();
+if (!triggerColumns.has("name"))
+  db.prepare("ALTER TABLE triggers ADD COLUMN name TEXT").run();
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS machines (
@@ -514,8 +518,8 @@ export function getTrigger(id: string): TriggerRow | undefined {
 
 export function insertTrigger(trigger: TriggerRow): void {
   db.prepare(
-    `INSERT INTO triggers (id, bot_id, kind, message, schedule, next_run_at, secret, enabled, created_at)
-     VALUES (@id, @bot_id, @kind, @message, @schedule, @next_run_at, @secret, @enabled, @created_at)`,
+    `INSERT INTO triggers (id, bot_id, kind, name, message, schedule, next_run_at, secret, enabled, created_at)
+     VALUES (@id, @bot_id, @kind, @name, @message, @schedule, @next_run_at, @secret, @enabled, @created_at)`,
   ).run(trigger);
 }
 
