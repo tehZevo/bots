@@ -458,7 +458,19 @@ function playSound(id: string): void {
 
 export function App() {
   const [bots, setBots] = useState<Bot[]>([]);
-  const [tab, setTab] = useState<Tab>("bots");
+  const [tab, setTabRaw] = useState<Tab>(() =>
+    typeof location === "undefined" ? "bots" : tabFromPath(location.pathname),
+  );
+  const setTab = (t: Tab) => {
+    setTabRaw(t);
+    if (typeof history !== "undefined") history.pushState({}, "", TAB_PATHS[t]);
+  };
+  useEffect(() => {
+    if (typeof addEventListener === "undefined") return;
+    const onPop = () => setTabRaw(tabFromPath(location.pathname));
+    addEventListener("popstate", onPop);
+    return () => removeEventListener("popstate", onPop);
+  }, []);
   const [openBot, setOpenBot] = useState<string | null>(null);
   const [modalTab, setModalTab] = useState<
     "general" | "triggers" | "chat" | "logs"
@@ -1414,6 +1426,25 @@ type Tab =
   | "skills"
   | "templates"
   | "settings";
+
+const TAB_PATHS: Record<Tab, string> = {
+  bots: "/bots",
+  roles: "/roles",
+  machines: "/machines",
+  integrations: "/integrations",
+  skills: "/skills",
+  templates: "/templates",
+  settings: "/settings",
+};
+
+function tabFromPath(path: string): Tab {
+  const hit = (Object.keys(TAB_PATHS) as Tab[]).find(
+    (t) =>
+      TAB_PATHS[t] === path.replace(/\/+$/, "") ||
+      (path === "/" && t === "bots"),
+  );
+  return hit ?? "bots";
+}
 
 function TemplateIcon({ size = 18 }: { size?: number }) {
   return (
