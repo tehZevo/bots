@@ -288,6 +288,16 @@ const triggerColumns = new Set(
     (column) => column.name,
   ),
 );
+const runColumns = new Set(
+  (db.prepare("PRAGMA table_info(runs)").all() as { name: string }[]).map(
+    (c) => c.name,
+  ),
+);
+if (!runColumns.has("superseded"))
+  db.prepare(
+    "ALTER TABLE runs ADD COLUMN superseded INTEGER NOT NULL DEFAULT 0",
+  ).run();
+
 if (!triggerColumns.has("secret"))
   db.prepare("ALTER TABLE triggers ADD COLUMN secret TEXT").run();
 if (!triggerColumns.has("name"))
@@ -646,12 +656,22 @@ export function latestErrorBotIds(): Set<string> {
   const rows = db
     .prepare(
       `SELECT bot_id FROM runs r
-     WHERE status = 'error' AND started_at = (
-       SELECT MAX(started_at) FROM runs WHERE bot_id = r.bot_id AND status != 'running'
+     WHERE status = 'error' AND superseded = 0 AND started_at = (
+       SELECT MAX(started_at) FROM runs
+       WHERE bot_id = r.bot_id AND status != 'running' AND superseded = 0
      )`,
     )
     .all() as { bot_id: string }[];
   return new Set(rows.map((r) => r.bot_id));
+}
+
+// Accepting new work un-interrupts the bot: its interrupted runs stop
+// counting toward health (spec bots/interrupt.md).
+export function supersedeInterruptedRuns(botId: string): void {
+  db.prepare(
+    `UPDATE runs SET superseded = 1
+     WHERE bot_id = ? AND status = 'error' AND error = 'interrupted' AND superseded = 0`,
+  ).run(botId);
 }
 
 export function listRuns(botId: string, limit = 50): RunRow[] {

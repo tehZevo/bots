@@ -21,6 +21,7 @@ import {
   listMcpServers,
   loadMessages,
   replaceMessages,
+  supersedeInterruptedRuns,
 } from "./db.ts";
 import { type ResolvedLlm, resolveDefault } from "./llm.ts";
 import { connectMcpServer, type McpSession } from "./mcp.ts";
@@ -371,6 +372,7 @@ export function injectMessage(
   text: string,
   kind: "schedule" | "manual" | "chat" | "webhook",
 ): InjectResult {
+  supersedeInterruptedRuns(bot.id);
   const message = {
     role: "user",
     content: `[${kind} ${new Date().toISOString()}]\n${text}`,
