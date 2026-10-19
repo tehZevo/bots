@@ -84,7 +84,7 @@ interface Machine {
   builtin: boolean;
 }
 
-const AVATAR_COLORS = [
+export const AVATAR_COLORS = [
   "#e5484d",
   "#e9762c",
   "#f0b13b",
@@ -99,7 +99,7 @@ const AVATAR_COLORS = [
   "#0f7b6c",
 ];
 
-function mulberry32(seed: number): () => number {
+export function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
     a += 0x6d2b79f5;
@@ -110,7 +110,7 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-function fnv(id: string): number {
+export function fnv(id: string): number {
   let h = 2166136261;
   for (let i = 0; i < id.length; i++) {
     h ^= id.charCodeAt(i);
@@ -119,7 +119,7 @@ function fnv(id: string): number {
   return h >>> 0;
 }
 
-function StatusDot({
+export function StatusDot({
   id,
   health,
   label,
@@ -196,7 +196,7 @@ const SHAPE_PRESETS: {
   },
 ];
 
-function shapeRadii(
+export function shapeRadii(
   rand: () => number,
   preset: number | null = null,
 ): number[] {
@@ -214,7 +214,11 @@ function shapeRadii(
   });
 }
 
-function smoothClosedPath(radii: number[], cx: number, baseR: number): string {
+export function smoothClosedPath(
+  radii: number[],
+  cx: number,
+  baseR: number,
+): string {
   const n = radii.length;
   const pts = radii.map((r, i) => {
     const th = (i / n) * Math.PI * 2;
@@ -235,11 +239,11 @@ function smoothClosedPath(radii: number[], cx: number, baseR: number): string {
   return `${d} Z`;
 }
 
-function avatarColor(id: string): string {
+export function avatarColor(id: string): string {
   return AVATAR_COLORS[fnv(id) % AVATAR_COLORS.length];
 }
 
-function Avatar({
+export function Avatar({
   id,
   shape = null,
   color = null,
@@ -250,8 +254,7 @@ function Avatar({
   shape?: number | null;
   color?: number | null;
   health?: Bot["health"] | null;
-}) {
-  const rand = mulberry32(fnv(id));
+}) {  const rand = mulberry32(fnv(id));
   const radii = shapeRadii(rand, shape);
   const maxR = Math.max(...radii);
   const base = 46 / maxR;
@@ -390,8 +393,7 @@ function AvatarPicker({
   );
 }
 
-function relTime(ts: number): string {
-  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+export function relTime(ts: number): string {  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
   if (s < 60) return `${s}s ago`;
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m ago`;
@@ -407,7 +409,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-function fmt(ts: number | null): string {
+export function fmt(ts: number | null): string {
   return ts ? new Date(ts).toLocaleString() : "—";
 }
 
@@ -993,7 +995,7 @@ export function App() {
   );
 }
 
-const BOT_NAMES = [
+export const BOT_NAMES = [
   "Atlas",
   "Juno",
   "Marlow",
@@ -1026,14 +1028,14 @@ const BOT_NAMES = [
   "Lark",
 ];
 
-function pickBotName(used: string[]): string {
+export function pickBotName(used: string[]): string {
   const taken = new Set(used.map((n) => n.toLowerCase()));
-  const free = BOT_NAMES.filter((n) => !taken.has(n));
+  const free = BOT_NAMES.filter((n) => !taken.has(n.toLowerCase()));
   const pool = free.length > 0 ? free : BOT_NAMES;
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
-function AddBotModal({
+export function AddBotModal({
   usedNames,
   onClose,
   onCreated,
@@ -1178,7 +1180,7 @@ function AddBotModal({
   );
 }
 
-function BotIcon({ size = 18 }: { size?: number }) {
+export function BotIcon({ size = 18 }: { size?: number }) {
   return (
     <svg
       width={size}
@@ -1200,7 +1202,7 @@ function BotIcon({ size = 18 }: { size?: number }) {
   );
 }
 
-function RoleIcon({ size = 18 }: { size?: number }) {
+export function RoleIcon({ size = 18 }: { size?: number }) {
   return (
     <svg
       width={size}
@@ -1222,7 +1224,7 @@ function RoleIcon({ size = 18 }: { size?: number }) {
   );
 }
 
-function BookIcon({ size = 18 }: { size?: number }) {
+export function BookIcon({ size = 18 }: { size?: number }) {
   return (
     <svg
       width={size}
@@ -1241,7 +1243,7 @@ function BookIcon({ size = 18 }: { size?: number }) {
   );
 }
 
-function GearIcon({ size = 18 }: { size?: number }) {
+export function GearIcon({ size = 18 }: { size?: number }) {
   return (
     <svg
       width={size}
@@ -1259,7 +1261,7 @@ function GearIcon({ size = 18 }: { size?: number }) {
   );
 }
 
-function PlugIcon({ size = 18 }: { size?: number }) {
+export function PlugIcon({ size = 18 }: { size?: number }) {
   return (
     <svg
       width={size}
@@ -1279,7 +1281,7 @@ function PlugIcon({ size = 18 }: { size?: number }) {
   );
 }
 
-function MachineIcon({ size = 18 }: { size?: number }) {
+export function MachineIcon({ size = 18 }: { size?: number }) {
   return (
     <svg
       width={size}
@@ -1358,7 +1360,7 @@ interface Provider {
   has_key: boolean;
 }
 
-function SettingsPanel() {
+export function SettingsPanel() {
   const [theme, setTheme] = useState<Theme>(currentTheme);
   const [idle, setIdle] = useState(5);
   const [saving, setSaving] = useState(false);
@@ -1590,7 +1592,7 @@ function SettingsPanel() {
   );
 }
 
-function ProviderFormModal({
+export function ProviderFormModal({
   provider,
   onClose,
   onSaved,
@@ -1773,7 +1775,7 @@ function ProviderFormModal({
   );
 }
 
-function RolesPanel() {
+export function RolesPanel() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [query, setQuery] = useState("");
   const [formRole, setFormRole] = useState<Role | null>(null);
@@ -1845,7 +1847,7 @@ function RolesPanel() {
   );
 }
 
-function RoleFormModal({
+export function RoleFormModal({
   role,
   onClose,
   onSaved,
@@ -2054,7 +2056,7 @@ function RoleFormModal({
   );
 }
 
-function BotGeneral({
+export function BotGeneral({
   bot,
   onChanged,
 }: {
@@ -2254,7 +2256,7 @@ function BotGeneral({
   );
 }
 
-function ConfirmDialog({
+export function ConfirmDialog({
   text,
   confirmLabel,
   onCancel,
@@ -2296,7 +2298,7 @@ function ConfirmDialog({
   );
 }
 
-function Triggers({ botId }: { botId: string }) {
+export function Triggers({ botId }: { botId: string }) {
   const [triggers, setTriggers] = useState<Trigger[]>([]);
   const [sel, setSel] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -2595,7 +2597,7 @@ function TriggerEditor({
   );
 }
 
-function Chat({ botId }: { botId: string }) {
+export function Chat({ botId }: { botId: string }) {
   const [turns, setTurns] = useState<{ role: string; text: string }[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -2734,7 +2736,7 @@ interface McpServer {
   enabled: number;
 }
 
-function IntegrationsPanel() {
+export function IntegrationsPanel() {
   const [servers, setServers] = useState<McpServer[]>([]);
   const [form, setForm] = useState<McpServer | "new" | null>(null);
   const [removing, setRemoving] = useState<McpServer | null>(null);
@@ -2848,7 +2850,7 @@ function IntegrationsPanel() {
   );
 }
 
-function SkillsPanel() {
+export function SkillsPanel() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [skillForm, setSkillForm] = useState<Skill | "new" | null>(null);
   const [removingSkill, setRemovingSkill] = useState<Skill | null>(null);
@@ -2924,7 +2926,7 @@ function SkillsPanel() {
   );
 }
 
-function SkillModal({
+export function SkillModal({
   skill,
   onClose,
   onSaved,
@@ -3008,7 +3010,7 @@ function SkillModal({
   );
 }
 
-function McpServerModal({
+export function McpServerModal({
   server,
   onClose,
   onSaved,
@@ -3168,7 +3170,7 @@ function McpServerModal({
   );
 }
 
-function MachinesPanel() {
+export function MachinesPanel() {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [form, setForm] = useState<Machine | "new" | null>(null);
   const [removing, setRemoving] = useState<Machine | null>(null);
@@ -3276,7 +3278,7 @@ function MachinesPanel() {
   );
 }
 
-function MachineModal({
+export function MachineModal({
   machine,
   onClose,
   onSaved,
