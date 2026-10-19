@@ -2,6 +2,20 @@
 
 **bots** is a self-hosted orchestrator for LLM-driven bots. Each bot has a name, optional instructions and a role, and runs on a schedule or on demand — with shell access in its own sandbox container (bash, git, GitHub CLI, and curl), MCP tools it was granted, and full run history.
 
+## Running in Docker
+
+```yaml
+services:
+  orchestrator:
+    image: ghcr.io/tehzevo/bots:latest
+    ports: ["8787:8787"]
+    volumes:
+      - ./data:/data            # database + bot workspaces — must be /data (DATA_DIR)
+      - /var/run/docker.sock:/var/run/docker.sock   # to manage sandbox containers
+```
+
+All state lives under `$DATA_DIR` (default `/data`) as `bots.db` plus a `workspaces/` folder per bot. Mount that exact path from your compose file; mounting somewhere else is ignored and the image falls back to container-local storage, so data appears to survive even after you delete the host directory.
+
 ## Sign in
 
 The API and UI are login-protected. Sessions live in an HttpOnly cookie for 7 days. Registration is off by default — start the container once with `ALLOW_REGISTRATION=true`, create your account, then remove it. Every signed-in user has equal access to all bots and settings; there is no admin tier. Settings holds self-service **Change password** (other sessions are logged out) and **Logout**.
