@@ -19,14 +19,36 @@ const {
 } = await import("../src/db.ts");
 const app = createApp();
 
+process.env.ALLOW_REGISTRATION = "true";
+let SESSION = "";
+function authedRequest(path: string, init?: RequestInit): Promise<Response> {
+  return app.request(path, {
+    ...init,
+    headers: {
+      ...(SESSION ? { cookie: SESSION } : {}),
+      ...(init?.headers ?? {}),
+    },
+  });
+}
+const signup = await authedRequest("/api/auth/signup", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ email: "api@example.com", password: "dev-session-1" }),
+});
+const signupCookie = signup.headers.get("set-cookie") ?? "";
+SESSION = signupCookie.split(";")[0] ?? "";
+
 async function req(
   method: string,
   path: string,
   body?: unknown,
 ): Promise<{ status: number; json: Record<string, unknown> }> {
-  const res = await app.request(path, {
+  const res = await authedRequest(path, {
     method,
-    headers: body === undefined ? {} : { "content-type": "application/json" },
+    headers: {
+      cookie: SESSION,
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+    },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   let json: Record<string, unknown> = {};
@@ -245,7 +267,7 @@ test("trigger CRUD via nested create and patches", async () => {
   assert.equal(t.status, 201);
   const id = t.json.id as string;
   assert.ok(t.json.next_run_at);
-  const listRes = await app.request(`/api/bots/${bot}/triggers`);
+  const listRes = await authedRequest(`/api/bots/${bot}/triggers`);
   assert.equal((await listRes.json()).length, 1);
   const p = await req("PATCH", `/api/triggers/${id}`, {
     message: "pong",
@@ -350,7 +372,7 @@ test("templates CRUD with validation", async () => {
     404,
   );
   const list = (await (
-    await app.request("/api/templates")
+    await authedRequest("/api/templates")
   ).json()) as unknown[];
   assert.ok(Array.isArray(list) && list.length === 1);
   assert.equal((await req("DELETE", `/api/templates/${id}`)).status, 200);
@@ -422,7 +444,7 @@ test("control mcp over json-rpc with api key auth", async () => {
 });
 
 test("openapi.json documents the API", async () => {
-  const res = await app.request("/api/openapi.json");
+  const res = await authedRequest("/api/openapi.json");
   assert.equal(res.status, 200);
   const doc = (await res.json()) as Record<string, unknown>;
   assert.equal(doc.openapi, "3.1.0");
@@ -436,14 +458,14 @@ test("api keys: create, list, bearer auth, revoke", async () => {
   assert.equal(created.status, 201);
   const value = created.json.value as string;
   assert.match(value, /^bots_[0-9a-f]{40}$/);
-  const listRes = await app.request("/api/api-keys");
+  const listRes = await authedRequest("/api/api-keys");
   const keys = (await listRes.json()) as Record<string, unknown>[];
   assert.ok(keys.some((k) => k.name === "cli" && k.value === undefined));
-  const authed = await app.request("/api/bots", {
+  const authed = await authedRequest("/api/bots", {
     headers: { authorization: `Bearer ${value}` },
   });
   assert.equal(authed.status, 200);
-  const bad = await app.request("/api/bots", {
+  const bad = await authedRequest("/api/bots", {
     headers: {
       authorization: "Bearer bots_0000000000000000000000000000000000000000",
     },
@@ -453,7 +475,7 @@ test("api keys: create, list, bearer auth, revoke", async () => {
   assert.equal((await req("DELETE", `/api/api-keys/${id}`)).status, 200);
   assert.equal(
     (
-      await app.request("/api/bots", {
+      await authedRequest("/api/bots", {
         headers: { authorization: `Bearer ${value}` },
       })
     ).status,
@@ -464,9 +486,9 @@ test("api keys: create, list, bearer auth, revoke", async () => {
 
 test("runs and message endpoints on a fresh bot", async () => {
   const bot = await makeBot("quiet-bot");
-  const runsRes = await app.request(`/api/bots/${bot}/runs`);
+  const runsRes = await authedRequest(`/api/bots/${bot}/runs`);
   assert.deepEqual(await runsRes.json(), []);
-  const msgsRes = await app.request(`/api/bots/${bot}/messages`);
+  const msgsRes = await authedRequest(`/api/bots/${bot}/messages`);
   assert.ok(Array.isArray(await msgsRes.json()));
   assert.equal((await req("DELETE", `/api/bots/${bot}/messages`)).status, 200);
 });
@@ -517,7 +539,7 @@ test("trigger names: optional, validated, editable", async () => {
     400,
   );
 
-  const list = await (await app.request(`/api/bots/${bot}/triggers`)).json();
+  const list = await (await authedRequest(`/api/bots/${bot}/triggers`)).json();
   assert.ok(Array.isArray(list) && list.every((t) => "name" in t));
 });
 
@@ -538,7 +560,7 @@ test("accepting new work un-interrupts a bot", async () => {
   assert.ok(latestErrorBotIds().has(bot));
 
   const red = (
-    (await (await app.request("/api/bots")).json()) as {
+    (await (await authedRequest("/api/bots")).json()) as {
       id: string;
       health: string;
     }[]
@@ -548,7 +570,7 @@ test("accepting new work un-interrupts a bot", async () => {
   supersedeInterruptedRuns(bot);
   assert.ok(!latestErrorBotIds().has(bot));
   const blue = (
-    (await (await app.request("/api/bots")).json()) as {
+    (await (await authedRequest("/api/bots")).json()) as {
       id: string;
       health: string;
     }[]

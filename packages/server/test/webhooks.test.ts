@@ -12,26 +12,45 @@ process.env.DATABASE_PATH = join(
 const { createApp } = await import("../src/api.ts");
 const app = createApp();
 
+process.env.ALLOW_REGISTRATION = "true";
+let SESSION = "";
+function authedRequest(path: string, init?: RequestInit): Promise<Response> {
+  return app.request(path, {
+    ...init,
+    headers: {
+      ...(SESSION ? { cookie: SESSION } : {}),
+      ...(init?.headers ?? {}),
+    },
+  });
+}
+const signup = await authedRequest("/api/auth/signup", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ email: "wh@example.com", password: "dev-session-1" }),
+});
+const signupCookie = signup.headers.get("set-cookie") ?? "";
+SESSION = signupCookie.split(";")[0] ?? "";
+
 async function json(res: Response): Promise<Record<string, unknown>> {
   return (await res.json()) as Record<string, unknown>;
 }
 
 async function makeWebhook(enabled = true) {
-  const botRes = await app.request("/api/bots", {
+  const botRes = await authedRequest("/api/bots", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", cookie: SESSION },
     body: JSON.stringify({ name: `wh-${enabled ? "on" : "off"}-bot` }),
   });
   const bot = (await json(botRes)).id as string;
   if (!enabled)
-    await app.request(`/api/bots/${bot}`, {
+    await authedRequest(`/api/bots/${bot}`, {
       method: "PATCH",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", cookie: SESSION },
       body: JSON.stringify({ enabled: false }),
     });
-  const trigRes = await app.request(`/api/bots/${bot}/triggers`, {
+  const trigRes = await authedRequest(`/api/bots/${bot}/triggers`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", cookie: SESSION },
     body: JSON.stringify({ kind: "webhook", message: "Event arrived" }),
   });
   const trigger = await json(trigRes);
@@ -44,18 +63,18 @@ async function makeWebhook(enabled = true) {
 
 test("unknown or non-webhook triggers are 404", async () => {
   assert.equal(
-    (await app.request("/api/webhooks/nope", { method: "POST" })).status,
+    (await authedRequest("/api/webhooks/nope", { method: "POST" })).status,
     404,
   );
 });
 
 test("missing or wrong bearer token is 401", async () => {
   const t = await makeWebhook();
-  const noAuth = await app.request(`/api/webhooks/${t.triggerId}`, {
+  const noAuth = await authedRequest(`/api/webhooks/${t.triggerId}`, {
     method: "POST",
   });
   assert.equal(noAuth.status, 401);
-  const wrong = await app.request(`/api/webhooks/${t.triggerId}`, {
+  const wrong = await authedRequest(`/api/webhooks/${t.triggerId}`, {
     method: "POST",
     headers: { authorization: "Bearer definitely-wrong-secret-value" },
   });
@@ -64,7 +83,7 @@ test("missing or wrong bearer token is 401", async () => {
 
 test("disabled bot returns 409 before injection", async () => {
   const t = await makeWebhook(false);
-  const res = await app.request(`/api/webhooks/${t.triggerId}`, {
+  const res = await authedRequest(`/api/webhooks/${t.triggerId}`, {
     method: "POST",
     headers: { authorization: `Bearer ${t.secret}` },
   });
@@ -74,7 +93,7 @@ test("disabled bot returns 409 before injection", async () => {
 test("oversized payload is rejected with 413", async () => {
   const t = await makeWebhook();
   let status = (
-    await app.request(`/api/webhooks/${t.triggerId}`, {
+    await authedRequest(`/api/webhooks/${t.triggerId}`, {
       method: "POST",
       headers: { authorization: `Bearer ${t.secret}` },
       body: "x".repeat(64 * 1024 + 1),
@@ -86,18 +105,18 @@ test("oversized payload is rejected with 413", async () => {
 
 test("disabled trigger authenticates then 409s", async () => {
   const t = await makeWebhook();
-  const off = await app.request(`/api/triggers/${t.triggerId}`, {
+  const off = await authedRequest(`/api/triggers/${t.triggerId}`, {
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", cookie: SESSION },
     body: JSON.stringify({ enabled: false }),
   });
   assert.equal(off.status, 200);
   assert.equal((await json(off)).enabled, 0);
-  const badAuth = await app.request(`/api/webhooks/${t.triggerId}`, {
+  const badAuth = await authedRequest(`/api/webhooks/${t.triggerId}`, {
     method: "POST",
   });
   assert.equal(badAuth.status, 401);
-  const offHit = await app.request(`/api/webhooks/${t.triggerId}`, {
+  const offHit = await authedRequest(`/api/webhooks/${t.triggerId}`, {
     method: "POST",
     headers: { authorization: `Bearer ${t.secret}` },
   });
@@ -107,24 +126,24 @@ test("disabled trigger authenticates then 409s", async () => {
 
 test("non-boolean enabled is rejected and re-enable resumes future-only", async () => {
   const t = await makeWebhook();
-  const bad = await app.request(`/api/triggers/${t.triggerId}`, {
+  const bad = await authedRequest(`/api/triggers/${t.triggerId}`, {
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", cookie: SESSION },
     body: JSON.stringify({ enabled: "yes" }),
   });
   assert.equal(bad.status, 400);
 });
 
 test("disabled schedule triggers are not due; resume recomputes next_run_at", async () => {
-  const botRes = await app.request("/api/bots", {
+  const botRes = await authedRequest("/api/bots", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", cookie: SESSION },
     body: JSON.stringify({ name: "sched-bot" }),
   });
   const bot = (await json(botRes)).id as string;
-  const trigRes = await app.request(`/api/bots/${bot}/triggers`, {
+  const trigRes = await authedRequest(`/api/bots/${bot}/triggers`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", cookie: SESSION },
     body: JSON.stringify({
       kind: "schedule",
       message: "tick",
@@ -138,16 +157,16 @@ test("disabled schedule triggers are not due; resume recomputes next_run_at", as
     "../src/db.ts"
   );
   updateTrigger(id, { next_run_at: Date.now() - 5 * 60_000 });
-  await app.request(`/api/triggers/${id}`, {
+  await authedRequest(`/api/triggers/${id}`, {
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", cookie: SESSION },
     body: JSON.stringify({ enabled: false }),
   });
   assert.equal(dueTriggers(Date.now()).filter((x) => x.id === id).length, 0);
   const resumeAt = Date.now();
-  await app.request(`/api/triggers/${id}`, {
+  await authedRequest(`/api/triggers/${id}`, {
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", cookie: SESSION },
     body: JSON.stringify({ enabled: true }),
   });
   const after = getTrigger(id);

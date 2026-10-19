@@ -9,6 +9,7 @@ import { resolve } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
 import type { Context } from "hono";
 import { Hono } from "hono";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import {
   injectMessage,
   interruptBot,
@@ -19,12 +20,16 @@ import { repoRoot } from "./config.ts";
 import {
   botsUsingMachine,
   clearMessages,
+  countUsers,
+  createSession,
   deleteApiKey,
   deleteBot,
   deleteMachine,
   deleteMcpServer,
   deleteProvider,
   deleteRole,
+  deleteSession,
+  deleteSessionsForUser,
   deleteSetting,
   deleteSkill,
   deleteTemplate,
@@ -36,10 +41,14 @@ import {
   getMcpServerByName,
   getProvider,
   getRole,
+  getSessionUser,
   getSetting,
   getSkill,
   getTemplate,
   getTrigger,
+  getUserByEmail,
+  getUserById,
+  hashPassword,
   insertApiKey,
   insertBot,
   insertMachine,
@@ -49,6 +58,7 @@ import {
   insertSkill,
   insertTemplate,
   insertTrigger,
+  insertUser,
   latestErrorBotIds,
   listApiKeys,
   listBots,
@@ -68,6 +78,7 @@ import {
   setMachineBuild,
   setSetting,
   setTriggerSecret,
+  setUserPassword,
   touchApiKey,
   unreadNotificationCount,
   updateBot,
@@ -78,6 +89,7 @@ import {
   updateSkill,
   updateTemplate,
   updateTrigger,
+  verifyPassword,
 } from "./db.ts";
 import { testMcpConnection } from "./mcp.ts";
 import { openApiDoc } from "./openapi.ts";
@@ -92,6 +104,14 @@ import {
 import { nextRunAt } from "./scheduler.ts";
 
 const DEFAULT_MANUAL_MESSAGE = "Continue with your current work.";
+
+export const SESSION_COOKIE = "bots_session";
+const SESSION_TTL_S = 7 * 24 * 60 * 60;
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+function allowRegistration(): boolean {
+  return process.env.ALLOW_REGISTRATION === "true";
+}
 
 interface BotInput {
   name?: unknown;
@@ -263,29 +283,175 @@ function toTriggerPayload(input: TriggerInput) {
   };
 }
 
-export function createApp(): Hono {
-  const app = new Hono();
+export interface AuthUser {
+  id: string;
+  email: string;
+}
+
+export function createApp() {
+  const app = new Hono<{ Variables: { user: AuthUser } }>();
 
   const API_KEY_RE = /^bots_[0-9a-f]{40}$/;
   app.use("/api/*", async (c, next) => {
+    const path = c.req.path;
+    if (
+      path === "/api/health" ||
+      path.startsWith("/api/webhooks/") ||
+      path === "/api/auth/config" ||
+      path === "/api/auth/login" ||
+      path === "/api/auth/signup"
+    )
+      return next();
+
     const header = c.req.header("authorization");
-    if (!header?.startsWith("Bearer ")) return next();
-    const value = header.slice(7).trim();
-    if (!API_KEY_RE.test(value)) return next();
-    const row = getApiKeyByHash(
-      createHash("sha256").update(value).digest("hex"),
-    );
-    if (!row) return c.json({ error: "invalid api key" }, 401);
-    const now = Date.now();
-    if (row.last_used_at === null || now - row.last_used_at >= 60_000) {
-      touchApiKey(row.id, now);
+    if (header?.startsWith("Bearer ")) {
+      const value = header.slice(7).trim();
+      if (!API_KEY_RE.test(value))
+        return c.json({ error: "invalid api key" }, 401);
+      const row = getApiKeyByHash(
+        createHash("sha256").update(value).digest("hex"),
+      );
+      if (!row) return c.json({ error: "invalid api key" }, 401);
+      const now = Date.now();
+      if (row.last_used_at === null || now - row.last_used_at >= 60_000) {
+        touchApiKey(row.id, now);
+      }
+      const owner = row.user_id ? getUserById(row.user_id) : undefined;
+      c.set("user", {
+        id: owner?.id ?? "",
+        email: owner?.email ?? "api-key",
+      });
+      return next();
     }
+
+    const token = getCookie(c, SESSION_COOKIE);
+    const user = token ? getSessionUser(token) : undefined;
+    if (!user) return c.json({ error: "unauthorized" }, 401);
+
+    // CSRF guard for cookie sessions: cross-origin state changes need JSON
+    // and, when a browser sends Origin, same-origin.
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(c.req.method)) {
+      const origin = c.req.header("origin");
+      if (origin) {
+        let same = false;
+        try {
+          same = new URL(origin).host === new URL(c.req.url).host;
+        } catch {
+          same = false;
+        }
+        if (!same)
+          return c.json({ error: "cross-origin request blocked" }, 403);
+      } else if (c.req.header("content-type") !== undefined) {
+        if (!c.req.header("content-type")?.includes("application/json"))
+          return c.json({ error: "invalid content type" }, 415);
+      }
+    }
+    c.set("user", user);
     return next();
   });
 
   app.get("/api/health", (c) => c.json({ ok: true }));
 
   app.get("/api/openapi.json", (c) => c.json(openApiDoc()));
+
+  const cookieOpts = {
+    httpOnly: true,
+    sameSite: "Lax" as const,
+    secure: true,
+    path: "/",
+    maxAge: SESSION_TTL_S,
+  };
+
+  app.get("/api/auth/config", (c) =>
+    c.json({
+      allow_registration: allowRegistration(),
+      has_users: countUsers() > 0,
+    }),
+  );
+
+  async function readCreds(
+    c: Context,
+  ): Promise<{ email: string; password: string } | null> {
+    const body = (await c.req.json().catch(() => null)) as {
+      email?: unknown;
+      password?: unknown;
+    } | null;
+    if (typeof body?.email !== "string" || typeof body.password !== "string")
+      return null;
+    return { email: body.email.trim().toLowerCase(), password: body.password };
+  }
+
+  app.post("/api/auth/signup", async (c) => {
+    if (!allowRegistration())
+      return c.json({ error: "registration is disabled" }, 403);
+    const creds = await readCreds(c);
+    if (!creds || !EMAIL_RE.test(creds.email))
+      return c.json({ error: "valid email is required" }, 400);
+    if (creds.password.length < 8)
+      return c.json({ error: "password must be at least 8 characters" }, 400);
+    if (getUserByEmail(creds.email))
+      return c.json({ error: "account already exists" }, 409);
+    const id = randomUUID();
+    insertUser({
+      id,
+      email: creds.email,
+      password_hash: hashPassword(creds.password),
+      created_at: Date.now(),
+    });
+    const { token } = createSession(id, Date.now() + SESSION_TTL_S * 1000);
+    setCookie(c, SESSION_COOKIE, token, cookieOpts);
+    return c.json({ email: creds.email }, 201);
+  });
+
+  app.post("/api/auth/login", async (c) => {
+    const creds = await readCreds(c);
+    const user = creds ? getUserByEmail(creds.email) : undefined;
+    if (!creds || !user || !verifyPassword(creds.password, user.password_hash))
+      return c.json({ error: "invalid credentials" }, 401);
+    const { token } = createSession(user.id, Date.now() + SESSION_TTL_S * 1000);
+    setCookie(c, SESSION_COOKIE, token, cookieOpts);
+    return c.json({ email: user.email });
+  });
+
+  app.get("/api/auth/me", (c) => {
+    const user = c.get("user") as { id: string; email: string };
+    return c.json({ email: user.email });
+  });
+
+  app.post("/api/auth/logout", (c) => {
+    const token = getCookie(c, SESSION_COOKIE);
+    if (token) deleteSession(token);
+    deleteCookie(c, SESSION_COOKIE, { path: "/" });
+    return c.json({ ok: true });
+  });
+
+  app.post("/api/auth/password", async (c) => {
+    const user = c.get("user") as { id: string; email: string };
+    if (!user.id)
+      return c.json({ error: "password change needs a login session" }, 400);
+    const body = (await c.req.json().catch(() => null)) as {
+      current?: unknown;
+      new?: unknown;
+    } | null;
+    if (typeof body?.current !== "string" || typeof body.new !== "string")
+      return c.json({ error: "current and new are required" }, 400);
+    if (body.new.length < 8)
+      return c.json(
+        { error: "new password must be at least 8 characters" },
+        400,
+      );
+    const row = getUserById(user.id);
+    if (!row || !verifyPassword(body.current, row.password_hash))
+      return c.json({ error: "current password incorrect" }, 403);
+    setUserPassword(row.id, hashPassword(body.new));
+    // keep this device's session, invalidate the rest
+    const token = getCookie(c, SESSION_COOKIE);
+    deleteSessionsForUser(
+      row.id,
+      token ? createHash("sha256").update(token).digest("hex") : undefined,
+    );
+    return c.json({ ok: true });
+  });
 
   app.get("/api/settings", (c) =>
     c.json({
@@ -603,7 +769,10 @@ export function createApp(): Hono {
     return rpcError(msg.id, -32601, `unknown method: ${msg.method}`);
   });
 
-  app.get("/api/api-keys", (c) => c.json(listApiKeys()));
+  app.get("/api/api-keys", (c) => {
+    const user = c.get("user") as { id: string; email: string };
+    return c.json(listApiKeys(user.id));
+  });
 
   app.post("/api/api-keys", async (c) => {
     const body = (await c.req.json().catch(() => null)) as {
@@ -612,10 +781,12 @@ export function createApp(): Hono {
     const name = typeof body?.name === "string" ? body.name.trim() : "";
     if (!name) return c.json({ error: "name is required" }, 400);
     const value = `bots_${randomBytes(20).toString("hex")}`;
+    const user = c.get("user") as { id: string; email: string };
     const key = {
       id: randomUUID(),
       name,
       hash: createHash("sha256").update(value).digest("hex"),
+      user_id: user.id || null,
       created_at: Date.now(),
     };
     insertApiKey(key);
@@ -623,9 +794,9 @@ export function createApp(): Hono {
   });
 
   app.delete("/api/api-keys/:keyId", (c) => {
-    if (!listApiKeys().some((k) => k.id === c.req.param("keyId")))
+    const user = c.get("user") as { id: string; email: string };
+    if (!deleteApiKey(c.req.param("keyId"), user.id))
       return c.json({ error: "not found" }, 404);
-    deleteApiKey(c.req.param("keyId"));
     return c.json({ ok: true });
   });
 
