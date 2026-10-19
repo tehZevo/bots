@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+jobs:
+  changes:
+    name: ci / changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.check.outputs.code }}
+    steps:
+      - name: Detect non-spec changes
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          files=$(gh api "repos/$GITHUB_REPOSITORY/compare/${BASE_SHA}...${HEAD_SHA}" --jq '.files[].filename' 2>/dev/null) || {
+            echo "code=true" >> "$GITHUB_OUTPUT"; exit 0; }
+          if [ -z "$files" ] || printf '%s\n' "$files" | grep -vq '^specs/'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  typecheck:
+    name: ci / typecheck
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r typecheck
+
+  tests:
+    name: ci / tests
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Coverage-free so failures isolate to logic, not the coverage gate.
+      - name: Unit tests
+        run: |
+          node --import ./packages/server/node_modules/tsx/dist/loader.mjs \
+            --test packages/server/test/*.test.ts
+      - name: Web unit tests
+        run: |
+          cd packages/web
+          node --import ../../packages/server/node_modules/tsx/dist/loader.mjs \
+            --test test/*.test.ts
+
+  coverage:
+    name: ci / coverage
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    # pipefail so a node threshold breach isn't swallowed by `| tee`.
+    defaults:
+      run:
+        shell: bash -euo pipefail {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Server floor 70% lines; spec target is 90 (specs/testing/unit-tests.md) —
+      # raise as agent/sandbox/mcp gain coverage. Measured % prints via --test-reporter output below.
+      - name: Tests with V8 coverage
+        id: cov
+        run: |
+          node --import ./packages/server/node_modules/tsx/dist/loader.mjs \
+            --experimental-test-coverage --test-coverage-include='packages/server/src/**' \
+            --test-coverage-lines=70 --test packages/server/test/*.test.ts 2>&1 | tee cov.log
+      - name: Report measured coverage
+        if: always()
+        run: |
+          PCT=$(grep "all files" cov.log | grep -oE "[0-9]+\.[0-9]+" | head -1)
+          echo "measured line coverage (server): ${PCT:-unknown}%" >> "$GITHUB_STEP_SUMMARY"
+      # Web floor 70% lines (specs/testing/unit-tests.md); run inside packages/web so tsx picks up its jsx config.
+      - name: Web tests with V8 coverage
+        if: always()
+        run: |
+          cd packages/web
+          node --import ../../packages/server/node_modules/tsx/dist/loader.mjs \
+            --experimental-test-coverage --test-coverage-include='src/**' \
+            --test-coverage-lines=70 --test test/*.test.ts 2>&1 | tee "$GITHUB_WORKSPACE/cov-web.log"
+          PCT=$(grep "all files" "$GITHUB_WORKSPACE/cov-web.log" | grep -oE "[0-9]+\.[0-9]+" | head -1)
+          echo "measured line coverage (web): ${PCT:-unknown}%" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: ci / build
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Production build (both packages)
+        run: pnpm build

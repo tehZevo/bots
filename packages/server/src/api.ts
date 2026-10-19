@@ -1,9 +1,15 @@
-import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
 import type { Context } from "hono";
 import { Hono } from "hono";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import {
   injectMessage,
   interruptBot,
@@ -12,54 +18,125 @@ import {
 } from "./agent.ts";
 import { repoRoot } from "./config.ts";
 import {
+  botsUsingMachine,
   clearMessages,
+  countUsers,
+  createSession,
+  deleteApiKey,
   deleteBot,
+  deleteMachine,
   deleteMcpServer,
   deleteProvider,
   deleteRole,
+  deleteSession,
+  deleteSessionsForUser,
   deleteSetting,
+  deleteSkill,
+  deleteTemplate,
   deleteTrigger,
+  getApiKeyByHash,
   getBot,
+  getMachine,
   getMcpServer,
   getMcpServerByName,
   getProvider,
   getRole,
+  getSessionUser,
   getSetting,
+  getSkill,
+  getTemplate,
   getTrigger,
+  getUserByEmail,
+  getUserById,
+  hashPassword,
+  insertApiKey,
   insertBot,
+  insertMachine,
   insertMcpServer,
   insertProvider,
   insertRole,
+  insertSkill,
+  insertTemplate,
   insertTrigger,
+  insertUser,
+  latestErrorBotIds,
+  listApiKeys,
   listBots,
+  listMachines,
   listMcpServers,
+  listNotifications,
   listProviders,
   listRoles,
   listRuns,
+  listSkills,
+  listTemplates,
   listTriggers,
   loadMessages,
+  markAllNotificationsRead,
+  markNotificationRead,
   type ProviderRow,
+  setMachineBuild,
   setSetting,
   setTriggerSecret,
+  setUserPassword,
+  touchApiKey,
+  unreadNotificationCount,
   updateBot,
+  updateMachine,
   updateMcpServer,
   updateProvider,
   updateRole,
+  updateSkill,
+  updateTemplate,
   updateTrigger,
+  verifyPassword,
 } from "./db.ts";
 import { testMcpConnection } from "./mcp.ts";
-import { idleMinutes, removeContainer } from "./sandbox.ts";
+import { openApiDoc } from "./openapi.ts";
+import {
+  defaultImageRef,
+  idleMinutes,
+  rebuildMachineImage,
+  removeContainer,
+  repullDefaultImage,
+  restartSandbox,
+} from "./sandbox.ts";
 import { nextRunAt } from "./scheduler.ts";
 
 const DEFAULT_MANUAL_MESSAGE = "Continue with your current work.";
 
+export const SESSION_COOKIE = "bots_session";
+const SESSION_TTL_S = 7 * 24 * 60 * 60;
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+function allowRegistration(): boolean {
+  return process.env.ALLOW_REGISTRATION === "true";
+}
+
 interface BotInput {
   name?: unknown;
-  description?: unknown;
-  system_prompt?: unknown;
+  instructions?: unknown;
   model_id?: unknown;
   role_id?: unknown;
+  machine_id?: unknown;
+  avatar_shape?: unknown;
+  avatar_color?: unknown;
+  sound?: unknown;
   enabled?: unknown;
+}
+
+const AVATAR_OPTIONS_COUNT = 12;
+
+function toAvatarIndex(value: unknown): number | null {
+  if (value === undefined || value === null) return null;
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    value < 0 ||
+    value >= AVATAR_OPTIONS_COUNT
+  )
+    return -1;
+  return value;
 }
 
 function toBotPayload(input: BotInput) {
@@ -71,42 +148,100 @@ function toBotPayload(input: BotInput) {
       return { error: `unknown role: ${input.role_id}` };
     role_id = input.role_id.trim();
   }
+  let machine_id: string | null = null;
+  if (typeof input.machine_id === "string" && input.machine_id.trim()) {
+    if (!getMachine(input.machine_id.trim()))
+      return { error: `unknown machine: ${input.machine_id}` };
+    machine_id = input.machine_id.trim();
+  }
+  const shape = toAvatarIndex(input.avatar_shape);
+  if (shape === -1) return { error: "avatar_shape must be an index or null" };
+  const color = toAvatarIndex(input.avatar_color);
+  if (color === -1) return { error: "avatar_color must be an index or null" };
+  const SOUND_CHOICES = new Set([
+    "none",
+    "default",
+    "ping",
+    "chirp",
+    "bell",
+    "blip",
+    "warp",
+    "thunk",
+  ]);
+  let sound: string | null = null;
+  if (typeof input.sound === "string" && input.sound.trim()) {
+    if (!SOUND_CHOICES.has(input.sound.trim()))
+      return { error: `unknown sound: ${input.sound}` };
+    sound = input.sound.trim();
+  }
   return {
     name: input.name.trim(),
-    description: typeof input.description === "string" ? input.description : "",
-    system_prompt:
-      typeof input.system_prompt === "string" ? input.system_prompt : "",
+    instructions:
+      typeof input.instructions === "string" ? input.instructions : "",
     model_id:
       typeof input.model_id === "string" && input.model_id.trim()
         ? input.model_id.trim()
         : null,
     role_id,
+    machine_id,
+    sound,
     enabled:
       input.enabled === false ||
       input.enabled === 0 ||
       input.enabled === "false"
         ? 0
         : 1,
+    avatar_shape: shape,
+    avatar_color: color,
   };
 }
 
 interface RoleInput {
   name?: unknown;
   instructions?: unknown;
+  mcp_server_ids?: unknown;
+  skill_ids?: unknown;
 }
 
-function toRolePayload(input: RoleInput) {
+function toRolePayload(
+  input: RoleInput,
+  knownMcpIds: Set<string>,
+  knownSkillIds: Set<string>,
+) {
   if (typeof input.name !== "string" || !input.name.trim())
     return { error: "name is required" };
   if (typeof input.instructions !== "string" || !input.instructions.trim())
     return { error: "instructions is required" };
-  return { name: input.name.trim(), instructions: input.instructions };
+  const parseIds = (
+    value: unknown,
+    known: Set<string>,
+    kind: string,
+  ): string[] | { error: string } => {
+    if (value === undefined) return [];
+    if (!Array.isArray(value) || value.some((v) => typeof v !== "string"))
+      return { error: `${kind} must be an array of ids` };
+    for (const id of value as string[])
+      if (!known.has(id)) return { error: `unknown ${kind} id: ${id}` };
+    return value as string[];
+  };
+  const mcp = parseIds(input.mcp_server_ids, knownMcpIds, "mcp_server");
+  if ("error" in mcp) return mcp;
+  const skills = parseIds(input.skill_ids, knownSkillIds, "skill");
+  if ("error" in skills) return skills;
+  return {
+    name: input.name.trim(),
+    instructions: input.instructions,
+    mcp_server_ids: mcp,
+    skill_ids: skills,
+  };
 }
 
 interface TriggerInput {
   kind?: unknown;
+  name?: unknown;
   message?: unknown;
   schedule?: unknown;
+  enabled?: unknown;
 }
 
 const TRIGGER_KINDS = ["schedule", "webhook"] as const;
@@ -120,11 +255,19 @@ function toTriggerPayload(input: TriggerInput) {
     return { error: `unknown kind: ${String(input.kind)}` };
   if (typeof input.message !== "string" || !input.message.trim())
     return { error: "message is required" };
+  let name: string | null = null;
+  if (input.name !== undefined && input.name !== null && input.name !== "") {
+    if (typeof input.name !== "string" || !input.name.trim())
+      return { error: "name must be a non-empty string" };
+    if (input.name.length > 120) return { error: "name too long (max 120)" };
+    name = input.name.trim();
+  }
   const schedule =
     typeof input.schedule === "string" ? input.schedule.trim() : "";
   if (kind === "webhook")
     return {
       kind: kind as (typeof TRIGGER_KINDS)[number],
+      name,
       message: input.message,
       schedule: "",
     };
@@ -134,21 +277,188 @@ function toTriggerPayload(input: TriggerInput) {
     return { error: `invalid schedule: ${schedule}` };
   return {
     kind: kind as (typeof TRIGGER_KINDS)[number],
+    name,
     message: input.message,
     schedule,
   };
 }
 
-export function createApp(): Hono {
-  const app = new Hono();
+export interface AuthUser {
+  id: string;
+  email: string;
+}
+
+export function createApp() {
+  const app = new Hono<{ Variables: { user: AuthUser } }>();
+
+  const API_KEY_RE = /^bots_[0-9a-f]{40}$/;
+  app.use("/api/*", async (c, next) => {
+    const path = c.req.path;
+    if (
+      path === "/api/health" ||
+      path.startsWith("/api/webhooks/") ||
+      path === "/api/auth/config" ||
+      path === "/api/auth/login" ||
+      path === "/api/auth/signup"
+    )
+      return next();
+
+    const header = c.req.header("authorization");
+    if (header?.startsWith("Bearer ")) {
+      const value = header.slice(7).trim();
+      if (!API_KEY_RE.test(value))
+        return c.json({ error: "invalid api key" }, 401);
+      const row = getApiKeyByHash(
+        createHash("sha256").update(value).digest("hex"),
+      );
+      if (!row) return c.json({ error: "invalid api key" }, 401);
+      const now = Date.now();
+      if (row.last_used_at === null || now - row.last_used_at >= 60_000) {
+        touchApiKey(row.id, now);
+      }
+      const owner = row.user_id ? getUserById(row.user_id) : undefined;
+      c.set("user", {
+        id: owner?.id ?? "",
+        email: owner?.email ?? "api-key",
+      });
+      return next();
+    }
+
+    const token = getCookie(c, SESSION_COOKIE);
+    const user = token ? getSessionUser(token) : undefined;
+    if (!user) return c.json({ error: "unauthorized" }, 401);
+
+    // CSRF guard for cookie sessions: cross-origin state changes need JSON
+    // and, when a browser sends Origin, same-origin.
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(c.req.method)) {
+      const origin = c.req.header("origin");
+      if (origin) {
+        let same = false;
+        try {
+          same = new URL(origin).host === new URL(c.req.url).host;
+        } catch {
+          same = false;
+        }
+        if (!same)
+          return c.json({ error: "cross-origin request blocked" }, 403);
+      } else if (c.req.header("content-type") !== undefined) {
+        if (!c.req.header("content-type")?.includes("application/json"))
+          return c.json({ error: "invalid content type" }, 415);
+      }
+    }
+    c.set("user", user);
+    return next();
+  });
 
   app.get("/api/health", (c) => c.json({ ok: true }));
+
+  app.get("/api/openapi.json", (c) => c.json(openApiDoc()));
+
+  const cookieOpts = {
+    httpOnly: true,
+    sameSite: "Lax" as const,
+    secure: true,
+    path: "/",
+    maxAge: SESSION_TTL_S,
+  };
+
+  app.get("/api/auth/config", (c) =>
+    c.json({
+      allow_registration: allowRegistration(),
+      has_users: countUsers() > 0,
+    }),
+  );
+
+  async function readCreds(
+    c: Context,
+  ): Promise<{ email: string; password: string } | null> {
+    const body = (await c.req.json().catch(() => null)) as {
+      email?: unknown;
+      password?: unknown;
+    } | null;
+    if (typeof body?.email !== "string" || typeof body.password !== "string")
+      return null;
+    return { email: body.email.trim().toLowerCase(), password: body.password };
+  }
+
+  app.post("/api/auth/signup", async (c) => {
+    if (!allowRegistration())
+      return c.json({ error: "registration is disabled" }, 403);
+    const creds = await readCreds(c);
+    if (!creds || !EMAIL_RE.test(creds.email))
+      return c.json({ error: "valid email is required" }, 400);
+    if (creds.password.length < 8)
+      return c.json({ error: "password must be at least 8 characters" }, 400);
+    if (getUserByEmail(creds.email))
+      return c.json({ error: "account already exists" }, 409);
+    const id = randomUUID();
+    insertUser({
+      id,
+      email: creds.email,
+      password_hash: hashPassword(creds.password),
+      created_at: Date.now(),
+    });
+    const { token } = createSession(id, Date.now() + SESSION_TTL_S * 1000);
+    setCookie(c, SESSION_COOKIE, token, cookieOpts);
+    return c.json({ email: creds.email }, 201);
+  });
+
+  app.post("/api/auth/login", async (c) => {
+    const creds = await readCreds(c);
+    const user = creds ? getUserByEmail(creds.email) : undefined;
+    if (!creds || !user || !verifyPassword(creds.password, user.password_hash))
+      return c.json({ error: "invalid credentials" }, 401);
+    const { token } = createSession(user.id, Date.now() + SESSION_TTL_S * 1000);
+    setCookie(c, SESSION_COOKIE, token, cookieOpts);
+    return c.json({ email: user.email });
+  });
+
+  app.get("/api/auth/me", (c) => {
+    const user = c.get("user") as { id: string; email: string };
+    return c.json({ email: user.email });
+  });
+
+  app.post("/api/auth/logout", (c) => {
+    const token = getCookie(c, SESSION_COOKIE);
+    if (token) deleteSession(token);
+    deleteCookie(c, SESSION_COOKIE, { path: "/" });
+    return c.json({ ok: true });
+  });
+
+  app.post("/api/auth/password", async (c) => {
+    const user = c.get("user") as { id: string; email: string };
+    if (!user.id)
+      return c.json({ error: "password change needs a login session" }, 400);
+    const body = (await c.req.json().catch(() => null)) as {
+      current?: unknown;
+      new?: unknown;
+    } | null;
+    if (typeof body?.current !== "string" || typeof body.new !== "string")
+      return c.json({ error: "current and new are required" }, 400);
+    if (body.new.length < 8)
+      return c.json(
+        { error: "new password must be at least 8 characters" },
+        400,
+      );
+    const row = getUserById(user.id);
+    if (!row || !verifyPassword(body.current, row.password_hash))
+      return c.json({ error: "current password incorrect" }, 403);
+    setUserPassword(row.id, hashPassword(body.new));
+    // keep this device's session, invalidate the rest
+    const token = getCookie(c, SESSION_COOKIE);
+    deleteSessionsForUser(
+      row.id,
+      token ? createHash("sha256").update(token).digest("hex") : undefined,
+    );
+    return c.json({ ok: true });
+  });
 
   app.get("/api/settings", (c) =>
     c.json({
       sandbox_idle_minutes: idleMinutes(),
       default_provider_id: getSetting("default_provider_id") ?? null,
       default_model: getSetting("default_model") ?? null,
+      control_mcp_enabled: getSetting("control_mcp_enabled") !== "0",
     }),
   );
 
@@ -157,10 +467,17 @@ export function createApp(): Hono {
       sandbox_idle_minutes?: unknown;
       default_provider_id?: unknown;
       default_model?: unknown;
+      control_mcp_enabled?: unknown;
     } | null;
     if (!body || typeof body !== "object")
       return c.json({ error: "invalid body" }, 400);
     const out: Record<string, unknown> = {};
+    if (body.control_mcp_enabled !== undefined) {
+      if (typeof body.control_mcp_enabled !== "boolean")
+        return c.json({ error: "control_mcp_enabled must be a boolean" }, 400);
+      setSetting("control_mcp_enabled", body.control_mcp_enabled ? "1" : "0");
+      out.control_mcp_enabled = body.control_mcp_enabled;
+    }
     if (body.sandbox_idle_minutes !== undefined) {
       const raw = body.sandbox_idle_minutes;
       if (
@@ -195,6 +512,318 @@ export function createApp(): Hono {
       out.default_model = id || null;
     }
     return c.json(out);
+  });
+
+  type TemplateInput = {
+    name?: unknown;
+    description?: unknown;
+    instructions?: unknown;
+    machine_id?: unknown;
+    role_id?: unknown;
+    triggers?: unknown;
+  };
+
+  function toTemplatePayload(input: TemplateInput) {
+    const name = typeof input.name === "string" ? input.name.trim() : "";
+    if (!name) return { error: "name is required" };
+    for (const key of ["description", "instructions"] as const) {
+      const v = input[key];
+      if (v !== undefined && typeof v !== "string")
+        return { error: `${key} must be a string` };
+    }
+    const refs: { machine_id: string | null; role_id: string | null } = {
+      machine_id: null,
+      role_id: null,
+    };
+    for (const key of ["machine_id", "role_id"] as const) {
+      const v = input[key];
+      if (v === undefined || v === null) continue;
+      if (typeof v !== "string") return { error: `${key} must be a string` };
+      const exists = key === "machine_id" ? getMachine(v) : getRole(v);
+      if (!exists) return { error: `unknown ${key.replace("_id", "")}: ${v}` };
+      refs[key] = v;
+    }
+    const triggers: { message: string; schedule: string }[] = [];
+    if (input.triggers !== undefined) {
+      if (!Array.isArray(input.triggers))
+        return { error: "triggers must be an array" };
+      for (const t of input.triggers as Record<string, unknown>[]) {
+        const message = typeof t?.message === "string" ? t.message.trim() : "";
+        const schedule =
+          typeof t?.schedule === "string" ? t.schedule.trim() : "";
+        if (!message) return { error: "trigger message is required" };
+        if (!schedule || nextRunAt(schedule) === null)
+          return { error: `invalid schedule: ${schedule}` };
+        triggers.push({ message, schedule });
+      }
+    }
+    return {
+      name,
+      description: (input.description as string | undefined) ?? "",
+      instructions: (input.instructions as string | undefined) ?? "",
+      ...refs,
+      triggers,
+    };
+  }
+
+  app.get("/api/templates", (c) => c.json(listTemplates()));
+
+  app.post("/api/templates", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as TemplateInput | null;
+    if (!body || typeof body !== "object")
+      return c.json({ error: "invalid body" }, 400);
+    const p = toTemplatePayload(body);
+    if ("error" in p) return c.json({ error: p.error }, 400);
+    if (listTemplates().some((t) => t.name === p.name))
+      return c.json({ error: `template name exists: ${p.name}` }, 409);
+    const created = insertTemplate({
+      id: randomUUID(),
+      ...p,
+      triggers: JSON.stringify(p.triggers),
+      created_at: Date.now(),
+    });
+    return c.json(created, 201);
+  });
+
+  app.patch("/api/templates/:templateId", async (c) => {
+    const existing = getTemplate(c.req.param("templateId"));
+    if (!existing) return c.json({ error: "not found" }, 404);
+    const body = (await c.req.json().catch(() => null)) as TemplateInput | null;
+    if (!body || typeof body !== "object")
+      return c.json({ error: "invalid body" }, 400);
+    const p = toTemplatePayload({
+      name: body.name ?? existing.name,
+      description: body.description ?? existing.description,
+      instructions: body.instructions ?? existing.instructions,
+      machine_id:
+        body.machine_id === undefined ? existing.machine_id : body.machine_id,
+      role_id: body.role_id === undefined ? existing.role_id : body.role_id,
+      triggers: body.triggers ?? existing.triggers,
+    });
+    if ("error" in p) return c.json({ error: p.error }, 400);
+    if (listTemplates().some((t) => t.name === p.name && t.id !== existing.id))
+      return c.json({ error: `template name exists: ${p.name}` }, 409);
+    updateTemplate(existing.id, {
+      ...p,
+      triggers: JSON.stringify(p.triggers),
+    });
+    return c.json(getTemplate(existing.id));
+  });
+
+  app.delete("/api/templates/:templateId", (c) => {
+    if (!getTemplate(c.req.param("templateId")))
+      return c.json({ error: "not found" }, 404);
+    deleteTemplate(c.req.param("templateId"));
+    return c.json({ ok: true });
+  });
+
+  const MCP_TOOLS: Record<
+    string,
+    (a: Record<string, unknown>) => {
+      method: string;
+      path: string;
+      body?: unknown;
+    }
+  > = {
+    bots_list: () => ({ method: "GET", path: "/api/bots" }),
+    bot_get: (a) => ({ method: "GET", path: `/api/bots/${String(a.id)}` }),
+    bot_create: (a) => ({
+      method: "POST",
+      path: "/api/bots",
+      body: {
+        name: a.name,
+        instructions: a.instructions,
+      },
+    }),
+    bot_set_role: (a) => ({
+      method: "PATCH",
+      path: `/api/bots/${String(a.id)}`,
+      body: { role_id: a.role_id ?? null },
+    }),
+    run_now: (a) => ({
+      method: "POST",
+      path: `/api/bots/${String(a.bot_id)}/run`,
+      body: { message: a.message },
+    }),
+    interrupt: (a) => ({
+      method: "POST",
+      path: `/api/bots/${String(a.bot_id)}/interrupt`,
+    }),
+    runs_tail: (a) => ({
+      method: "GET",
+      path: `/api/bots/${String(a.bot_id)}/runs`,
+    }),
+  };
+
+  const MCP_TOOL_DEFS = [
+    { name: "bots_list", description: "List bots with health and run state" },
+    {
+      name: "bot_get",
+      description: "Read one bot",
+      inputSchema: { type: "object", required: ["id"] },
+    },
+    {
+      name: "bot_create",
+      description: "Create a bot",
+      inputSchema: { type: "object", required: ["name"] },
+    },
+    {
+      name: "bot_set_role",
+      description: "Set or clear a bot's role",
+      inputSchema: { type: "object", required: ["id", "role_id"] },
+    },
+    {
+      name: "run_now",
+      description: "Inject a manual run into a bot",
+      inputSchema: { type: "object", required: ["bot_id"] },
+    },
+    {
+      name: "interrupt",
+      description: "Interrupt a running loop",
+      inputSchema: { type: "object", required: ["bot_id"] },
+    },
+    {
+      name: "runs_tail",
+      description: "Recent runs for a bot",
+      inputSchema: { type: "object", required: ["bot_id"] },
+    },
+  ];
+
+  const rpcError = (id: unknown, code: number, message: string) =>
+    Response.json({ jsonrpc: "2.0", id: id ?? null, error: { code, message } });
+
+  app.post("/mcp", async (c) => {
+    if (getSetting("control_mcp_enabled") === "0")
+      return c.json({ error: "not found" }, 404);
+    const header = c.req.header("authorization");
+    const value = header?.startsWith("Bearer ") ? header.slice(7).trim() : "";
+    if (!API_KEY_RE.test(value))
+      return c.json({ error: "api key required" }, 401);
+
+    const msg = (await c.req.json().catch(() => null)) as {
+      jsonrpc?: string;
+      id?: unknown;
+      method?: string;
+      params?: Record<string, unknown>;
+    } | null;
+    if (!msg || msg.jsonrpc !== "2.0" || typeof msg.method !== "string")
+      return rpcError(msg?.id, -32600, "invalid request");
+    if (msg.method === "notifications/initialized")
+      return new Response(null, { status: 202 });
+    if (msg.method === "initialize")
+      return c.json({
+        jsonrpc: "2.0",
+        id: msg.id ?? null,
+        result: {
+          protocolVersion:
+            typeof msg.params?.protocolVersion === "string"
+              ? msg.params.protocolVersion
+              : "2025-03-26",
+          capabilities: { tools: {} },
+          serverInfo: { name: "bots-control", version: "1.0.0" },
+        },
+      });
+    if (msg.method === "ping")
+      return c.json({ jsonrpc: "2.0", id: msg.id ?? null, result: {} });
+    if (msg.method === "tools/list")
+      return c.json({
+        jsonrpc: "2.0",
+        id: msg.id ?? null,
+        result: { tools: MCP_TOOL_DEFS },
+      });
+    if (msg.method === "tools/call") {
+      const name = String(msg.params?.name ?? "");
+      const args = (msg.params?.arguments ?? {}) as Record<string, unknown>;
+      const tool = MCP_TOOLS[name];
+      if (!tool) return rpcError(msg.id, -32602, `unknown tool: ${name}`);
+      const call = tool(args);
+      const sub = await app.fetch(
+        new Request(`http://localhost${call.path}`, {
+          method: call.method,
+          headers: {
+            authorization: header as string,
+            "content-type": "application/json",
+          },
+          body: call.body === undefined ? undefined : JSON.stringify(call.body),
+        }),
+      );
+      let payload: unknown;
+      try {
+        payload = await sub.json();
+      } catch {
+        payload = { ok: sub.status < 400 };
+      }
+      if (name === "runs_tail" && Array.isArray(payload)) {
+        const limit = typeof args.limit === "number" ? args.limit : 20;
+        payload = payload.slice(0, Math.max(1, Math.min(limit, 100)));
+      }
+      return c.json({
+        jsonrpc: "2.0",
+        id: msg.id ?? null,
+        result: {
+          content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+          isError: sub.status >= 400,
+        },
+      });
+    }
+    return rpcError(msg.id, -32601, `unknown method: ${msg.method}`);
+  });
+
+  app.get("/api/api-keys", (c) => {
+    const user = c.get("user") as { id: string; email: string };
+    return c.json(listApiKeys(user.id));
+  });
+
+  app.post("/api/api-keys", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      name?: unknown;
+    } | null;
+    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    if (!name) return c.json({ error: "name is required" }, 400);
+    const value = `bots_${randomBytes(20).toString("hex")}`;
+    const user = c.get("user") as { id: string; email: string };
+    const key = {
+      id: randomUUID(),
+      name,
+      hash: createHash("sha256").update(value).digest("hex"),
+      user_id: user.id || null,
+      created_at: Date.now(),
+    };
+    insertApiKey(key);
+    return c.json({ id: key.id, name, created_at: key.created_at, value }, 201);
+  });
+
+  app.delete("/api/api-keys/:keyId", (c) => {
+    const user = c.get("user") as { id: string; email: string };
+    if (!deleteApiKey(c.req.param("keyId"), user.id))
+      return c.json({ error: "not found" }, 404);
+    return c.json({ ok: true });
+  });
+
+  app.get("/api/notifications", (c) => {
+    const raw = c.req.query("limit");
+    let limit = 100;
+    if (raw !== undefined) {
+      const parsed = Number(raw);
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 250)
+        return c.json({ error: "limit must be an integer from 1 to 250" }, 400);
+      limit = parsed;
+    }
+    return c.json({
+      items: listNotifications(limit),
+      unread_count: unreadNotificationCount(),
+    });
+  });
+
+  app.post("/api/notifications/read-all", (c) => {
+    markAllNotificationsRead();
+    return c.json({ ok: true });
+  });
+
+  app.post("/api/notifications/:id/read", (c) => {
+    if (!markNotificationRead(c.req.param("id")))
+      return c.json({ error: "not found" }, 404);
+    return c.json({ ok: true });
   });
 
   app.get("/api/providers", (c) =>
@@ -333,14 +962,35 @@ export function createApp(): Hono {
 
   app.get("/api/bots", (c) =>
     c.json(
-      listBots().map((bot) => ({
-        ...bot,
-        status: isLoopActive(bot.id)
-          ? "running"
-          : bot.enabled
-            ? "enabled"
-            : "disabled",
-      })),
+      (() => {
+        const errored = latestErrorBotIds();
+        const hasDefault = Boolean(
+          getSetting("default_provider_id") && getSetting("default_model"),
+        );
+        return listBots().map((bot) => {
+          const noModel = !bot.model_id && !hasDefault;
+          const agentRed =
+            bot.status !== null && bot.status_level === "blocked";
+          const red = errored.has(bot.id) || noModel || agentRed;
+          return {
+            ...bot,
+            health: !bot.enabled
+              ? ("gray" as const)
+              : red
+                ? ("red" as const)
+                : bot.status !== null && bot.status_level === "issue"
+                  ? ("yellow" as const)
+                  : isLoopActive(bot.id)
+                    ? ("green" as const)
+                    : ("blue" as const),
+            run_state: isLoopActive(bot.id)
+              ? "running"
+              : bot.enabled
+                ? "enabled"
+                : "disabled",
+          };
+        });
+      })(),
     ),
   );
 
@@ -351,6 +1001,8 @@ export function createApp(): Hono {
       id: randomUUID(),
       current_task: null,
       current_task_updated_at: null,
+      status: null,
+      status_level: null,
       ...payload,
       created_at: Date.now(),
     };
@@ -361,7 +1013,11 @@ export function createApp(): Hono {
   app.get("/api/roles", (c) => c.json(listRoles()));
 
   app.post("/api/roles", async (c) => {
-    const payload = toRolePayload(await c.req.json<RoleInput>());
+    const payload = toRolePayload(
+      await c.req.json<RoleInput>(),
+      new Set(listMcpServers().map((m) => m.id)),
+      new Set(listSkills().map((sk) => sk.id)),
+    );
     if ("error" in payload) return c.json({ error: payload.error }, 400);
     const role = { id: randomUUID(), ...payload, created_at: Date.now() };
     insertRole(role);
@@ -377,10 +1033,14 @@ export function createApp(): Hono {
   app.patch("/api/roles/:roleId", async (c) => {
     const role = getRole(c.req.param("roleId"));
     if (!role) return c.json({ error: "not found" }, 404);
-    const payload = toRolePayload({
-      ...role,
-      ...(await c.req.json<RoleInput>()),
-    });
+    const payload = toRolePayload(
+      {
+        ...role,
+        ...(await c.req.json<RoleInput>()),
+      },
+      new Set(listMcpServers().map((m) => m.id)),
+      new Set(listSkills().map((sk) => sk.id)),
+    );
     if ("error" in payload) return c.json({ error: payload.error }, 400);
     updateRole(role.id, payload);
     return c.json(getRole(role.id));
@@ -391,6 +1051,114 @@ export function createApp(): Hono {
     if (!role) return c.json({ error: "not found" }, 404);
     deleteRole(role.id);
     return c.json({ ok: true });
+  });
+
+  const DEFAULT_MACHINE_ID = "default";
+
+  interface MachineInput {
+    name?: unknown;
+    description?: unknown;
+    dockerfile?: unknown;
+  }
+
+  function toMachinePayload(input: MachineInput) {
+    const name = typeof input.name === "string" ? input.name.trim() : "";
+    if (!name) return { error: "name is required" };
+    const dockerfile =
+      typeof input.dockerfile === "string" ? input.dockerfile.trim() : "";
+    if (!dockerfile) return { error: "dockerfile is required" };
+    const description =
+      typeof input.description === "string" ? input.description.trim() : "";
+    return { name, description, dockerfile };
+  }
+
+  function machineNameClash(name: string, exceptId?: string) {
+    return listMachines().some(
+      (m) => m.id !== exceptId && m.name.toLowerCase() === name.toLowerCase(),
+    );
+  }
+
+  app.get("/api/machines", (c) =>
+    c.json([
+      {
+        id: DEFAULT_MACHINE_ID,
+        name: "Default",
+        description: "Built-in sandbox image",
+        builtin: true,
+        dockerfile: "",
+        image: defaultImageRef(),
+        build_error: null,
+      },
+      ...listMachines().map((m) => ({ ...m, builtin: false })),
+    ]),
+  );
+
+  app.post("/api/machines", async (c) => {
+    const payload = toMachinePayload(await c.req.json<MachineInput>());
+    if ("error" in payload) return c.json({ error: payload.error }, 400);
+    if (machineNameClash(payload.name))
+      return c.json({ error: "name already exists" }, 400);
+    const machine = {
+      id: randomUUID(),
+      ...payload,
+      image: null,
+      build_error: null,
+      created_at: Date.now(),
+    };
+    insertMachine(machine);
+    return c.json({ ...machine, builtin: false }, 201);
+  });
+
+  app.patch("/api/machines/:machineId", async (c) => {
+    const existing = getMachine(c.req.param("machineId"));
+    if (!existing) return c.json({ error: "not found" }, 404);
+    const payload = toMachinePayload({
+      ...existing,
+      ...(await c.req.json<MachineInput>()),
+    });
+    if ("error" in payload) return c.json({ error: payload.error }, 400);
+    if (machineNameClash(payload.name, existing.id))
+      return c.json({ error: "name already exists" }, 400);
+    updateMachine(existing.id, payload);
+    if (payload.dockerfile !== existing.dockerfile)
+      setMachineBuild(existing.id, null, null);
+    return c.json({ ...getMachine(existing.id), builtin: false });
+  });
+
+  app.delete("/api/machines/:machineId", (c) => {
+    const id = c.req.param("machineId");
+    if (!getMachine(id)) return c.json({ error: "not found" }, 404);
+    const users = botsUsingMachine(id);
+    if (users.length > 0)
+      return c.json(
+        { error: `in use by bots: ${users.map((b) => b.name).join(", ")}` },
+        409,
+      );
+    deleteMachine(id);
+    return c.json({ ok: true });
+  });
+
+  app.post("/api/machines/default/repull", async (c) => {
+    try {
+      const image = await repullDefaultImage();
+      return c.json({ ok: true, image });
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        502,
+      );
+    }
+  });
+
+  app.post("/api/machines/:machineId/rebuild", async (c) => {
+    const machine = getMachine(c.req.param("machineId"));
+    if (!machine) return c.json({ error: "not found" }, 404);
+    try {
+      await rebuildMachineImage(machine.id, machine.dockerfile);
+    } catch {
+      // failure is recorded on the row; surfaced inline per spec
+    }
+    return c.json({ ...getMachine(machine.id), builtin: false });
   });
 
   app.get("/api/bots/:id", (c) => {
@@ -434,32 +1202,63 @@ export function createApp(): Hono {
   app.get("/api/bots/:id/messages", (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
-    const turns: { role: string; text: string }[] = [];
+    type ToolCallTurn = { name: string; input: unknown; output?: string };
+    type ChatTurn = {
+      role: string;
+      text: string;
+      thinking?: string;
+      tool_calls?: ToolCallTurn[];
+    };
+    const turns: ChatTurn[] = [];
+    const callsById = new Map<string, ToolCallTurn>();
     for (const row of loadMessages(bot.id)) {
-      let msg: unknown;
+      let msg: Record<string, unknown>;
       try {
-        msg = JSON.parse(row.payload);
+        msg = JSON.parse(row.payload) as Record<string, unknown>;
       } catch {
         continue;
       }
-      const content = (msg as { content?: unknown }).content;
-      const text =
-        typeof content === "string"
-          ? content
-          : Array.isArray(content)
-            ? content
-                .map((b) =>
-                  b &&
-                  typeof b === "object" &&
-                  (b as { type?: string }).type === "text"
-                    ? String((b as { text?: string }).text ?? "")
-                    : "",
-                )
-                .join("")
-            : "";
-      if (!text.trim()) continue;
-      const stripped = text.replace(/^\[(schedule|manual|chat) [^\]]*\]\n/, "");
-      turns.push({ role: row.role, text: stripped });
+      const blocks: { type?: string; text?: string; thinking?: string }[] =
+        typeof msg.content === "string"
+          ? [{ type: "text", text: msg.content }]
+          : Array.isArray(msg.content)
+            ? (msg.content as typeof blocks)
+            : [];
+      if (row.role === "toolResult") {
+        const call = callsById.get(String(msg.toolCallId ?? ""));
+        if (call) {
+          const out = blocks
+            .filter((b) => b?.type === "text")
+            .map((b) => String(b.text ?? ""))
+            .join("");
+          call.output = msg.isError ? `error: ${out}` : out;
+        }
+        continue;
+      }
+      if (row.role === "assistant") {
+        const turn: ChatTurn = { role: "assistant", text: "" };
+        for (const b of blocks) {
+          if (b?.type === "text") turn.text += String(b.text ?? "");
+          else if (b?.type === "thinking")
+            turn.thinking = `${turn.thinking ?? ""}${String(b.thinking ?? "")}`;
+          else if (b?.type === "toolCall") {
+            const call: ToolCallTurn = {
+              name: String((b as Record<string, unknown>).name ?? "?"),
+              input: (b as Record<string, unknown>).arguments ?? {},
+            };
+            (turn.tool_calls ??= []).push(call);
+            callsById.set(String((b as Record<string, unknown>).id), call);
+          }
+        }
+        if (turn.text.trim() || turn.tool_calls) turns.push(turn);
+      } else {
+        const text = blocks
+          .filter((b) => b?.type === "text")
+          .map((b) => String(b.text ?? ""))
+          .join("")
+          .replace(/^\[(schedule|manual|chat|webhook) [^\]]*\]\n/, "");
+        if (text.trim()) turns.push({ role: "user", text });
+      }
     }
     return c.json(turns);
   });
@@ -480,6 +1279,21 @@ export function createApp(): Hono {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
     return c.json({ stopped: interruptBot(bot.id) });
+  });
+
+  app.post("/api/bots/:id/restart-machine", async (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    resetBotRuntime(bot.id);
+    try {
+      await restartSandbox(bot.id);
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        502,
+      );
+    }
+    return c.json({ ok: true });
   });
 
   app.get("/api/bots/:id/runs", (c) => {
@@ -527,6 +1341,7 @@ export function createApp(): Hono {
       id: randomUUID(),
       bot_id: bot.id,
       ...payload,
+      enabled: 1 as number,
       next_run_at:
         payload.kind === "webhook" ? null : nextRunAt(payload.schedule),
       secret,
@@ -539,17 +1354,23 @@ export function createApp(): Hono {
   app.patch("/api/triggers/:triggerId", async (c) => {
     const trigger = getTrigger(c.req.param("triggerId"));
     if (!trigger) return c.json({ error: "not found" }, 404);
-    const payload = toTriggerPayload({
-      ...trigger,
-      ...(await c.req.json<TriggerInput>()),
-    });
+    const input = await c.req.json<TriggerInput>();
+    if (input.enabled !== undefined && typeof input.enabled !== "boolean")
+      return c.json({ error: "enabled must be a boolean" }, 400);
+    const payload = toTriggerPayload({ ...trigger, ...input });
     if ("error" in payload) return c.json({ error: payload.error }, 400);
+    const enabled =
+      typeof input.enabled === "boolean" ? (input.enabled ? 1 : 0) : undefined;
+    const resuming = enabled === 1 && trigger.enabled === 0;
     updateTrigger(trigger.id, {
       ...payload,
+      ...(enabled === undefined ? {} : { enabled }),
       next_run_at:
-        payload.kind === "webhook" || payload.schedule === trigger.schedule
+        payload.kind === "webhook"
           ? trigger.next_run_at
-          : nextRunAt(payload.schedule),
+          : resuming || payload.schedule !== trigger.schedule
+            ? nextRunAt(payload.schedule)
+            : trigger.next_run_at,
     });
     const fresh = getTrigger(trigger.id);
     if (!fresh) return c.json({ error: "not found" }, 404);
@@ -576,8 +1397,7 @@ export function createApp(): Hono {
 
   app.post("/api/webhooks/:triggerId", async (c) => {
     const trigger = getTrigger(c.req.param("triggerId"));
-    if (trigger?.kind !== "webhook")
-      return c.json({ error: "not found" }, 404);
+    if (trigger?.kind !== "webhook") return c.json({ error: "not found" }, 404);
     const auth = c.req.header("authorization") ?? "";
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
     const secret = trigger.secret ?? "";
@@ -587,8 +1407,8 @@ export function createApp(): Hono {
       token.length !== secret.length ||
       !timingSafeEqual(Buffer.from(token, "utf8"), Buffer.from(secret, "utf8"))
     )
-     
       return c.json({ error: "unauthorized" }, 401);
+    if (!trigger.enabled) return c.json({ error: "trigger is disabled" }, 409);
     const bot = getBot(trigger.bot_id);
     if (!bot?.enabled) return c.json({ error: "bot is disabled" }, 409);
     const body = await c.req.text();
@@ -599,6 +1419,54 @@ export function createApp(): Hono {
       : trigger.message;
     const { runId } = injectMessage(bot, text, "webhook");
     return c.json({ ok: true, runId });
+  });
+
+  app.get("/api/skills", (c) => c.json(listSkills()));
+
+  app.post("/api/skills", async (c) => {
+    const body = await c.req.json<Record<string, unknown>>();
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const description =
+      typeof body.description === "string" ? body.description.trim() : "";
+    const instructions =
+      typeof body.instructions === "string" ? body.instructions.trim() : "";
+    if (!name) return c.json({ error: "name is required" }, 400);
+    if (!instructions)
+      return c.json({ error: "instructions are required" }, 400);
+    const skill = {
+      id: randomUUID(),
+      name,
+      description,
+      instructions,
+      created_at: Date.now(),
+    };
+    insertSkill(skill);
+    return c.json(skill, 201);
+  });
+
+  app.patch("/api/skills/:skillId", async (c) => {
+    const id = c.req.param("skillId");
+    if (!getSkill(id)) return c.json({ error: "not found" }, 404);
+    const body = await c.req.json<Record<string, unknown>>();
+    const fields: Record<string, string> = {};
+    for (const key of ["name", "description", "instructions"] as const) {
+      if (body[key] === undefined) continue;
+      if (typeof body[key] !== "string")
+        return c.json({ error: `${key} must be a string` }, 400);
+      const value = (body[key] as string).trim();
+      if ((key === "name" || key === "instructions") && !value)
+        return c.json({ error: `${key} is required` }, 400);
+      fields[key] = value;
+    }
+    updateSkill(id, fields);
+    return c.json(getSkill(id));
+  });
+
+  app.delete("/api/skills/:skillId", (c) => {
+    const id = c.req.param("skillId");
+    if (!getSkill(id)) return c.json({ error: "not found" }, 404);
+    deleteSkill(id);
+    return c.json({ ok: true });
   });
 
   app.get("/api/mcp-servers", (c) => c.json(listMcpServers()));

@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "@earendil-works/pi-ai";
 import { dataDir } from "./config.ts";
-import { setCurrentTask } from "./db.ts";
+import { setBotStatus, setCurrentTask } from "./db.ts";
 import { containerName, execInContainer } from "./sandbox.ts";
 
 const MAX_OUTPUT_CHARS = 8000;
@@ -25,6 +25,17 @@ const webFetchSchema = Type.Object({
 
 const taskSchema = Type.Object({
   text: Type.String(),
+});
+
+const statusSchema = Type.Object({
+  text: Type.String(),
+  level: Type.Optional(
+    Type.Union([
+      Type.Literal("ok"),
+      Type.Literal("issue"),
+      Type.Literal("blocked"),
+    ]),
+  ),
 });
 
 const shellSchema = Type.Object({
@@ -95,7 +106,7 @@ export function buildTools(botId: string): AgentTool<any>[] {
     name: "set_current_task",
     label: "Set current task",
     description:
-      "Set the one-line status describing what this bot is working on right now; always applies to this bot only. Pass an empty string to clear it.",
+      "Set the long-running task describing what this bot is working on; always applies to this bot only and clears its status substep. Pass an empty string to clear both.",
     parameters: taskSchema,
     execute: async (_id, params) => {
       setCurrentTask(botId, params.text);
@@ -103,5 +114,21 @@ export function buildTools(botId: string): AgentTool<any>[] {
     },
   };
 
-  return [webFetch, shell, setCurrentTaskTool];
+  const setStatusTool: AgentTool<typeof statusSchema> = {
+    name: "set_status",
+    label: "Set status",
+    description:
+      'Update the short live substep under the current task (progress, waiting, trouble). level "ok" (default), "issue" or "blocked". Applies to this bot only. Empty text clears it.',
+    parameters: statusSchema,
+    execute: async (_id, params) => {
+      const level =
+        params.level === "issue" || params.level === "blocked"
+          ? params.level
+          : "ok";
+      setBotStatus(botId, params.text, level);
+      return { content: [{ type: "text" as const, text: "ok" }], details: {} };
+    },
+  };
+
+  return [webFetch, shell, setCurrentTaskTool, setStatusTool];
 }

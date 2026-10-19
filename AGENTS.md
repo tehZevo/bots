@@ -10,13 +10,22 @@
 ## Specs workflow
 
 - Specs are the source of truth for behavior.
+- Specs never reference PR/issue numbers — state behavior alone, present tense.
 - When a new behavior is agreed on, open a **spec-only PR** touching just `specs/**`.
 - Implementation happens in separate code PRs that reference the spec they implement.
 - Behavior changes require a spec update in the same or an earlier PR than the code change.
 
+## User docs
+
+- `docs/` (the VitePress site) is user-facing documentation; keep it current as code lands.
+- Any PR that changes observable behavior, UI flows, API surface, or config must update the affected `docs/**` page in the same PR — new features get a section, changed ones get reworded, removed ones get deleted.
+- Before merging a feature PR, skim every `docs/**` page it touches for stale wording; `pnpm docs:build` fails on broken internal links.
+
 ## Pull requests
 
 - UI changes: attach **light-mode, dark-mode, and one mobile-width (390px) screenshot** to the PR when able.
+- Keep a UI PR in **draft until all screenshots are attached**; mark ready only then.
+- Attach those screenshots to the main PR description (e.g. `gh pr edit --attach`), not as separate comments; on later UI changes update the existing attachments in place by re-editing the body.
 
 ## Commands
 
@@ -30,6 +39,7 @@
 
 - NodeNext ESM everywhere; relative imports in the server include the `.ts` extension (`rewriteRelativeImportExtensions` handles emit).
 - Keep secrets out of git: env lives in `.env` (gitignored); never commit real keys or base URLs.
+- Never expose sensitive user config, settings, or environment in commits — installed applications, usernames, service URLs/hosts, API keys, paths like `/home/<user>/…`. Scrub diffs, screenshots, PR bodies, and test fixtures before they land; use placeholders (`example.com`, `<user>`) instead.
 - `better-sqlite3` is a native dep — if bindings are missing after install, run its install script inside the pnpm store dir (`prebuild-install || node-gyp rebuild --release`).
 - Agent LLM access goes through `@earendil-works/pi-*` v1.x: stream via `streamSimple` from `@earendil-works/pi-ai/api/openai-completions`, agent state is set with `initialState`, and `systemPrompt` on the live agent state is read-only. Inject into a busy loop with `agent.steer()` (see `injectMessage` in `agent.ts`).
 - Trigger firing and message injection are fire-and-forget; every run row must reach a terminal status (`ok`/`error`) — keep the try/catch/finally around the loop in `agent.ts` intact.
