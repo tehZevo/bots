@@ -1632,7 +1632,7 @@ export function SettingsPanel() {
         <h2>Settings</h2>
       </div>
       <p className="muted">Theme</p>
-      <nav className="sidetabs wide">
+      <div className="themegroup" role="group" aria-label="Theme">
         {THEMES.map((t) => (
           <button
             key={t}
@@ -1643,7 +1643,7 @@ export function SettingsPanel() {
             {t[0].toUpperCase() + t.slice(1)}
           </button>
         ))}
-      </nav>
+      </div>
       <p className="muted">Sandbox idle timeout</p>
       <div className="actions">
         <input

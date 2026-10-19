@@ -560,8 +560,6 @@ article header {
   white-space: nowrap;
 }
 
-
-
 .statusline .dot {
   display: inline-block;
   width: 8px;
@@ -1692,6 +1690,7 @@ button.danger.ghost {
   .avatar .eye {
     animation: none !important;
   }
+}
 
 .keyreveal {
   margin: 0.25rem 0 0.5rem;
@@ -1699,13 +1698,11 @@ button.danger.ghost {
   overflow-wrap: anywhere;
 }
 
-
 .keyrow {
   display: flex;
   gap: 0.5rem;
   align-items: center;
   margin: 0 0 0.5rem;
-
 }
 
 .keyrow input {
@@ -1721,5 +1718,32 @@ button.danger.ghost {
   margin: 0.25rem 0;
   color: var(--err);
   font-size: 0.85rem;
+}
 
+.themegroup {
+  display: inline-flex;
+}
+
+.themegroup > button {
+  border-radius: 0;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  margin-left: -1px;
+}
+
+.themegroup > button:first-child {
+  border-radius: 6px 0 0 6px;
+  margin-left: 0;
+}
+
+.themegroup > button:last-child {
+  border-radius: 0 6px 6px 0;
+}
+
+.themegroup > button.sel {
+  background: #2f6fed;
+  border-color: #2f6fed;
+  color: #fff;
+  z-index: 1;
 }
