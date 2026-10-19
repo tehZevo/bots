@@ -527,6 +527,11 @@ article header {
   color: var(--text);
 }
 
+.cards,
+.mcpsection {
+  margin-top: 1rem;
+}
+
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
