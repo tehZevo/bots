@@ -11,6 +11,7 @@ process.env.DATABASE_PATH = join(
 
 const { createApp } = await import("../src/api.ts");
 const {
+  appendMessages,
   insertRun,
   latestErrorBotIds,
   setSetting,
@@ -553,4 +554,53 @@ test("accepting new work un-interrupts a bot", async () => {
     }[]
   ).find((b) => b.id === bot);
   assert.equal(blue?.health, "blue");
+});
+
+test("chat turns expose thinking and tool calls with results", async () => {
+  const id = await makeBot("chatty");
+  appendMessages(id, null, [
+    { role: "user", payload: { content: "[chat 2026-10-19]\nhi" } },
+    {
+      role: "assistant",
+      payload: {
+        content: [
+          { type: "thinking", thinking: "let me check" },
+          {
+            type: "toolCall",
+            id: "c1",
+            name: "shell",
+            arguments: { cmd: "ls" },
+          },
+          { type: "text", text: "**done**" },
+        ],
+      },
+    },
+    {
+      role: "toolResult",
+      payload: {
+        role: "toolResult",
+        toolCallId: "c1",
+        toolName: "shell",
+        content: [{ type: "text", text: "files" }],
+        isError: false,
+      },
+    },
+  ]);
+  const res = await req("GET", `/api/bots/${id}/messages`);
+  assert.equal(res.status, 200);
+  const turns = res.json as {
+    role: string;
+    text: string;
+    thinking?: string;
+    tool_calls?: { name: string; input: unknown; output?: string }[];
+  }[];
+  assert.deepEqual(
+    turns.map((t) => t.role),
+    ["user", "assistant"],
+  );
+  assert.equal(turns[0].text, "hi");
+  assert.equal(turns[1].thinking, "let me check");
+  assert.equal(turns[1].tool_calls?.[0]?.name, "shell");
+  assert.deepEqual(turns[1].tool_calls?.[0]?.input, { cmd: "ls" });
+  assert.equal(turns[1].tool_calls?.[0]?.output, "files");
 });

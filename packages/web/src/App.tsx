@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { renderMarkdown } from "./markdown.ts";
 
 export interface ApiKey {
   id: string;
@@ -1016,7 +1017,9 @@ export function App() {
                   />
                 )}
                 {modalTab === "triggers" && <Triggers botId={openBotRow.id} />}
-                {modalTab === "chat" && <Chat botId={openBotRow.id} />}
+                {modalTab === "chat" && (
+                  <Chat botId={openBotRow.id} botName={openBotRow.name} />
+                )}
                 {modalTab === "logs" && (
                   <>
                     {runs.length === 0 && (
@@ -2974,8 +2977,55 @@ function TriggerEditor({
   );
 }
 
-export function Chat({ botId }: { botId: string }) {
-  const [turns, setTurns] = useState<{ role: string; text: string }[]>([]);
+type ToolCallTurn = { name: string; input: unknown; output?: string };
+type ChatTurn = {
+  role: string;
+  text: string;
+  thinking?: string;
+  tool_calls?: ToolCallTurn[];
+};
+
+export function ChatTurnView({
+  turn,
+  botName,
+}: {
+  turn: ChatTurn;
+  botName: string;
+}) {
+  return (
+    <div className={`chat-turn ${turn.role}`}>
+      <span className="who">{turn.role === "user" ? "you" : botName}</span>
+      {turn.role === "user" ? (
+        <pre>{turn.text}</pre>
+      ) : (
+        <>
+          {turn.tool_calls?.map((c, j) => (
+            <details className="turnsec" key={j}>
+              <summary>tool: {c.name}</summary>
+              <pre>{JSON.stringify(c.input, null, 2)}</pre>
+              {c.output !== undefined && <pre>{c.output}</pre>}
+            </details>
+          ))}
+          {!!turn.thinking?.trim() && (
+            <details className="turnsec">
+              <summary>thinking</summary>
+              <pre>{turn.thinking}</pre>
+            </details>
+          )}
+          {turn.text.trim() !== "" && (
+            <div
+              className="md"
+              dangerouslySetInnerHTML={{ __html: renderMarkdown(turn.text) }}
+            />
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+export function Chat({ botId, botName }: { botId: string; botName: string }) {
+  const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -2985,9 +3035,7 @@ export function Chat({ botId }: { botId: string }) {
 
   const loadChat = useCallback(async () => {
     try {
-      const fresh = await api<{ role: string; text: string }[]>(
-        `/api/bots/${botId}/messages`,
-      );
+      const fresh = await api<ChatTurn[]>(`/api/bots/${botId}/messages`);
       if (
         pendingRef.current &&
         fresh.some((t) => t.role === "user" && t.text === pendingRef.current)
@@ -3056,14 +3104,11 @@ export function Chat({ botId }: { botId: string }) {
       <div className="chat-log">
         {turns.length === 0 && <p>No conversation yet. Say something below.</p>}
         {turns.map((t, i) => (
-          <div key={i} className={`chat-turn ${t.role}`}>
-            <span className="who">{t.role === "user" ? "you" : "bot"}</span>
-            <pre>{t.text}</pre>
-          </div>
+          <ChatTurnView key={i} turn={t} botName={botName} />
         ))}
         {typing && (
           <div className="chat-turn typing" aria-label="bot is replying">
-            <span className="who">bot</span>
+            <span className="who">{botName}</span>
             <span className="dots">
               <i />
               <i />
