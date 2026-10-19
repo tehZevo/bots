@@ -2,7 +2,7 @@
 
 Behaviors agreed on but not yet specced in detail. Each becomes its own spec directory when we open a PR for it.
 
-- **Chat channels** — talk to bots interactively (web chat first, then external chat apps).
+- **External chat services** — external chat platforms (Slack, Discord, Telegram, …) as trigger sources with reply delivery; web chat is already specced in `web-ui/chat-messages.md`.
 - **Approvals** — a human-approval layer for sensitive tool actions that the agent cannot bypass.
 - **Auth & multi-user** — protect API/UI; per-user bots and credentials (placeholder tokens so models never see secrets).
 - **CLI** — first-class command-line client (`bots <verb>`) driving the documented REST API with the same API keys: bot CRUD, run now/interrupt, trigger management, logs tail, template instantiation; scriptable output (`--json`) for cron/CI use.
