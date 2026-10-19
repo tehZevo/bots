@@ -80,6 +80,7 @@ import {
   updateTrigger,
 } from "./db.ts";
 import { testMcpConnection } from "./mcp.ts";
+import { openApiDoc } from "./openapi.ts";
 import {
   defaultImageRef,
   idleMinutes,
@@ -275,6 +276,8 @@ export function createApp(): Hono {
   });
 
   app.get("/api/health", (c) => c.json({ ok: true }));
+
+  app.get("/api/openapi.json", (c) => c.json(openApiDoc()));
 
   app.get("/api/settings", (c) =>
     c.json({

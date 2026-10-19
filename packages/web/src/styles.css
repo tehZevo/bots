@@ -1680,11 +1680,20 @@ button.danger.ghost {
   .avatar .eye {
     animation: none !important;
   }
+
+.keyreveal {
+  margin: 0.25rem 0 0.5rem;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+
 .keyrow {
   display: flex;
   gap: 0.5rem;
   align-items: center;
   margin: 0 0 0.5rem;
+
 }
 
 .keyrow input {
@@ -1700,4 +1709,5 @@ button.danger.ghost {
   margin: 0.25rem 0;
   color: var(--err);
   font-size: 0.85rem;
+
 }
