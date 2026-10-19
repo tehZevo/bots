@@ -106,11 +106,8 @@ jobs:
           cd packages/web
           node --import ../../packages/server/node_modules/tsx/dist/loader.mjs \
             --experimental-test-coverage --test-coverage-include='src/**' \
-            --test-coverage-lines=70 --test test/*.test.ts 2>&1 | tee ../cov-web.log
-      - name: Report web coverage
-        if: always()
-        run: |
-          PCT=$(grep "all files" cov-web.log | grep -oE "[0-9]+\.[0-9]+" | head -1)
+            --test-coverage-lines=70 --test test/*.test.ts 2>&1 | tee "$GITHUB_WORKSPACE/cov-web.log"
+          PCT=$(grep "all files" "$GITHUB_WORKSPACE/cov-web.log" | grep -oE "[0-9]+\.[0-9]+" | head -1)
           echo "measured line coverage (web): ${PCT:-unknown}%" >> "$GITHUB_STEP_SUMMARY"
 
   build:
