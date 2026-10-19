@@ -351,6 +351,111 @@ test("templates CRUD with validation", async () => {
   assert.equal((await req("DELETE", `/api/templates/${id}`)).status, 404);
 });
 
+test("control mcp over json-rpc with api key auth", async () => {
+  const created = await req("POST", "/api/api-keys", { name: "mcp" });
+  const value = created.json.value as string;
+  const post = (body: unknown, auth = true) =>
+    app.request("/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(auth ? { authorization: `Bearer ${value}` } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+  assert.equal(
+    (await post({ jsonrpc: "2.0", method: "ping" }, false)).status,
+    401,
+  );
+
+  const init = await post({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: { protocolVersion: "2025-03-26" },
+  });
+  assert.equal(init.status, 200);
+  const initBody = (await init.json()) as { result: Record<string, unknown> };
+  assert.equal(initBody.result.protocolVersion, "2025-03-26");
+
+  const tools = (await (
+    await post({ jsonrpc: "2.0", id: 2, method: "tools/list" })
+  ).json()) as { result: { tools: { name: string }[] } };
+  assert.ok(tools.result.tools.some((t) => t.name === "bots_list"));
+
+  const call = (await (
+    await post({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: { name: "bots_list", arguments: {} },
+    })
+  ).json()) as { result: { isError: boolean; content: { text: string }[] } };
+  assert.equal(call.result.isError, false);
+  assert.ok(Array.isArray(JSON.parse(call.result.content[0].text)));
+
+  const badTool = (await (
+    await post({
+      jsonrpc: "2.0",
+      id: 4,
+      method: "tools/call",
+      params: { name: "nope", arguments: {} },
+    })
+  ).json()) as { error?: unknown };
+  assert.ok(badTool.error);
+
+  const off = await req("PUT", "/api/settings", {
+    control_mcp_enabled: false,
+  });
+  assert.equal(off.status, 200);
+  assert.equal(
+    (await post({ jsonrpc: "2.0", id: 5, method: "ping" })).status,
+    404,
+  );
+  await req("PUT", "/api/settings", { control_mcp_enabled: true });
+});
+
+test("openapi.json documents the API", async () => {
+  const res = await app.request("/api/openapi.json");
+  assert.equal(res.status, 200);
+  const doc = (await res.json()) as Record<string, unknown>;
+  assert.equal(doc.openapi, "3.1.0");
+  const paths = doc.paths as Record<string, unknown>;
+  assert.ok("/api/bots" in paths && "/api/api-keys" in paths);
+});
+
+test("api keys: create, list, bearer auth, revoke", async () => {
+  assert.equal((await req("POST", "/api/api-keys", {})).status, 400);
+  const created = await req("POST", "/api/api-keys", { name: "cli" });
+  assert.equal(created.status, 201);
+  const value = created.json.value as string;
+  assert.match(value, /^bots_[0-9a-f]{40}$/);
+  const listRes = await app.request("/api/api-keys");
+  const keys = (await listRes.json()) as Record<string, unknown>[];
+  assert.ok(keys.some((k) => k.name === "cli" && k.value === undefined));
+  const authed = await app.request("/api/bots", {
+    headers: { authorization: `Bearer ${value}` },
+  });
+  assert.equal(authed.status, 200);
+  const bad = await app.request("/api/bots", {
+    headers: {
+      authorization: "Bearer bots_0000000000000000000000000000000000000000",
+    },
+  });
+  assert.equal(bad.status, 401);
+  const id = created.json.id as string;
+  assert.equal((await req("DELETE", `/api/api-keys/${id}`)).status, 200);
+  assert.equal(
+    (
+      await app.request("/api/bots", {
+        headers: { authorization: `Bearer ${value}` },
+      })
+    ).status,
+    401,
+  );
+  assert.equal((await req("DELETE", "/api/api-keys/nope")).status, 404);
+});
+
 test("runs and message endpoints on a fresh bot", async () => {
   const bot = await makeBot("quiet-bot");
   const runsRes = await app.request(`/api/bots/${bot}/runs`);

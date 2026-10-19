@@ -45,6 +45,8 @@ const {
   Chat,
   Triggers,
   AddBotModal,
+  TemplateEditorModal,
+  TemplatesPanel,
   RoleFormModal,
   SkillModal,
   McpServerModal,
@@ -199,4 +201,29 @@ test("modals render", () => {
     assert.ok(
       renderToStaticMarkup(React.createElement(C as never, props)).length > 50,
     );
+});
+
+test("templates panel and editor render", () => {
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify([]), {
+      headers: { "content-type": "application/json" },
+    })) as typeof fetch;
+  const panel = renderToStaticMarkup(React.createElement(TemplatesPanel));
+  assert.match(panel, /Templates/);
+  const editor = renderToStaticMarkup(
+    React.createElement(TemplateEditorModal, {
+      initial: {
+        name: "Daily sweep",
+        description: "nightly tidy",
+        system_prompt: "be terse",
+        machine_id: null,
+        role_id: null,
+        triggers: [{ message: "sweep", schedule: "@every 1h" }],
+      },
+      onClose: () => undefined,
+      onSaved: () => undefined,
+    }),
+  );
+  assert.match(editor, /Daily sweep/);
+  assert.match(editor, /@every 1h/);
 });

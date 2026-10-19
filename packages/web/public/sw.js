@@ -5,15 +5,19 @@ self.addEventListener("install", (event) => {
     fetch("./sw-manifest.json")
       .then((r) => r.json())
       .then((urls) => caches.open(CACHE).then((c) => c.addAll(["/", ...urls])))
-      .catch(() => caches.open(CACHE))
+      .catch(() => caches.open(CACHE)),
   );
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
-    )
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)),
+        ),
+      ),
   );
 });
 
@@ -25,7 +29,9 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/api/")) return;
   if (req.mode === "navigate") {
     event.respondWith(
-      fetch(req).catch(() => caches.match("/").then((r) => r || Response.error()))
+      fetch(req).catch(() =>
+        caches.match("/").then((r) => r || Response.error()),
+      ),
     );
     return;
   }
@@ -41,7 +47,7 @@ self.addEventListener("fetch", (event) => {
             }
             return res;
           })
-          .catch(() => Response.error())
-    )
+          .catch(() => Response.error()),
+    ),
   );
 });
