@@ -1,0 +1,6 @@
+services:
+  orchestrator:
+    volumes:
+      - ./data:/home/zevo/Dev/bots/data
+    environment:
+      DATA_DIR: /home/zevo/Dev/bots/data
