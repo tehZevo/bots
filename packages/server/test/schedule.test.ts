@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-process.env.DATABASE_PATH = join(mkdtempSync(join(tmpdir(), "bots-test-")), "t.db");
+process.env.DATABASE_PATH = join(
+  mkdtempSync(join(tmpdir(), "bots-test-")),
+  "t.db",
+);
 
 const { nextRunAt } = await import("../src/scheduler.ts");
 

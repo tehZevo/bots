@@ -86,6 +86,7 @@ interface BotInput {
   machine_id?: unknown;
   avatar_shape?: unknown;
   avatar_color?: unknown;
+  sound?: unknown;
   enabled?: unknown;
 }
 
@@ -122,6 +123,22 @@ function toBotPayload(input: BotInput) {
   if (shape === -1) return { error: "avatar_shape must be an index or null" };
   const color = toAvatarIndex(input.avatar_color);
   if (color === -1) return { error: "avatar_color must be an index or null" };
+  const SOUND_CHOICES = new Set([
+    "none",
+    "default",
+    "ping",
+    "chirp",
+    "bell",
+    "blip",
+    "warp",
+    "thunk",
+  ]);
+  let sound: string | null = null;
+  if (typeof input.sound === "string" && input.sound.trim()) {
+    if (!SOUND_CHOICES.has(input.sound.trim()))
+      return { error: `unknown sound: ${input.sound}` };
+    sound = input.sound.trim();
+  }
   return {
     name: input.name.trim(),
     description: typeof input.description === "string" ? input.description : "",
@@ -133,6 +150,7 @@ function toBotPayload(input: BotInput) {
         : null,
     role_id,
     machine_id,
+    sound,
     enabled:
       input.enabled === false ||
       input.enabled === 0 ||
