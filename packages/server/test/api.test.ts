@@ -290,6 +290,53 @@ test("providers create/update/delete with key masking", async () => {
   assert.equal((await req("DELETE", "/api/providers/nope")).status, 404);
 });
 
+test("templates CRUD with validation", async () => {
+  assert.equal((await req("POST", "/api/templates", {})).status, 400);
+  const created = await req("POST", "/api/templates", {
+    name: "Nightly",
+    description: "night sweep",
+    system_prompt: "be brief",
+    triggers: [{ message: "run the sweep", schedule: "@every 30m" }],
+  });
+  assert.equal(created.status, 201);
+  const id = created.json.id as string;
+  assert.deepEqual((created.json.triggers as unknown[]).length, 1);
+  assert.equal(
+    (await req("POST", "/api/templates", { name: "Nightly" })).status,
+    409,
+  );
+  assert.equal(
+    (
+      await req("POST", "/api/templates", {
+        name: "Bad",
+        triggers: [{ message: "x", schedule: "nope" }],
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (await req("POST", "/api/templates", { name: "Bad", role_id: "zzz" }))
+      .status,
+    400,
+  );
+  const patched = await req("PATCH", `/api/templates/${id}`, {
+    system_prompt: "be terse",
+  });
+  assert.equal(patched.status, 200);
+  assert.equal(patched.json.system_prompt, "be terse");
+  assert.equal(patched.json.description, "night sweep");
+  assert.equal(
+    (await req("PATCH", "/api/templates/zzz", { name: "x" })).status,
+    404,
+  );
+  const list = (await (
+    await app.request("/api/templates")
+  ).json()) as unknown[];
+  assert.ok(Array.isArray(list) && list.length === 1);
+  assert.equal((await req("DELETE", `/api/templates/${id}`)).status, 200);
+  assert.equal((await req("DELETE", `/api/templates/${id}`)).status, 404);
+});
+
 test("runs and message endpoints on a fresh bot", async () => {
   const bot = await makeBot("quiet-bot");
   const runsRes = await app.request(`/api/bots/${bot}/runs`);

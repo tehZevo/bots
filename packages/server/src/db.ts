@@ -101,6 +101,17 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
+    system_prompt TEXT NOT NULL DEFAULT '',
+    machine_id TEXT REFERENCES machines(id),
+    role_id TEXT REFERENCES roles(id),
+    triggers TEXT NOT NULL DEFAULT '[]',
+    created_at INTEGER NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS runs (
     id TEXT PRIMARY KEY,
     bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
@@ -959,4 +970,70 @@ export function updateMcpServer(
 
 export function deleteMcpServer(id: string): void {
   db.prepare("DELETE FROM mcp_servers WHERE id = ?").run(id);
+}
+
+export interface TemplateRow {
+  id: string;
+  name: string;
+  description: string;
+  system_prompt: string;
+  machine_id: string | null;
+  role_id: string | null;
+  triggers: string;
+  created_at: number;
+}
+
+export interface Template extends Omit<TemplateRow, "triggers"> {
+  triggers: { message: string; schedule: string }[];
+}
+
+function toTemplate(row: TemplateRow): Template {
+  return { ...row, triggers: JSON.parse(row.triggers) as Template["triggers"] };
+}
+
+export function listTemplates(): Template[] {
+  return (
+    db
+      .prepare("SELECT * FROM templates ORDER BY created_at DESC")
+      .all() as TemplateRow[]
+  ).map(toTemplate);
+}
+
+export function getTemplate(id: string): Template | undefined {
+  const row = db
+    .prepare("SELECT * FROM templates WHERE id = ?")
+    .get(id) as TemplateRow | undefined;
+  return row && toTemplate(row);
+}
+
+export function insertTemplate(t: {
+  id: string;
+  name: string;
+  description: string;
+  system_prompt: string;
+  machine_id: string | null;
+  role_id: string | null;
+  triggers: string;
+  created_at: number;
+}): Template {
+  db.prepare(
+    `INSERT INTO templates (id, name, description, system_prompt, machine_id, role_id, triggers, created_at)
+     VALUES (@id, @name, @description, @system_prompt, @machine_id, @role_id, @triggers, @created_at)`,
+  ).run(t);
+  return getTemplate(t.id) as Template;
+}
+
+export function updateTemplate(
+  id: string,
+  patch: Partial<Omit<TemplateRow, "id" | "created_at">>,
+): void {
+  const sets = Object.keys(patch).map((k) => `${k} = @${k}`).join(", ");
+  db.prepare(`UPDATE templates SET ${sets} WHERE id = @id`).run({
+    ...patch,
+    id,
+  });
+}
+
+export function deleteTemplate(id: string): void {
+  db.prepare("DELETE FROM templates WHERE id = ?").run(id);
 }

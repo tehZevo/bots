@@ -15,6 +15,7 @@ import {
   botsUsingMachine,
   clearMessages,
   deleteBot,
+  deleteTemplate,
   deleteMachine,
   deleteMcpServer,
   deleteProvider,
@@ -30,11 +31,14 @@ import {
   getRole,
   getSetting,
   getSkill,
+  getTemplate,
   getTrigger,
   insertBot,
+  insertTemplate,
   insertMachine,
   insertMcpServer,
   insertProvider,
+  listTemplates,
   insertRole,
   insertSkill,
   insertTrigger,
@@ -62,6 +66,7 @@ import {
   updateProvider,
   updateRole,
   updateSkill,
+  updateTemplate,
   updateTrigger,
 } from "./db.ts";
 import { testMcpConnection } from "./mcp.ts";
@@ -277,6 +282,109 @@ export function createApp(): Hono {
       out.default_model = id || null;
     }
     return c.json(out);
+  });
+
+  type TemplateInput = {
+    name?: unknown;
+    description?: unknown;
+    system_prompt?: unknown;
+    machine_id?: unknown;
+    role_id?: unknown;
+    triggers?: unknown;
+  };
+
+  function toTemplatePayload(input: TemplateInput) {
+    const name = typeof input.name === "string" ? input.name.trim() : "";
+    if (!name) return { error: "name is required" };
+    for (const key of ["description", "system_prompt"] as const) {
+      const v = input[key];
+      if (v !== undefined && typeof v !== "string")
+        return { error: `${key} must be a string` };
+    }
+    const refs: { machine_id: string | null; role_id: string | null } = {
+      machine_id: null,
+      role_id: null,
+    };
+    for (const key of ["machine_id", "role_id"] as const) {
+      const v = input[key];
+      if (v === undefined || v === null) continue;
+      if (typeof v !== "string") return { error: `${key} must be a string` };
+      const exists = key === "machine_id" ? getMachine(v) : getRole(v);
+      if (!exists) return { error: `unknown ${key.replace("_id", "")}: ${v}` };
+      refs[key] = v;
+    }
+    let triggers: { message: string; schedule: string }[] = [];
+    if (input.triggers !== undefined) {
+      if (!Array.isArray(input.triggers))
+        return { error: "triggers must be an array" };
+      for (const t of input.triggers as Record<string, unknown>[]) {
+        const message = typeof t?.message === "string" ? t.message.trim() : "";
+        const schedule =
+          typeof t?.schedule === "string" ? t.schedule.trim() : "";
+        if (!message) return { error: "trigger message is required" };
+        if (!schedule || nextRunAt(schedule) === null)
+          return { error: `invalid schedule: ${schedule}` };
+        triggers.push({ message, schedule });
+      }
+    }
+    return {
+      name,
+      description: (input.description as string | undefined) ?? "",
+      system_prompt: (input.system_prompt as string | undefined) ?? "",
+      ...refs,
+      triggers,
+    };
+  }
+
+  app.get("/api/templates", (c) => c.json(listTemplates()));
+
+  app.post("/api/templates", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as TemplateInput | null;
+    if (!body || typeof body !== "object")
+      return c.json({ error: "invalid body" }, 400);
+    const p = toTemplatePayload(body);
+    if ("error" in p) return c.json({ error: p.error }, 400);
+    if (listTemplates().some((t) => t.name === p.name))
+      return c.json({ error: `template name exists: ${p.name}` }, 409);
+    const created = insertTemplate({
+      id: randomUUID(),
+      ...p,
+      triggers: JSON.stringify(p.triggers),
+      created_at: Date.now(),
+    });
+    return c.json(created, 201);
+  });
+
+  app.patch("/api/templates/:templateId", async (c) => {
+    const existing = getTemplate(c.req.param("templateId"));
+    if (!existing) return c.json({ error: "not found" }, 404);
+    const body = (await c.req.json().catch(() => null)) as TemplateInput | null;
+    if (!body || typeof body !== "object")
+      return c.json({ error: "invalid body" }, 400);
+    const p = toTemplatePayload({
+      name: body.name ?? existing.name,
+      description: body.description ?? existing.description,
+      system_prompt: body.system_prompt ?? existing.system_prompt,
+      machine_id:
+        body.machine_id === undefined ? existing.machine_id : body.machine_id,
+      role_id: body.role_id === undefined ? existing.role_id : body.role_id,
+      triggers: body.triggers ?? existing.triggers,
+    });
+    if ("error" in p) return c.json({ error: p.error }, 400);
+    if (listTemplates().some((t) => t.name === p.name && t.id !== existing.id))
+      return c.json({ error: `template name exists: ${p.name}` }, 409);
+    updateTemplate(existing.id, {
+      ...p,
+      triggers: JSON.stringify(p.triggers),
+    });
+    return c.json(getTemplate(existing.id));
+  });
+
+  app.delete("/api/templates/:templateId", (c) => {
+    if (!getTemplate(c.req.param("templateId")))
+      return c.json({ error: "not found" }, 404);
+    deleteTemplate(c.req.param("templateId"));
+    return c.json({ ok: true });
   });
 
   app.get("/api/notifications", (c) => {
