@@ -1,6 +1,16 @@
 # API reference
 
-Everything the UI does is available headlessly under `/api` (JSON). Today the API is unauthenticated on a trusted network; per-user API keys are [planned](https://github.com/tehZevo/bots/blob/master/ROADMAP.md).
+Everything the UI does is available headlessly under `/api` (JSON), documented as OpenAPI 3.1 at [`/api/openapi.json`](/api/openapi.json).
+
+Authenticate with `Authorization: Bearer <api key>` or the browser session cookie. Create keys in **Settings → API keys**: each value is `bots_` + 40 hex chars, shown exactly once and stored hashed; the list shows name, created-at and last-used (updated at most once per minute). Revoking fails closed — old requests get `401 { "error": "invalid api key" }`. Bearer values that don't match the key format pass through untouched, so webhook secrets keep working.
+
+## API keys
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/api-keys` | List `{ id, name, created_at, last_used_at }` — newest first |
+| POST | `/api/api-keys` | Create — `{ name }`; response includes the one-time `value` |
+| DELETE | `/api/api-keys/:keyId` | Revoke — 404 unknown id |
 
 ## Bots
 

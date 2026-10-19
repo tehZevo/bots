@@ -278,7 +278,8 @@ export function Avatar({
   shape?: number | null;
   color?: number | null;
   health?: Bot["health"] | null;
-}) {  const rand = mulberry32(fnv(id));
+}) {
+  const rand = mulberry32(fnv(id));
   const radii = shapeRadii(rand, shape);
   const maxR = Math.max(...radii);
   const base = 46 / maxR;
@@ -417,7 +418,8 @@ function AvatarPicker({
   );
 }
 
-export function relTime(ts: number): string {  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+export function relTime(ts: number): string {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
   if (s < 60) return `${s}s ago`;
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m ago`;

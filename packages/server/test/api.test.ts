@@ -349,6 +349,7 @@ test("templates CRUD with validation", async () => {
   assert.ok(Array.isArray(list) && list.length === 1);
   assert.equal((await req("DELETE", `/api/templates/${id}`)).status, 200);
   assert.equal((await req("DELETE", `/api/templates/${id}`)).status, 404);
+});
 
 test("openapi.json documents the API", async () => {
   const res = await app.request("/api/openapi.json");
