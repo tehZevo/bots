@@ -1725,7 +1725,10 @@ button.danger.ghost {
 }
 
 .themegroup > button {
-  border-radius: 0;
+  border-top-left-radius: 0 !important;
+  border-bottom-left-radius: 0 !important;
+  border-top-right-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
   border: 1px solid var(--border);
   background: var(--panel);
   color: var(--text);
@@ -1733,12 +1736,14 @@ button.danger.ghost {
 }
 
 .themegroup > button:first-child {
-  border-radius: 6px 0 0 6px;
+  border-top-left-radius: var(--radius-control) !important;
+  border-bottom-left-radius: var(--radius-control) !important;
   margin-left: 0;
 }
 
 .themegroup > button:last-child {
-  border-radius: 0 6px 6px 0;
+  border-top-right-radius: var(--radius-control) !important;
+  border-bottom-right-radius: var(--radius-control) !important;
 }
 
 .themegroup > button.sel {
