@@ -351,6 +351,38 @@ test("templates CRUD with validation", async () => {
   assert.equal((await req("DELETE", `/api/templates/${id}`)).status, 404);
 });
 
+test("api keys: create, list, bearer auth, revoke", async () => {
+  assert.equal((await req("POST", "/api/api-keys", {})).status, 400);
+  const created = await req("POST", "/api/api-keys", { name: "cli" });
+  assert.equal(created.status, 201);
+  const value = created.json.value as string;
+  assert.match(value, /^bots_[0-9a-f]{40}$/);
+  const listRes = await app.request("/api/api-keys");
+  const keys = (await listRes.json()) as Record<string, unknown>[];
+  assert.ok(keys.some((k) => k.name === "cli" && k.value === undefined));
+  const authed = await app.request("/api/bots", {
+    headers: { authorization: `Bearer ${value}` },
+  });
+  assert.equal(authed.status, 200);
+  const bad = await app.request("/api/bots", {
+    headers: {
+      authorization: "Bearer bots_0000000000000000000000000000000000000000",
+    },
+  });
+  assert.equal(bad.status, 401);
+  const id = created.json.id as string;
+  assert.equal((await req("DELETE", `/api/api-keys/${id}`)).status, 200);
+  assert.equal(
+    (
+      await app.request("/api/bots", {
+        headers: { authorization: `Bearer ${value}` },
+      })
+    ).status,
+    401,
+  );
+  assert.equal((await req("DELETE", "/api/api-keys/nope")).status, 404);
+});
+
 test("runs and message endpoints on a fresh bot", async () => {
   const bot = await makeBot("quiet-bot");
   const runsRes = await app.request(`/api/bots/${bot}/runs`);
