@@ -351,6 +351,16 @@ test("templates CRUD with validation", async () => {
   assert.equal((await req("DELETE", `/api/templates/${id}`)).status, 404);
 });
 
+test("openapi.json documents the API", async () => {
+  const res = await app.request("/api/openapi.json");
+  assert.equal(res.status, 200);
+  const doc = (await res.json()) as Record<string, unknown>;
+  assert.equal(doc.openapi, "3.1.0");
+  const paths = doc.paths as Record<string, unknown>;
+  assert.ok("/api/bots" in paths && "/api/api-keys" in paths);
+
+});
+
 test("api keys: create, list, bearer auth, revoke", async () => {
   assert.equal((await req("POST", "/api/api-keys", {})).status, 400);
   const created = await req("POST", "/api/api-keys", { name: "cli" });

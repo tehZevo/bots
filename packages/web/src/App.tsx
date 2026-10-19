@@ -6,6 +6,13 @@ import {
   useState,
 } from "react";
 
+export interface ApiKey {
+  id: string;
+  name: string;
+  created_at: number;
+  last_used_at: number | null;
+}
+
 interface Bot {
   id: string;
   name: string;
@@ -271,7 +278,8 @@ export function Avatar({
   shape?: number | null;
   color?: number | null;
   health?: Bot["health"] | null;
-}) {  const rand = mulberry32(fnv(id));
+}) {
+  const rand = mulberry32(fnv(id));
   const radii = shapeRadii(rand, shape);
   const maxR = Math.max(...radii);
   const base = 46 / maxR;
@@ -410,7 +418,8 @@ function AvatarPicker({
   );
 }
 
-export function relTime(ts: number): string {  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+export function relTime(ts: number): string {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
   if (s < 60) return `${s}s ago`;
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m ago`;
@@ -1494,6 +1503,38 @@ export function SettingsPanel() {
   const [formOpen, setFormOpen] = useState(false);
   const [formProvider, setFormProvider] = useState<Provider | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Provider | null>(null);
+  const [keys, setKeys] = useState<ApiKey[]>([]);
+  const [keyName, setKeyName] = useState("");
+  const [revealedKey, setRevealedKey] = useState<string | null>(null);
+
+  const loadKeys = useCallback(async () => {
+    const list = await api<ApiKey[]>("/api/api-keys").catch(
+      () => [] as ApiKey[],
+    );
+    setKeys(list);
+  }, []);
+
+  useEffect(() => {
+    void loadKeys();
+  }, [loadKeys]);
+
+  const createKey = async () => {
+    const res = await api<{ value: string }>("/api/api-keys", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: keyName.trim() }),
+    }).catch(() => null);
+    if (res?.value) {
+      setRevealedKey(res.value);
+      setKeyName("");
+      void loadKeys();
+    }
+  };
+
+  const revokeKey = async (id: string) => {
+    await api(`/api/api-keys/${id}`, { method: "DELETE" }).catch(() => null);
+    void loadKeys();
+  };
 
   const loadProviders = useCallback(async () => {
     const [list, settings] = await Promise.all([
@@ -1634,6 +1675,51 @@ export function SettingsPanel() {
           Preview
         </button>
       </div>
+
+      <p className="muted">API keys</p>
+      <ul className="plist">
+        {keys.map((k) => (
+          <li key={k.id}>
+            <div className="pinfo">
+              <strong>{k.name}</strong>
+              <span className="muted">created {relTime(k.created_at)}</span>
+              <span className="muted">
+                {k.last_used_at === null
+                  ? "never used"
+                  : `last used ${relTime(k.last_used_at)}`}
+              </span>
+            </div>
+            <div className="actions">
+              <button type="button" onClick={() => void revokeKey(k.id)}>
+                Revoke
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {revealedKey !== null && (
+        <p className="keyreveal">
+          New key — shown once: <code>{revealedKey}</code>
+        </p>
+      )}
+      <div className="keyrow">
+        <input
+          placeholder="Key name"
+          value={keyName}
+          onChange={(e) => setKeyName(e.target.value)}
+        />
+        <button
+          type="button"
+          disabled={!keyName.trim()}
+          onClick={() => void createKey()}
+        >
+          Add key
+        </button>
+      </div>
+      <p className="muted">
+        Headless access: <a href="/api/openapi.json">OpenAPI spec</a>
+      </p>
+
       <p className="muted">LLM providers</p>
       {providers.length === 0 && (
         <p className="muted">
