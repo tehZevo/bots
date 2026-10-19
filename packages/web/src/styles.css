@@ -553,8 +553,14 @@ article header {
 }
 
 .card strong {
-  overflow-wrap: anywhere;
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
+
 
 .statusline .dot {
   display: inline-block;
@@ -1454,8 +1460,14 @@ button.danger.ghost {
 
 .filterrow {
   display: flex;
-  gap: var(--gap-inner, 0.5rem);
-  margin-top: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.filterrow > input {
+  flex: 1 1 220px;
+  min-width: 0;
 }
 
 .filterdd {

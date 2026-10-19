@@ -758,12 +758,12 @@ export function App() {
                   Add bot
                 </button>
               </div>
-              <input
-                placeholder="Search bots by name"
-                value={botQuery}
-                onChange={(e) => setBotQuery(e.target.value)}
-              />
               <div className="filterrow">
+                <input
+                  placeholder="Search bots by name"
+                  value={botQuery}
+                  onChange={(e) => setBotQuery(e.target.value)}
+                />
                 <details className="filterdd">
                   <summary
                     aria-label={`Status filter: ${statusSel.length === 0 ? "All" : `${statusSel.length} selected`}`}
@@ -865,7 +865,7 @@ export function App() {
                         health={bot.health}
                       />
                       <span className="cardtext">
-                        <strong>{bot.name}</strong>
+                        <strong title={bot.name}>{bot.name}</strong>
                         <StatusDot
                           id={bot.id}
                           health={bot.health}
@@ -3688,7 +3688,7 @@ export function MachineModal({
   );
 }
 
-function TemplateEditorModal({
+export function TemplateEditorModal({
   initial,
   onClose,
   onSaved,
@@ -3872,7 +3872,7 @@ function TemplateEditorModal({
   );
 }
 
-function TemplatesPanel() {
+export function TemplatesPanel() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [editing, setEditing] = useState<
     (Omit<Template, "id" | "created_at"> & { id?: string }) | null
