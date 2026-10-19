@@ -4,7 +4,7 @@
 
 ## Sign in
 
-The API and UI are login-protected. Sessions live in an HttpOnly cookie for 7 days; behind a reverse proxy serve the app over HTTPS (the cookie is `Secure`). Registration is off by default — start the container once with `ALLOW_REGISTRATION=true`, create your account, then remove it. Every signed-in user has equal access to all bots and settings; there is no admin tier. Settings holds self-service **Change password** (other sessions are logged out) and **Logout**.
+The API and UI are login-protected. Sessions live in an HttpOnly cookie for 7 days. Registration is off by default — start the container once with `ALLOW_REGISTRATION=true`, create your account, then remove it. Every signed-in user has equal access to all bots and settings; there is no admin tier. Settings holds self-service **Change password** (other sessions are logged out) and **Logout**.
 
 ## The console
 
