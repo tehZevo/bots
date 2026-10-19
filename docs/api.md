@@ -4,6 +4,19 @@ Everything the UI does is available headlessly under `/api` (JSON), documented a
 
 Authenticate with `Authorization: Bearer <api key>` or the browser session cookie. Create keys in **Settings → API keys**: each value is `bots_` + 40 hex chars, shown exactly once and stored hashed; the list shows name, created-at and last-used (updated at most once per minute). Revoking fails closed — old requests get `401 { "error": "invalid api key" }`. Bearer values that don't match the key format pass through untouched, so webhook secrets keep working.
 
+## Authentication
+
+All routes below require a session cookie (web UI login) or `Authorization: Bearer <api key>`; everything else answers `401 { error }`. Open exceptions: `/api/health` and `POST /api/webhooks/:triggerId` (secret-authenticated). Cookie state changes are CSRF-guarded: same-origin `Origin` when present, JSON bodies otherwise.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/auth/config` | `{ allow_registration, has_users }` — drives the sign-in screen |
+| POST | `/api/auth/signup` | Create account — 403 unless `ALLOW_REGISTRATION=true`, weak password → 400, duplicate → 409; sets session cookie |
+| POST | `/api/auth/login` | Email + password → session cookie (7 days); wrong credentials → 401 |
+| GET | `/api/auth/me` | `{ email }` of the current caller |
+| POST | `/api/auth/logout` | Drop this session |
+| POST | `/api/auth/password` | `{ current, new }` — 403 on wrong current; other sessions are invalidated |
+
 ## API keys
 
 | Method | Path | Purpose |

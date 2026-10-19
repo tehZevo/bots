@@ -51,6 +51,28 @@ export function openApiDoc(): Json {
   };
 
   add("/api/health", "get", "Liveness probe");
+  for (const [p, m, d] of [
+    ["/api/auth/config", "get", "Registration availability and user presence"],
+    [
+      "/api/auth/signup",
+      "post",
+      "Create an account (when ALLOW_REGISTRATION=true)",
+    ],
+    [
+      "/api/auth/login",
+      "post",
+      "Sign in with email + password; sets session cookie",
+    ],
+    ["/api/auth/me", "get", "Current identity"],
+    ["/api/auth/logout", "post", "End the session"],
+    [
+      "/api/auth/password",
+      "post",
+      "Change own password; evicts other sessions",
+    ],
+  ] as const)
+    add(p, m, d);
+
   add("/api/settings", "get", "Read app settings");
   add("/api/settings", "put", "Update app settings", { body: ref("Settings") });
   add("/api/bots", "get", "List bots with health and run state", {
@@ -206,8 +228,12 @@ export function openApiDoc(): Json {
       description:
         "The same surface the web UI uses. Authenticate with a session cookie or Authorization: Bearer <api key> (see /api/api-keys).",
     },
+    security: [{ bearerAuth: [] }, { sessionCookie: [] }],
     components: {
-      securitySchemes: { bearerAuth: { type: "http", scheme: "bearer" } },
+      securitySchemes: {
+        bearerAuth: { type: "http", scheme: "bearer" },
+        sessionCookie: { type: "apiKey", in: "cookie", name: "bots_session" },
+      },
       schemas: {
         Bot: {
           type: "object",

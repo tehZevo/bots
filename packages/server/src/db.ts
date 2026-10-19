@@ -1,4 +1,10 @@
-import { randomUUID } from "node:crypto";
+import {
+  createHash,
+  randomBytes,
+  randomUUID,
+  scryptSync,
+  timingSafeEqual,
+} from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
@@ -114,10 +120,25 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS api_keys (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     hash TEXT NOT NULL UNIQUE,
+    user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
     created_at INTEGER NOT NULL,
     last_used_at INTEGER
   );
@@ -327,6 +348,14 @@ if (!botColumns.has("role_id"))
   db.prepare(
     "ALTER TABLE bots ADD COLUMN role_id TEXT REFERENCES roles(id)",
   ).run();
+
+const apiKeyColumns = new Set(
+  (db.prepare("PRAGMA table_info(api_keys)").all() as { name: string }[]).map(
+    (column) => column.name,
+  ),
+);
+if (!apiKeyColumns.has("user_id"))
+  db.prepare("ALTER TABLE api_keys ADD COLUMN user_id TEXT").run();
 
 const triggerColumns = new Set(
   (db.prepare("PRAGMA table_info(triggers)").all() as { name: string }[]).map(
@@ -1136,6 +1165,7 @@ export function deleteTemplate(id: string): void {
 export interface ApiKeyRow {
   id: string;
   name: string;
+  user_id: string | null;
   created_at: number;
   last_used_at: number | null;
 }
@@ -1144,25 +1174,26 @@ export function insertApiKey(key: {
   id: string;
   name: string;
   hash: string;
+  user_id: string | null;
   created_at: number;
 }): void {
   db.prepare(
-    "INSERT INTO api_keys (id, name, hash, created_at) VALUES (@id, @name, @hash, @created_at)",
+    "INSERT INTO api_keys (id, name, hash, user_id, created_at) VALUES (@id, @name, @hash, @user_id, @created_at)",
   ).run(key);
 }
 
-export function listApiKeys(): ApiKeyRow[] {
+export function listApiKeys(userId: string): ApiKeyRow[] {
   return db
     .prepare(
-      "SELECT id, name, created_at, last_used_at FROM api_keys ORDER BY created_at DESC",
+      "SELECT id, name, user_id, created_at, last_used_at FROM api_keys WHERE user_id = ? OR user_id IS NULL ORDER BY created_at DESC",
     )
-    .all() as ApiKeyRow[];
+    .all(userId) as ApiKeyRow[];
 }
 
 export function getApiKeyByHash(hash: string): ApiKeyRow | undefined {
   return db
     .prepare(
-      "SELECT id, name, created_at, last_used_at FROM api_keys WHERE hash = ?",
+      "SELECT id, name, user_id, created_at, last_used_at FROM api_keys WHERE hash = ?",
     )
     .get(hash) as ApiKeyRow | undefined;
 }
@@ -1171,6 +1202,113 @@ export function touchApiKey(id: string, ts: number): void {
   db.prepare("UPDATE api_keys SET last_used_at = ? WHERE id = ?").run(ts, id);
 }
 
-export function deleteApiKey(id: string): void {
-  db.prepare("DELETE FROM api_keys WHERE id = ?").run(id);
+export function deleteApiKey(id: string, userId: string): boolean {
+  const res = db
+    .prepare(
+      "DELETE FROM api_keys WHERE id = ? AND (user_id = ? OR user_id IS NULL)",
+    )
+    .run(id, userId);
+  return res.changes > 0;
+}
+
+export interface UserRow {
+  id: string;
+  email: string;
+  password_hash: string;
+  created_at: number;
+}
+
+// scrypt with a per-user random salt; format: scrypt$<saltHex>$<hashHex>.
+export function hashPassword(password: string): string {
+  const salt = randomBytes(16).toString("hex");
+  const hash = scryptSync(password, salt, 32).toString("hex");
+  return `scrypt$${salt}$${hash}`;
+}
+
+export function verifyPassword(password: string, stored: string): boolean {
+  const [scheme, salt, hash] = stored.split("$");
+  if (scheme !== "scrypt" || !salt || !hash) return false;
+  const candidate = scryptSync(password, salt, 32);
+  const expected = Buffer.from(hash, "hex");
+  return (
+    candidate.length === expected.length && timingSafeEqual(candidate, expected)
+  );
+}
+
+export function countUsers(): number {
+  const row = db.prepare("SELECT COUNT(*) AS n FROM users").get() as {
+    n: number;
+  };
+  return row.n;
+}
+
+export function insertUser(user: {
+  id: string;
+  email: string;
+  password_hash: string;
+  created_at: number;
+}): void {
+  db.prepare(
+    "INSERT INTO users (id, email, password_hash, created_at) VALUES (@id, @email, @password_hash, @created_at)",
+  ).run(user);
+}
+
+export function getUserByEmail(email: string): UserRow | undefined {
+  return db.prepare("SELECT * FROM users WHERE email = ?").get(email) as
+    | UserRow
+    | undefined;
+}
+
+export function getUserById(id: string): UserRow | undefined {
+  return db.prepare("SELECT * FROM users WHERE id = ?").get(id) as
+    | UserRow
+    | undefined;
+}
+
+export function setUserPassword(userId: string, passwordHash: string): void {
+  db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(
+    passwordHash,
+    userId,
+  );
+}
+
+// Session tokens are random and only their sha256 is stored.
+export function createSession(
+  userId: string,
+  expiresAt: number,
+): { token: string; tokenHash: string } {
+  const token = randomBytes(32).toString("hex");
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  db.prepare(
+    "INSERT INTO sessions (token_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)",
+  ).run(tokenHash, userId, expiresAt, Date.now());
+  return { token, tokenHash };
+}
+
+export function getSessionUser(token: string): UserRow | undefined {
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  db.prepare("DELETE FROM sessions WHERE expires_at <= ?").run(Date.now());
+  return db
+    .prepare(
+      `SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
+       WHERE s.token_hash = ? AND s.expires_at > ?`,
+    )
+    .get(tokenHash, Date.now()) as UserRow | undefined;
+}
+
+export function deleteSession(token: string): void {
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(tokenHash);
+}
+
+// Password changes invalidate every other device.
+export function deleteSessionsForUser(
+  userId: string,
+  keepTokenHash?: string,
+): void {
+  if (keepTokenHash)
+    db.prepare(
+      "DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?",
+    ).run(userId, keepTokenHash);
+  else db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId);
 }

@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { AccountSection } from "./auth.tsx";
 import { renderMarkdown } from "./markdown.ts";
 
 export interface ApiKey {
@@ -1657,6 +1658,7 @@ export function SettingsPanel() {
       <div className="mainhead">
         <h2>Settings</h2>
       </div>
+      <AccountSection />
       <p className="muted">Theme</p>
       <div className="themegroup" role="group" aria-label="Theme">
         {THEMES.map((t) => (

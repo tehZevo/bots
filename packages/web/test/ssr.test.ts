@@ -247,3 +247,19 @@ test("chat turns render bot name, markdown and collapsibles", () => {
   assert.match(html, /files/);
   assert.match(html, /thinking/);
 });
+
+const { AuthScreen, AccountSection } = await import("../src/auth.tsx");
+
+test("auth screen and account section render", () => {
+  const login = renderToStaticMarkup(
+    React.createElement(AuthScreen, { onDone: () => undefined }),
+  );
+  assert.match(login, /Sign in/);
+  assert.match(login, /Email/);
+  assert.match(login, /Password/);
+
+  const account = renderToStaticMarkup(React.createElement(AccountSection));
+  assert.match(account, /Account/);
+  assert.match(account, /Change password/);
+  assert.match(account, /Logout/);
+});
