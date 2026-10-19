@@ -1689,6 +1689,7 @@ button.danger.ghost {
 
 .keyrow input {
   flex: 1;
+  min-width: 0;
 }
 
 .keyrow .sched {

@@ -24,6 +24,17 @@ Everything the UI does is available headlessly under `/api` (JSON). Today the AP
 | DELETE | `/api/triggers/:id` | Remove |
 | POST | `/api/triggers/:id/rotate-secret` | New webhook secret (destructive — invalidates the old one immediately) |
 
+## Templates
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/templates` | List reusable bundles — newest first |
+| POST | `/api/templates` | Create — `{ name, description?, system_prompt?, machine_id?, role_id?, triggers?: [{ message, schedule }] }`; unknown refs / bad schedules → `400`, duplicate name → `409` |
+| PATCH | `/api/templates/:id` | Partial update (same validation) |
+| DELETE | `/api/templates/:id` | Delete — bots created from it are untouched |
+
+See [Bots → Templates](/bots#templates) for the UI flow.
+
 ## Notifications
 
 | Method | Path | Purpose |
