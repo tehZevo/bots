@@ -52,6 +52,17 @@ export interface RunRow {
   error: string | null;
 }
 
+export interface NotificationRow {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  bot_id: string | null;
+  dedupe_key: string | null;
+  read: number;
+  created_at: number;
+}
+
 export interface MessageRow {
   id: number;
   bot_id: string;
@@ -127,9 +138,21 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS notifications (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    bot_id TEXT REFERENCES bots(id) ON DELETE CASCADE,
+    dedupe_key TEXT UNIQUE,
+    "read" INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_messages_bot ON messages (bot_id, id);
   CREATE INDEX IF NOT EXISTS idx_runs_bot ON runs (bot_id, started_at DESC);
   CREATE INDEX IF NOT EXISTS idx_triggers_due ON triggers (next_run_at);
+  CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications (created_at DESC);
 `);
 
 db.prepare(
@@ -349,6 +372,7 @@ export function deleteBot(id: string): void {
   db.prepare("DELETE FROM triggers WHERE bot_id = ?").run(id);
   db.prepare("DELETE FROM runs WHERE bot_id = ?").run(id);
   db.prepare("DELETE FROM messages WHERE bot_id = ?").run(id);
+  db.prepare("DELETE FROM notifications WHERE bot_id = ?").run(id);
   db.prepare("DELETE FROM bots WHERE id = ?").run(id);
 }
 
@@ -472,15 +496,85 @@ export function insertRun(run: RunRow): void {
   ).run(run);
 }
 
+export function createNotification(input: {
+  kind: string;
+  title: string;
+  body: string;
+  botId?: string | null;
+  dedupeKey?: string | null;
+}): void {
+  db.prepare(
+    `INSERT INTO notifications (id, kind, title, body, bot_id, dedupe_key, "read", created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+     ON CONFLICT(dedupe_key) DO NOTHING`,
+  ).run(
+    randomUUID(),
+    input.kind,
+    input.title,
+    input.body.slice(0, 1000),
+    input.botId ?? null,
+    input.dedupeKey ?? null,
+    Date.now(),
+  );
+}
+
 export function finishRun(
   id: string,
   status: "ok" | "error",
   output: string | null,
   error: string | null,
 ): void {
-  db.prepare(
+  const update = db.prepare(
     "UPDATE runs SET status = ?, finished_at = ?, output = ?, error = ? WHERE id = ?",
-  ).run(status, Date.now(), output, error, id);
+  );
+  const getInfo = db.prepare(
+    `SELECT r.bot_id, r.trigger, b.name FROM runs r
+     LEFT JOIN bots b ON b.id = r.bot_id WHERE r.id = ?`,
+  );
+  const tx = db.transaction(() => {
+    update.run(status, Date.now(), output, error, id);
+    if (status !== "error") return;
+
+    const info = getInfo.get(id) as
+      | { bot_id: string | null; trigger: string | null; name: string | null }
+      | undefined;
+    createNotification({
+      kind: "run_error",
+      title: `${info?.name ?? "Bot"}: run failed`,
+      body: error || output || `Run ${info?.trigger ?? "manual"} ended in error.`,
+      botId: info?.bot_id,
+      dedupeKey: `run-error:${id}`,
+    });
+  });
+  tx();
+}
+
+export function listNotifications(limit = 100): NotificationRow[] {
+  return db
+    .prepare(
+      'SELECT * FROM notifications ORDER BY created_at DESC, rowid DESC LIMIT ?',
+    )
+    .all(limit) as NotificationRow[];
+}
+
+export function unreadNotificationCount(): number {
+  const row = db
+    .prepare('SELECT COUNT(*) AS count FROM notifications WHERE "read" = 0')
+    .get() as { count: number };
+  return row.count;
+}
+
+export function markNotificationRead(id: string): boolean {
+  return (
+    db.prepare(`UPDATE notifications SET "read" = 1 WHERE id = ?`).run(id)
+      .changes > 0
+  );
+}
+
+export function markAllNotificationsRead(): number {
+  return db
+    .prepare('UPDATE notifications SET "read" = 1 WHERE "read" = 0')
+    .run().changes;
 }
 
 export function latestErrorBotIds(): Set<string> {
