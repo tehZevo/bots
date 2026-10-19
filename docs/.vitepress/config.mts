@@ -19,7 +19,10 @@ export default defineConfig({
         items: [
           { text: "Getting started", link: "/getting-started" },
           { text: "Bots", link: "/bots" },
-          { text: "Roles, skills & capabilities", link: "/roles-capabilities-skills" },
+          {
+            text: "Roles, skills & capabilities",
+            link: "/roles-capabilities-skills",
+          },
           { text: "Machines", link: "/machines" },
           { text: "MCP integrations", link: "/integrations-mcp" },
           { text: "Triggers & scheduling", link: "/triggers-scheduling" },

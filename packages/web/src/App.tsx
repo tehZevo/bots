@@ -1506,6 +1506,7 @@ export function SettingsPanel() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [keyName, setKeyName] = useState("");
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
+  const [mcpEnabled, setMcpEnabled] = useState(true);
 
   const loadKeys = useCallback(async () => {
     const list = await api<ApiKey[]>("/api/api-keys").catch(
@@ -1539,12 +1540,15 @@ export function SettingsPanel() {
   const loadProviders = useCallback(async () => {
     const [list, settings] = await Promise.all([
       api<Provider[]>("/api/providers").catch(() => [] as Provider[]),
-      api<{ default_provider_id: string | null; default_model: string | null }>(
-        "/api/settings",
-      ).catch(() => null),
+      api<{
+        default_provider_id: string | null;
+        default_model: string | null;
+        control_mcp_enabled?: boolean;
+      }>("/api/settings").catch(() => null),
     ]);
     setProviders(list);
     if (settings) {
+      setMcpEnabled(settings.control_mcp_enabled !== false);
       setDefaultProviderId(settings.default_provider_id);
       setDefaultModel(settings.default_model);
     }
@@ -1719,6 +1723,29 @@ export function SettingsPanel() {
       <p className="muted">
         Headless access: <a href="/api/openapi.json">OpenAPI spec</a>
       </p>
+
+      <p className="muted">Control MCP server</p>
+      <div className="tedithead">
+        <label className="switch">
+          <input
+            type="checkbox"
+            aria-label="Control MCP enabled"
+            checked={mcpEnabled}
+            onChange={() => {
+              const next = !mcpEnabled;
+              setMcpEnabled(next);
+              api("/api/settings", {
+                method: "PUT",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ control_mcp_enabled: next }),
+              }).catch((e) => alert(e.message));
+            }}
+          />
+          <span className="knob" />
+          <span className="state">{mcpEnabled ? "Enabled" : "Disabled"}</span>
+        </label>
+        <code>/mcp</code>
+      </div>
 
       <p className="muted">LLM providers</p>
       {providers.length === 0 && (
