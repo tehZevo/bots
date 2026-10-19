@@ -464,3 +464,53 @@ test("runs and message endpoints on a fresh bot", async () => {
   assert.ok(Array.isArray(await msgsRes.json()));
   assert.equal((await req("DELETE", `/api/bots/${bot}/messages`)).status, 200);
 });
+
+test("trigger names: optional, validated, editable", async () => {
+  const bot = await makeBot("named-triggers");
+  const created = await req("POST", `/api/bots/${bot}/triggers`, {
+    message: "sweep",
+    schedule: "@every 1h",
+    name: "nightly sweep",
+  });
+  assert.equal(created.status, 201);
+  const id = created.json.id as string;
+  assert.equal(created.json.name, "nightly sweep");
+
+  const plain = await req("POST", `/api/bots/${bot}/triggers`, {
+    message: "m",
+    schedule: "@every 2h",
+  });
+  assert.equal(plain.status, 201);
+  assert.equal(plain.json.name, null);
+
+  const patched = await req("PATCH", `/api/triggers/${id}`, {
+    name: "renamed",
+  });
+  assert.equal(patched.json.name, "renamed");
+  const cleared = await req("PATCH", `/api/triggers/${id}`, { name: null });
+  assert.equal(cleared.json.name, null);
+
+  assert.equal(
+    (
+      await req("POST", `/api/bots/${bot}/triggers`, {
+        message: "m",
+        schedule: "@every 1h",
+        name: "x".repeat(121),
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await req("POST", `/api/bots/${bot}/triggers`, {
+        message: "m",
+        schedule: "@every 1h",
+        name: 7,
+      })
+    ).status,
+    400,
+  );
+
+  const list = await (await app.request(`/api/bots/${bot}/triggers`)).json();
+  assert.ok(Array.isArray(list) && list.every((t) => "name" in t));
+});
