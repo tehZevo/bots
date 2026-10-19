@@ -482,22 +482,28 @@ export function App() {
                   <ul className="notiflist">
                     {notifications.map((notification) => (
                       <li key={notification.id} className={notification.read ? "" : "unread"}>
-                        <div className="notifbody">
-                          <div className="notiftitle">
-                            <strong>{notification.title}</strong>
-                            <time dateTime={new Date(notification.created_at).toISOString()}>
-                              {fmt(notification.created_at)}
-                            </time>
-                          </div>
+                        <button
+                          type="button"
+                          className="notifbody"
+                          disabled={notification.read === 0}
+                          title={notification.read ? undefined : "Mark as read"}
+                          onClick={() => void markOneNotification(notification.id)}
+                        >
+                          <strong>{notification.title}</strong>
+                          <time dateTime={new Date(notification.created_at).toISOString()}>
+                            {fmt(notification.created_at)}
+                          </time>
                           <p>{notification.body}</p>
-                        </div>
+                        </button>
                         {!notification.read && (
-                          <button
-                            type="button"
-                            onClick={() => void markOneNotification(notification.id)}
-                          >
-                            Mark read
-                          </button>
+                          <div className="notifactions">
+                            <button
+                              type="button"
+                              onClick={() => void markOneNotification(notification.id)}
+                            >
+                              Mark read
+                            </button>
+                          </div>
                         )}
                       </li>
                     ))}

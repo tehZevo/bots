@@ -396,9 +396,8 @@ article header {
 }
 
 .notiflist li {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
+  display: grid;
+  gap: 0.35rem;
   padding: 0.65rem 0;
   border-bottom: 1px solid var(--border);
 }
@@ -413,21 +412,19 @@ article header {
 }
 
 .notifbody {
+  display: grid;
+  gap: 0.15rem;
   min-width: 0;
-  flex: 1;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  text-align: start;
 }
 
-.notiftitle {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.notiftitle time {
+.notifbody time {
   color: var(--muted);
   font-size: 0.78rem;
-  white-space: nowrap;
 }
 
 .notiflist p {
@@ -435,6 +432,11 @@ article header {
   overflow-wrap: anywhere;
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.notifactions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .sidetabs.wide button {
