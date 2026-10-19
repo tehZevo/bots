@@ -92,6 +92,7 @@ interface NotificationsResponse {
 interface Trigger {
   id: string;
   kind: "schedule" | "webhook";
+  name: string | null;
   message: string;
   schedule: string;
   next_run_at: number | null;
@@ -2621,6 +2622,7 @@ export function Triggers({ botId }: { botId: string }) {
   const [triggers, setTriggers] = useState<Trigger[]>([]);
   const [sel, setSel] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [name, setName] = useState("");
   const [schedule, setSchedule] = useState("0 * * * *");
   const [kind, setKind] = useState<"schedule" | "webhook">("schedule");
   const [created, setCreated] = useState<{ id: string; secret: string } | null>(
@@ -2683,10 +2685,16 @@ export function Triggers({ botId }: { botId: string }) {
               className={`trow${sel === t.id ? " sel" : ""}${t.enabled ? "" : " off"}`}
               onClick={() => select(t.id)}
             >
-              {t.kind === "webhook"
-                ? `webhook ${t.id.slice(0, 8)}`
-                : t.schedule}
-              {t.enabled ? "" : " · paused"}
+              <span className="trowtop">
+                {t.name ||
+                  (t.kind === "webhook"
+                    ? `webhook ${t.id.slice(0, 8)}`
+                    : t.schedule)}
+              </span>
+              <span className="trowsub">
+                {t.kind === "webhook" ? "Webhook" : "Schedule"}
+                {t.enabled ? "" : " (paused)"}
+              </span>
             </button>
           ))}
         </nav>
@@ -2715,7 +2723,11 @@ export function Triggers({ botId }: { botId: string }) {
                 e.preventDefault();
                 setBusy(true);
                 try {
-                  const body: Record<string, string> = { message, kind };
+                  const body: Record<string, unknown> = {
+                    message,
+                    kind,
+                    name: name.trim() || null,
+                  };
                   if (kind === "schedule") body.schedule = schedule;
                   const res = await api<Trigger & { secret?: string }>(
                     `/api/bots/${botId}/triggers`,
@@ -2740,6 +2752,15 @@ export function Triggers({ botId }: { botId: string }) {
                 }
               }}
             >
+              <label className="field">
+                Name (optional)
+                <input
+                  placeholder="e.g. nightly sweep"
+                  maxLength={120}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </label>
               <label className="field">
                 Message
                 <textarea
@@ -2837,10 +2858,12 @@ function TriggerEditor({
   onRemove: () => void;
   secret: string | null;
 }) {
+  const [name, setName] = useState(trigger.name ?? "");
   const [message, setMessage] = useState(trigger.message);
   const [schedule, setSchedule] = useState(trigger.schedule);
   const [busy, setBusy] = useState(false);
   const dirty =
+    name !== (trigger.name ?? "") ||
     message !== trigger.message ||
     (trigger.kind === "schedule" && schedule !== trigger.schedule);
   return (
@@ -2867,6 +2890,15 @@ function TriggerEditor({
         )}
       </div>
       <label className="field">
+        Name (optional)
+        <input
+          placeholder="e.g. nightly sweep"
+          maxLength={120}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </label>
+      <label className="field">
         Message
         <textarea
           rows={3}
@@ -2888,6 +2920,7 @@ function TriggerEditor({
           onClick={() => {
             setBusy(true);
             void onPatch(trigger.id, {
+              name: name.trim() || null,
               message,
               ...(trigger.kind === "schedule" ? { schedule } : {}),
             }).finally(() => setBusy(false));

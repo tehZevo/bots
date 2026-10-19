@@ -2,6 +2,8 @@
 
 Triggers inject messages into a bot's loop: the configured text, on a schedule or when someone calls a webhook URL.
 
+Triggers can carry an optional short name. The Triggers tab lists each trigger with its name (or the raw schedule / `webhook <id>` label when unnamed) on the top line and, beneath it in muted italic, the type — `Schedule` or `Webhook` — plus `(paused)` while disabled. Name the ones you operate by hand; leave throwaways anonymous.
+
 ## Schedule triggers
 
 Accept standard cron expressions (`0 * * * *`) or relative intervals (`@every 30m`). The next fire time is shown on each trigger card; occurrences missed while the orchestrator was down do not pile up — every tick schedules strictly from now.
