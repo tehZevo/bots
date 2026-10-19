@@ -994,7 +994,7 @@ textarea.code {
   margin-bottom: 0;
 }
 
-button:not(.sidetabs button):not(.mtabs button):not(.card) {
+button:not(.sidetabs button):not(.mtabs button):not(.card):not(.avatarmenu button):not(.avatarpick):not(.pickscrim) {
   min-height: var(--control-h);
   padding: 0 0.85rem;
   border-radius: var(--radius-control);
