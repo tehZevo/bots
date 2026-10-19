@@ -8,7 +8,7 @@ Everything the UI does is available headlessly under `/api` (JSON). Today the AP
 | --- | --- | --- |
 | GET | `/api/bots` | List bots incl. derived `health` (`green`/`blue`/`yellow`/`red`/`gray`) and `run_state` |
 | POST | `/api/bots` | Create — `{ name, description?, system_prompt?, model_id?, role_id? }` |
-| GET/PATCH/DELETE | `/api/bots/:id` | Read / update fields incl. `enabled` / delete (cascades triggers + runs) |
+| GET/PATCH/DELETE | `/api/bots/:id` | Read / update fields incl. `enabled` / delete (cascades triggers + runs + notifications) |
 | POST | `/api/bots/:id/run` | Run now — `{ message? }`, steers a live loop, returns `{ runId, steered }` |
 | POST | `/api/bots/:id/interrupt` | Stop the live loop |
 | GET | `/api/bots/:id/runs` | Run history (status ok/error/interrupted, output, error) |
@@ -23,6 +23,16 @@ Everything the UI does is available headlessly under `/api` (JSON). Today the AP
 | PATCH | `/api/triggers/:id` | Update `message`, `schedule`, or `enabled` (bool; resume never catch-up-fires) |
 | DELETE | `/api/triggers/:id` | Remove |
 | POST | `/api/triggers/:id/rotate-secret` | New webhook secret (destructive — invalidates the old one immediately) |
+
+## Notifications
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/notifications` | `{ items, unread_count }`, newest first; `?limit=` 1–250 (default 100) |
+| POST | `/api/notifications/:id/read` | Mark one read — 404 unknown id |
+| POST | `/api/notifications/read-all` | Mark everything read |
+
+Created automatically when a run ends `error` (deduped per run). See [Notifications](/notifications).
 
 ## Roles, skills & MCP servers
 
