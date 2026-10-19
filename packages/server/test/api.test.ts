@@ -69,6 +69,17 @@ test("bot avatar overrides validate and persist", async () => {
     avatar_color: null,
   });
   assert.equal(reset.json.avatar_shape, null);
+test("bot sound choice validates and persists", async () => {
+  const id = await makeBot("sound-bot");
+  assert.equal(
+    (await req("PATCH", `/api/bots/${id}`, { sound: "didgeridoo" })).status,
+    400,
+  );
+  const ok = await req("PATCH", `/api/bots/${id}`, { sound: "bell" });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.json.sound, "bell");
+  const reset = await req("PATCH", `/api/bots/${id}`, { sound: "" });
+  assert.equal(reset.json.sound, null);
 });
 
 test("bot get/patch/delete lifecycle", async () => {

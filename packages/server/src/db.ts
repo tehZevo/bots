@@ -14,6 +14,7 @@ export interface BotRow {
   machine_id: string | null;
   avatar_shape: number | null;
   avatar_color: number | null;
+  sound: string | null;
   enabled: number;
   current_task: string | null;
   current_task_updated_at: number | null;
@@ -87,6 +88,7 @@ db.exec(`
     model_id TEXT,
     avatar_shape INTEGER,
     avatar_color INTEGER,
+    sound TEXT,
     enabled INTEGER NOT NULL DEFAULT 1,
     created_at INTEGER NOT NULL
   );
@@ -238,6 +240,9 @@ if (!botColumns.has("avatar_shape"))
 if (!botColumns.has("avatar_color"))
   db.prepare("ALTER TABLE bots ADD COLUMN avatar_color INTEGER").run();
 
+if (!botColumns.has("sound"))
+  db.prepare("ALTER TABLE bots ADD COLUMN sound TEXT").run();
+
 if (!botColumns.has("status")) {
   db.prepare("ALTER TABLE bots ADD COLUMN status TEXT").run();
   db.prepare(
@@ -294,25 +299,36 @@ export function getBot(id: string): BotRow | undefined {
 
 type NewBot = Omit<
   BotRow,
-  "model_id" | "role_id" | "machine_id" | "avatar_shape" | "avatar_color"
+  | "model_id"
+  | "role_id"
+  | "machine_id"
+  | "avatar_shape"
+  | "avatar_color"
+  | "sound"
 > &
   Partial<
     Pick<
       BotRow,
-      "model_id" | "role_id" | "machine_id" | "avatar_shape" | "avatar_color"
+      | "model_id"
+      | "role_id"
+      | "machine_id"
+      | "avatar_shape"
+      | "avatar_color"
+      | "sound"
     >
   >;
 
 export function insertBot(bot: NewBot): void {
   db.prepare(
-    `INSERT INTO bots (id, name, description, system_prompt, model_id, role_id, machine_id, avatar_shape, avatar_color, enabled, created_at)
-     VALUES (@id, @name, @description, @system_prompt, @model_id, @role_id, @machine_id, @avatar_shape, @avatar_color, @enabled, @created_at)`,
+    `INSERT INTO bots (id, name, description, system_prompt, model_id, role_id, machine_id, avatar_shape, avatar_color, sound, enabled, created_at)
+     VALUES (@id, @name, @description, @system_prompt, @model_id, @role_id, @machine_id, @avatar_shape, @avatar_color, @sound, @enabled, @created_at)`,
   ).run({
     model_id: null,
     role_id: null,
     machine_id: null,
     avatar_shape: null,
     avatar_color: null,
+    sound: null,
     ...bot,
   });
 }

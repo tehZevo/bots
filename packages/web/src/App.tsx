@@ -16,6 +16,7 @@ interface Bot {
   machine_id: string | null;
   avatar_shape: number | null;
   avatar_color: number | null;
+  sound: string | null;
   enabled: number;
   created_at: number;
   run_state: "running" | "enabled" | "disabled";
@@ -411,6 +412,23 @@ function fmt(ts: number | null): string {
   return ts ? new Date(ts).toLocaleString() : "—";
 }
 
+const SOUND_LIBRARY: [string, string][] = [
+  ["default", "Default chime"],
+  ["ping", "Ping"],
+  ["chirp", "Chirp"],
+  ["bell", "Bell"],
+  ["blip", "Blip"],
+  ["warp", "Warp"],
+  ["thunk", "Thunk"],
+];
+
+function playSound(id: string): void {
+  if (!id || id === "none") return;
+  const a = new Audio(`/sounds/${id}.wav`);
+  a.volume = 0.35;
+  void a.play().catch(() => undefined);
+}
+
 export function App() {
   const [bots, setBots] = useState<Bot[]>([]);
   const [tab, setTab] = useState<
@@ -431,6 +449,7 @@ export function App() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
+  const seenNotifIds = useRef<Set<string> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(false);
 
@@ -442,6 +461,15 @@ export function App() {
         api<Role[]>("/api/roles"),
       ]);
       setBots(botData);
+      const prevSeen = seenNotifIds.current;
+      if (localStorage.getItem("bots-sounds") === "on" && prevSeen) {
+        const fresh = notificationData.items.filter((n) => !prevSeen.has(n.id));
+        if (fresh.length > 0) {
+          const owner = botData.find((b) => b.id === fresh[0].bot_id);
+          playSound(owner?.sound ?? "default");
+        }
+      }
+      seenNotifIds.current = new Set(notificationData.items.map((n) => n.id));
       setNotifications(notificationData.items);
       setUnreadNotifications(notificationData.unread_count);
       setRoles(roleData);
@@ -1447,6 +1475,10 @@ function SettingsPanel() {
     }
   };
 
+  const [soundsOn, setSoundsOn] = useState(
+    () => localStorage.getItem("bots-sounds") === "on",
+  );
+
   const pick = (t: Theme) => {
     localStorage.setItem("bots-theme", t);
     document.documentElement.dataset.theme = t;
@@ -1483,6 +1515,27 @@ function SettingsPanel() {
         minutes
         <button type="button" disabled={saving} onClick={() => void saveIdle()}>
           Save
+        </button>
+      </div>
+      <p className="muted">Notification sounds</p>
+      <div className="actions">
+        <label className="switch">
+          <input
+            type="checkbox"
+            aria-label="Play notification sounds"
+            checked={soundsOn}
+            onChange={() => {
+              const next = !soundsOn;
+              setSoundsOn(next);
+              localStorage.setItem("bots-sounds", next ? "on" : "off");
+              if (next) playSound("default");
+            }}
+          />
+          <span className="knob" />
+          <span className="state">{soundsOn ? "On" : "Off"}</span>
+        </label>
+        <button type="button" onClick={() => playSound("default")}>
+          Preview
         </button>
       </div>
       <p className="muted">LLM providers</p>
@@ -2211,6 +2264,35 @@ function BotGeneral({
             </option>
           ))}
         </select>
+      </p>
+      <p className="rolepick">
+        Sound{" "}
+        <select
+          value={bot.sound ?? ""}
+          aria-label="Bot notification sound"
+          onChange={(e) => {
+            const v = e.target.value;
+            patchBot({ sound: v === "" ? null : v })
+              .then(onChanged)
+              .catch((err) => alert(err.message));
+          }}
+        >
+          <option value="">Global default</option>
+          <option value="none">None</option>
+          {SOUND_LIBRARY.map(([id, label]) => (
+            <option key={id} value={id}>
+              {label}
+            </option>
+          ))}
+        </select>{" "}
+        <button
+          type="button"
+          onClick={() =>
+            playSound(bot.sound && bot.sound !== "none" ? bot.sound : "default")
+          }
+        >
+          Preview
+        </button>
       </p>
       {pending === "delete" && (
         <ConfirmDialog
