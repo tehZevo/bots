@@ -298,9 +298,9 @@ export function App() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [botQuery, setBotQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | Bot["health"]>(
-    "all",
-  );
+  const [statusSel, setStatusSel] = useState<Bot["health"][]>([]);
+  const [roleSel, setRoleSel] = useState<string[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
@@ -310,13 +310,15 @@ export function App() {
 
   const load = useCallback(async () => {
     try {
-      const [botData, notificationData] = await Promise.all([
+      const [botData, notificationData, roleData] = await Promise.all([
         api<Bot[]>("/api/bots"),
         api<NotificationsResponse>("/api/notifications"),
+        api<Role[]>("/api/roles"),
       ]);
       setBots(botData);
       setNotifications(notificationData.items);
       setUnreadNotifications(notificationData.unread_count);
+      setRoles(roleData);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -361,9 +363,16 @@ export function App() {
   const botFilter = botQuery.trim().toLowerCase();
   const visibleBots = bots.filter(
     (bot) =>
-      (statusFilter === "all" || bot.health === statusFilter) &&
+      (statusSel.length === 0 || statusSel.includes(bot.health)) &&
+      (roleSel.length === 0 || roleSel.includes(bot.role_id ?? "")) &&
       (!botFilter || bot.name.toLowerCase().includes(botFilter)),
   );
+
+  function toggleIn<T>(list: T[], value: T): T[] {
+    return list.includes(value)
+      ? list.filter((v) => v !== value)
+      : [...list, value];
+  }
 
   const openBotRow = bots.find((b) => b.id === openBot);
 
@@ -560,23 +569,82 @@ export function App() {
                 value={botQuery}
                 onChange={(e) => setBotQuery(e.target.value)}
               />
-              <nav className="mtabs">
-                {(
-                  ["all", "green", "blue", "yellow", "red", "gray"] as const
-                ).map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    className={statusFilter === s ? "sel" : ""}
-                    onClick={() => setStatusFilter(s)}
-                  >
-                    {s === "all"
+              <div className="filterrow">
+                <details className="filterdd">
+                  <summary>
+                    {statusSel.length === 0
                       ? "All"
-                      : HEALTH_LABEL[s][0].toUpperCase() +
-                        HEALTH_LABEL[s].slice(1)}
-                  </button>
-                ))}
-              </nav>
+                      : statusSel
+                          .map(
+                            (s) =>
+                              HEALTH_LABEL[s][0].toUpperCase() +
+                              HEALTH_LABEL[s].slice(1),
+                          )
+                          .join(", ")}
+                  </summary>
+                  <div className="filterpanel">
+                    {(["green", "blue", "yellow", "red", "gray"] as const).map(
+                      (s) => (
+                        <label key={s}>
+                          <input
+                            type="checkbox"
+                            checked={statusSel.includes(s)}
+                            onChange={() =>
+                              setStatusSel((v) => toggleIn(v, s))
+                            }
+                          />{" "}
+                          {HEALTH_LABEL[s][0].toUpperCase() +
+                            HEALTH_LABEL[s].slice(1)}
+                        </label>
+                      ),
+                    )}
+                  </div>
+                </details>
+                <details className="filterdd">
+                  <summary>
+                    {roleSel.length === 0
+                      ? "All"
+                      : roleSel
+                          .map(
+                            (id) =>
+                              roles.find((r) => r.id === id)?.name ??
+                              "(no role)",
+                          )
+                          .join(", ")}
+                  </summary>
+                  <div className="filterpanel">
+                    <input
+                      placeholder="Search roles"
+                      onChange={(e) => {
+                        const q = e.target.value.trim().toLowerCase();
+                        for (const el of e.currentTarget.parentElement?.children ?? [])
+                          if (el instanceof HTMLElement && el.dataset.name)
+                            el.hidden =
+                              q !== "" &&
+                              !el.dataset.name.toLowerCase().includes(q);
+                      }}
+                    />
+                    <label data-name="(no role)">
+                      <input
+                        type="checkbox"
+                        checked={roleSel.includes("")}
+                        onChange={() => setRoleSel((v) => toggleIn(v, ""))}
+                      />{" "}
+                      (no role)
+                    </label>
+                    {roles.map((r) => (
+                      <label key={r.id} data-name={r.name}>
+                        <input
+                          type="checkbox"
+                          checked={roleSel.includes(r.id)}
+                          onChange={() => setRoleSel((v) => toggleIn(v, r.id))}
+                        />{" "}
+                        {r.name}
+                      </label>
+                    ))}
+                  </div>
+                </details>
+              </div>
               <div className="cards">
                 {visibleBots.map((bot) => (
                   <button
