@@ -12,6 +12,7 @@ import { config } from "./config.ts";
 import {
   appendMessages,
   type BotRow,
+  createNotification,
   finishRun,
   getMcpServer,
   getRole,
@@ -392,6 +393,13 @@ export function injectMessage(
       finished_at: Date.now(),
       output: null,
       error: "no model configured",
+    });
+    createNotification({
+      kind: "run_error",
+      title: `${bot.name}: run failed`,
+      body: `Run ${kind} ended in error: no model configured.`,
+      botId: bot.id,
+      dedupeKey: `run-error:${runId}`,
     });
     return { runId, steered: false };
   }

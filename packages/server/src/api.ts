@@ -42,12 +42,15 @@ import {
   listBots,
   listMachines,
   listMcpServers,
+  listNotifications,
   listProviders,
   listRoles,
   listRuns,
   listSkills,
   listTriggers,
   loadMessages,
+  markAllNotificationsRead,
+  markNotificationRead,
   type ProviderRow,
   setMachineBuild,
   setSetting,
@@ -59,6 +62,7 @@ import {
   updateRole,
   updateSkill,
   updateTrigger,
+  unreadNotificationCount,
 } from "./db.ts";
 import { testMcpConnection } from "./mcp.ts";
 import {
@@ -251,6 +255,32 @@ export function createApp(): Hono {
       out.default_model = id || null;
     }
     return c.json(out);
+  });
+
+  app.get("/api/notifications", (c) => {
+    const raw = c.req.query("limit");
+    let limit = 100;
+    if (raw !== undefined) {
+      const parsed = Number(raw);
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 250)
+        return c.json({ error: "limit must be an integer from 1 to 250" }, 400);
+      limit = parsed;
+    }
+    return c.json({
+      items: listNotifications(limit),
+      unread_count: unreadNotificationCount(),
+    });
+  });
+
+  app.post("/api/notifications/read-all", (c) => {
+    markAllNotificationsRead();
+    return c.json({ ok: true });
+  });
+
+  app.post("/api/notifications/:id/read", (c) => {
+    if (!markNotificationRead(c.req.param("id")))
+      return c.json({ error: "not found" }, 404);
+    return c.json({ ok: true });
   });
 
   app.get("/api/providers", (c) =>
