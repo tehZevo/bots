@@ -6,6 +6,13 @@ import {
   useState,
 } from "react";
 
+export interface ApiKey {
+  id: string;
+  name: string;
+  created_at: number;
+  last_used_at: number | null;
+}
+
 interface Bot {
   id: string;
   name: string;
@@ -271,7 +278,8 @@ export function Avatar({
   shape?: number | null;
   color?: number | null;
   health?: Bot["health"] | null;
-}) {  const rand = mulberry32(fnv(id));
+}) {
+  const rand = mulberry32(fnv(id));
   const radii = shapeRadii(rand, shape);
   const maxR = Math.max(...radii);
   const base = 46 / maxR;
@@ -410,7 +418,8 @@ function AvatarPicker({
   );
 }
 
-export function relTime(ts: number): string {  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+export function relTime(ts: number): string {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
   if (s < 60) return `${s}s ago`;
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m ago`;
@@ -449,7 +458,19 @@ function playSound(id: string): void {
 
 export function App() {
   const [bots, setBots] = useState<Bot[]>([]);
-  const [tab, setTab] = useState<Tab>("bots");
+  const [tab, setTabRaw] = useState<Tab>(() =>
+    typeof location === "undefined" ? "bots" : tabFromPath(location.pathname),
+  );
+  const setTab = (t: Tab) => {
+    setTabRaw(t);
+    if (typeof history !== "undefined") history.pushState({}, "", TAB_PATHS[t]);
+  };
+  useEffect(() => {
+    if (typeof addEventListener === "undefined") return;
+    const onPop = () => setTabRaw(tabFromPath(location.pathname));
+    addEventListener("popstate", onPop);
+    return () => removeEventListener("popstate", onPop);
+  }, []);
   const [openBot, setOpenBot] = useState<string | null>(null);
   const [modalTab, setModalTab] = useState<
     "general" | "triggers" | "chat" | "logs"
@@ -749,12 +770,12 @@ export function App() {
                   Add bot
                 </button>
               </div>
-              <input
-                placeholder="Search bots by name"
-                value={botQuery}
-                onChange={(e) => setBotQuery(e.target.value)}
-              />
               <div className="filterrow">
+                <input
+                  placeholder="Search bots by name"
+                  value={botQuery}
+                  onChange={(e) => setBotQuery(e.target.value)}
+                />
                 <details className="filterdd">
                   <summary
                     aria-label={`Status filter: ${statusSel.length === 0 ? "All" : `${statusSel.length} selected`}`}
@@ -856,7 +877,7 @@ export function App() {
                         health={bot.health}
                       />
                       <span className="cardtext">
-                        <strong>{bot.name}</strong>
+                        <strong title={bot.name}>{bot.name}</strong>
                         <StatusDot
                           id={bot.id}
                           health={bot.health}
@@ -1406,6 +1427,25 @@ type Tab =
   | "templates"
   | "settings";
 
+const TAB_PATHS: Record<Tab, string> = {
+  bots: "/bots",
+  roles: "/roles",
+  machines: "/machines",
+  integrations: "/integrations",
+  skills: "/skills",
+  templates: "/templates",
+  settings: "/settings",
+};
+
+function tabFromPath(path: string): Tab {
+  const hit = (Object.keys(TAB_PATHS) as Tab[]).find(
+    (t) =>
+      TAB_PATHS[t] === path.replace(/\/+$/, "") ||
+      (path === "/" && t === "bots"),
+  );
+  return hit ?? "bots";
+}
+
 function TemplateIcon({ size = 18 }: { size?: number }) {
   return (
     <svg
@@ -1494,16 +1534,52 @@ export function SettingsPanel() {
   const [formOpen, setFormOpen] = useState(false);
   const [formProvider, setFormProvider] = useState<Provider | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Provider | null>(null);
+  const [keys, setKeys] = useState<ApiKey[]>([]);
+  const [keyName, setKeyName] = useState("");
+  const [revealedKey, setRevealedKey] = useState<string | null>(null);
+  const [mcpEnabled, setMcpEnabled] = useState(true);
+
+  const loadKeys = useCallback(async () => {
+    const list = await api<ApiKey[]>("/api/api-keys").catch(
+      () => [] as ApiKey[],
+    );
+    setKeys(list);
+  }, []);
+
+  useEffect(() => {
+    void loadKeys();
+  }, [loadKeys]);
+
+  const createKey = async () => {
+    const res = await api<{ value: string }>("/api/api-keys", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: keyName.trim() }),
+    }).catch(() => null);
+    if (res?.value) {
+      setRevealedKey(res.value);
+      setKeyName("");
+      void loadKeys();
+    }
+  };
+
+  const revokeKey = async (id: string) => {
+    await api(`/api/api-keys/${id}`, { method: "DELETE" }).catch(() => null);
+    void loadKeys();
+  };
 
   const loadProviders = useCallback(async () => {
     const [list, settings] = await Promise.all([
       api<Provider[]>("/api/providers").catch(() => [] as Provider[]),
-      api<{ default_provider_id: string | null; default_model: string | null }>(
-        "/api/settings",
-      ).catch(() => null),
+      api<{
+        default_provider_id: string | null;
+        default_model: string | null;
+        control_mcp_enabled?: boolean;
+      }>("/api/settings").catch(() => null),
     ]);
     setProviders(list);
     if (settings) {
+      setMcpEnabled(settings.control_mcp_enabled !== false);
       setDefaultProviderId(settings.default_provider_id);
       setDefaultModel(settings.default_model);
     }
@@ -1634,6 +1710,74 @@ export function SettingsPanel() {
           Preview
         </button>
       </div>
+
+      <p className="muted">API keys</p>
+      <ul className="plist">
+        {keys.map((k) => (
+          <li key={k.id}>
+            <div className="pinfo">
+              <strong>{k.name}</strong>
+              <span className="muted">created {relTime(k.created_at)}</span>
+              <span className="muted">
+                {k.last_used_at === null
+                  ? "never used"
+                  : `last used ${relTime(k.last_used_at)}`}
+              </span>
+            </div>
+            <div className="actions">
+              <button type="button" onClick={() => void revokeKey(k.id)}>
+                Revoke
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {revealedKey !== null && (
+        <p className="keyreveal">
+          New key — shown once: <code>{revealedKey}</code>
+        </p>
+      )}
+      <div className="keyrow">
+        <input
+          placeholder="Key name"
+          value={keyName}
+          onChange={(e) => setKeyName(e.target.value)}
+        />
+        <button
+          type="button"
+          disabled={!keyName.trim()}
+          onClick={() => void createKey()}
+        >
+          Add key
+        </button>
+      </div>
+      <p className="muted">
+        Headless access: <a href="/api/openapi.json">OpenAPI spec</a>
+      </p>
+
+      <p className="muted">Control MCP server</p>
+      <div className="tedithead">
+        <label className="switch">
+          <input
+            type="checkbox"
+            aria-label="Control MCP enabled"
+            checked={mcpEnabled}
+            onChange={() => {
+              const next = !mcpEnabled;
+              setMcpEnabled(next);
+              api("/api/settings", {
+                method: "PUT",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ control_mcp_enabled: next }),
+              }).catch((e) => alert(e.message));
+            }}
+          />
+          <span className="knob" />
+          <span className="state">{mcpEnabled ? "Enabled" : "Disabled"}</span>
+        </label>
+        <code>/mcp</code>
+      </div>
+
       <p className="muted">LLM providers</p>
       {providers.length === 0 && (
         <p className="muted">
@@ -3575,7 +3719,7 @@ export function MachineModal({
   );
 }
 
-function TemplateEditorModal({
+export function TemplateEditorModal({
   initial,
   onClose,
   onSaved,
@@ -3759,7 +3903,7 @@ function TemplateEditorModal({
   );
 }
 
-function TemplatesPanel() {
+export function TemplatesPanel() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [editing, setEditing] = useState<
     (Omit<Template, "id" | "created_at"> & { id?: string }) | null

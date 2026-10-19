@@ -1,6 +1,16 @@
 # API reference
 
-Everything the UI does is available headlessly under `/api` (JSON). Today the API is unauthenticated on a trusted network; per-user API keys are [planned](https://github.com/tehZevo/bots/blob/master/ROADMAP.md).
+Everything the UI does is available headlessly under `/api` (JSON), documented as OpenAPI 3.1 at [`/api/openapi.json`](/api/openapi.json).
+
+Authenticate with `Authorization: Bearer <api key>` or the browser session cookie. Create keys in **Settings → API keys**: each value is `bots_` + 40 hex chars, shown exactly once and stored hashed; the list shows name, created-at and last-used (updated at most once per minute). Revoking fails closed — old requests get `401 { "error": "invalid api key" }`. Bearer values that don't match the key format pass through untouched, so webhook secrets keep working.
+
+## API keys
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/api-keys` | List `{ id, name, created_at, last_used_at }` — newest first |
+| POST | `/api/api-keys` | Create — `{ name }`; response includes the one-time `value` |
+| DELETE | `/api/api-keys/:keyId` | Revoke — 404 unknown id |
 
 ## Bots
 
@@ -34,6 +44,11 @@ Everything the UI does is available headlessly under `/api` (JSON). Today the AP
 | DELETE | `/api/templates/:id` | Delete — bots created from it are untouched |
 
 See [Bots → Templates](/bots#templates) for the UI flow.
+
+## Control MCP (`/mcp`)
+
+External agents drive the same surface over MCP: streamable HTTP `POST /mcp`, authenticated with an API key (`Authorization: Bearer bots_…` — required, session cookies don't apply here). JSON-RPC methods: `initialize`, `tools/list`, `tools/call`. Tools are flat verbs whose results mirror the REST payloads exactly: `bots_list`, `bot_get`, `bot_create`, `bot_set_role`, `run_now`, `interrupt`, `runs_tail` (accepts `limit`, max 100). A Settings → Control MCP switch (admin) enables the endpoint; while disabled `/mcp` returns `404`.
+
 
 ## Notifications
 

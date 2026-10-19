@@ -1,4 +1,9 @@
-import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
@@ -14,15 +19,17 @@ import { repoRoot } from "./config.ts";
 import {
   botsUsingMachine,
   clearMessages,
+  deleteApiKey,
   deleteBot,
-  deleteTemplate,
   deleteMachine,
   deleteMcpServer,
   deleteProvider,
   deleteRole,
   deleteSetting,
   deleteSkill,
+  deleteTemplate,
   deleteTrigger,
+  getApiKeyByHash,
   getBot,
   getMachine,
   getMcpServer,
@@ -33,16 +40,17 @@ import {
   getSkill,
   getTemplate,
   getTrigger,
+  insertApiKey,
   insertBot,
-  insertTemplate,
   insertMachine,
   insertMcpServer,
   insertProvider,
-  listTemplates,
   insertRole,
   insertSkill,
+  insertTemplate,
   insertTrigger,
   latestErrorBotIds,
+  listApiKeys,
   listBots,
   listMachines,
   listMcpServers,
@@ -51,6 +59,7 @@ import {
   listRoles,
   listRuns,
   listSkills,
+  listTemplates,
   listTriggers,
   loadMessages,
   markAllNotificationsRead,
@@ -59,6 +68,7 @@ import {
   setMachineBuild,
   setSetting,
   setTriggerSecret,
+  touchApiKey,
   unreadNotificationCount,
   updateBot,
   updateMachine,
@@ -70,6 +80,7 @@ import {
   updateTrigger,
 } from "./db.ts";
 import { testMcpConnection } from "./mcp.ts";
+import { openApiDoc } from "./openapi.ts";
 import {
   defaultImageRef,
   idleMinutes,
@@ -247,13 +258,33 @@ function toTriggerPayload(input: TriggerInput) {
 export function createApp(): Hono {
   const app = new Hono();
 
+  const API_KEY_RE = /^bots_[0-9a-f]{40}$/;
+  app.use("/api/*", async (c, next) => {
+    const header = c.req.header("authorization");
+    if (!header?.startsWith("Bearer ")) return next();
+    const value = header.slice(7).trim();
+    if (!API_KEY_RE.test(value)) return next();
+    const row = getApiKeyByHash(
+      createHash("sha256").update(value).digest("hex"),
+    );
+    if (!row) return c.json({ error: "invalid api key" }, 401);
+    const now = Date.now();
+    if (row.last_used_at === null || now - row.last_used_at >= 60_000) {
+      touchApiKey(row.id, now);
+    }
+    return next();
+  });
+
   app.get("/api/health", (c) => c.json({ ok: true }));
+
+  app.get("/api/openapi.json", (c) => c.json(openApiDoc()));
 
   app.get("/api/settings", (c) =>
     c.json({
       sandbox_idle_minutes: idleMinutes(),
       default_provider_id: getSetting("default_provider_id") ?? null,
       default_model: getSetting("default_model") ?? null,
+      control_mcp_enabled: getSetting("control_mcp_enabled") !== "0",
     }),
   );
 
@@ -262,10 +293,17 @@ export function createApp(): Hono {
       sandbox_idle_minutes?: unknown;
       default_provider_id?: unknown;
       default_model?: unknown;
+      control_mcp_enabled?: unknown;
     } | null;
     if (!body || typeof body !== "object")
       return c.json({ error: "invalid body" }, 400);
     const out: Record<string, unknown> = {};
+    if (body.control_mcp_enabled !== undefined) {
+      if (typeof body.control_mcp_enabled !== "boolean")
+        return c.json({ error: "control_mcp_enabled must be a boolean" }, 400);
+      setSetting("control_mcp_enabled", body.control_mcp_enabled ? "1" : "0");
+      out.control_mcp_enabled = body.control_mcp_enabled;
+    }
     if (body.sandbox_idle_minutes !== undefined) {
       const raw = body.sandbox_idle_minutes;
       if (
@@ -331,7 +369,7 @@ export function createApp(): Hono {
       if (!exists) return { error: `unknown ${key.replace("_id", "")}: ${v}` };
       refs[key] = v;
     }
-    let triggers: { message: string; schedule: string }[] = [];
+    const triggers: { message: string; schedule: string }[] = [];
     if (input.triggers !== undefined) {
       if (!Array.isArray(input.triggers))
         return { error: "triggers must be an array" };
@@ -402,6 +440,185 @@ export function createApp(): Hono {
     if (!getTemplate(c.req.param("templateId")))
       return c.json({ error: "not found" }, 404);
     deleteTemplate(c.req.param("templateId"));
+    return c.json({ ok: true });
+  });
+
+  const MCP_TOOLS: Record<
+    string,
+    (a: Record<string, unknown>) => {
+      method: string;
+      path: string;
+      body?: unknown;
+    }
+  > = {
+    bots_list: () => ({ method: "GET", path: "/api/bots" }),
+    bot_get: (a) => ({ method: "GET", path: `/api/bots/${String(a.id)}` }),
+    bot_create: (a) => ({
+      method: "POST",
+      path: "/api/bots",
+      body: {
+        name: a.name,
+        description: a.description,
+        system_prompt: a.system_prompt,
+      },
+    }),
+    bot_set_role: (a) => ({
+      method: "PATCH",
+      path: `/api/bots/${String(a.id)}`,
+      body: { role_id: a.role_id ?? null },
+    }),
+    run_now: (a) => ({
+      method: "POST",
+      path: `/api/bots/${String(a.bot_id)}/run`,
+      body: { message: a.message },
+    }),
+    interrupt: (a) => ({
+      method: "POST",
+      path: `/api/bots/${String(a.bot_id)}/interrupt`,
+    }),
+    runs_tail: (a) => ({
+      method: "GET",
+      path: `/api/bots/${String(a.bot_id)}/runs`,
+    }),
+  };
+
+  const MCP_TOOL_DEFS = [
+    { name: "bots_list", description: "List bots with health and run state" },
+    {
+      name: "bot_get",
+      description: "Read one bot",
+      inputSchema: { type: "object", required: ["id"] },
+    },
+    {
+      name: "bot_create",
+      description: "Create a bot",
+      inputSchema: { type: "object", required: ["name"] },
+    },
+    {
+      name: "bot_set_role",
+      description: "Set or clear a bot's role",
+      inputSchema: { type: "object", required: ["id", "role_id"] },
+    },
+    {
+      name: "run_now",
+      description: "Inject a manual run into a bot",
+      inputSchema: { type: "object", required: ["bot_id"] },
+    },
+    {
+      name: "interrupt",
+      description: "Interrupt a running loop",
+      inputSchema: { type: "object", required: ["bot_id"] },
+    },
+    {
+      name: "runs_tail",
+      description: "Recent runs for a bot",
+      inputSchema: { type: "object", required: ["bot_id"] },
+    },
+  ];
+
+  const rpcError = (id: unknown, code: number, message: string) =>
+    Response.json({ jsonrpc: "2.0", id: id ?? null, error: { code, message } });
+
+  app.post("/mcp", async (c) => {
+    if (getSetting("control_mcp_enabled") === "0")
+      return c.json({ error: "not found" }, 404);
+    const header = c.req.header("authorization");
+    const value = header?.startsWith("Bearer ") ? header.slice(7).trim() : "";
+    if (!API_KEY_RE.test(value))
+      return c.json({ error: "api key required" }, 401);
+
+    const msg = (await c.req.json().catch(() => null)) as {
+      jsonrpc?: string;
+      id?: unknown;
+      method?: string;
+      params?: Record<string, unknown>;
+    } | null;
+    if (!msg || msg.jsonrpc !== "2.0" || typeof msg.method !== "string")
+      return rpcError(msg?.id, -32600, "invalid request");
+    if (msg.method === "notifications/initialized")
+      return new Response(null, { status: 202 });
+    if (msg.method === "initialize")
+      return c.json({
+        jsonrpc: "2.0",
+        id: msg.id ?? null,
+        result: {
+          protocolVersion:
+            typeof msg.params?.protocolVersion === "string"
+              ? msg.params.protocolVersion
+              : "2025-03-26",
+          capabilities: { tools: {} },
+          serverInfo: { name: "bots-control", version: "1.0.0" },
+        },
+      });
+    if (msg.method === "ping")
+      return c.json({ jsonrpc: "2.0", id: msg.id ?? null, result: {} });
+    if (msg.method === "tools/list")
+      return c.json({
+        jsonrpc: "2.0",
+        id: msg.id ?? null,
+        result: { tools: MCP_TOOL_DEFS },
+      });
+    if (msg.method === "tools/call") {
+      const name = String(msg.params?.name ?? "");
+      const args = (msg.params?.arguments ?? {}) as Record<string, unknown>;
+      const tool = MCP_TOOLS[name];
+      if (!tool) return rpcError(msg.id, -32602, `unknown tool: ${name}`);
+      const call = tool(args);
+      const sub = await app.fetch(
+        new Request(`http://localhost${call.path}`, {
+          method: call.method,
+          headers: {
+            authorization: header as string,
+            "content-type": "application/json",
+          },
+          body: call.body === undefined ? undefined : JSON.stringify(call.body),
+        }),
+      );
+      let payload: unknown;
+      try {
+        payload = await sub.json();
+      } catch {
+        payload = { ok: sub.status < 400 };
+      }
+      if (name === "runs_tail" && Array.isArray(payload)) {
+        const limit = typeof args.limit === "number" ? args.limit : 20;
+        payload = payload.slice(0, Math.max(1, Math.min(limit, 100)));
+      }
+      return c.json({
+        jsonrpc: "2.0",
+        id: msg.id ?? null,
+        result: {
+          content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+          isError: sub.status >= 400,
+        },
+      });
+    }
+    return rpcError(msg.id, -32601, `unknown method: ${msg.method}`);
+  });
+
+  app.get("/api/api-keys", (c) => c.json(listApiKeys()));
+
+  app.post("/api/api-keys", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      name?: unknown;
+    } | null;
+    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    if (!name) return c.json({ error: "name is required" }, 400);
+    const value = `bots_${randomBytes(20).toString("hex")}`;
+    const key = {
+      id: randomUUID(),
+      name,
+      hash: createHash("sha256").update(value).digest("hex"),
+      created_at: Date.now(),
+    };
+    insertApiKey(key);
+    return c.json({ id: key.id, name, created_at: key.created_at, value }, 201);
+  });
+
+  app.delete("/api/api-keys/:keyId", (c) => {
+    if (!listApiKeys().some((k) => k.id === c.req.param("keyId")))
+      return c.json({ error: "not found" }, 404);
+    deleteApiKey(c.req.param("keyId"));
     return c.json({ ok: true });
   });
 

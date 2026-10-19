@@ -114,6 +114,14 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS api_keys (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    hash TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL,
+    last_used_at INTEGER
+  );
+
   CREATE TABLE IF NOT EXISTS runs (
     id TEXT PRIMARY KEY,
     bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
@@ -1016,9 +1024,9 @@ export function listTemplates(): Template[] {
 }
 
 export function getTemplate(id: string): Template | undefined {
-  const row = db
-    .prepare("SELECT * FROM templates WHERE id = ?")
-    .get(id) as TemplateRow | undefined;
+  const row = db.prepare("SELECT * FROM templates WHERE id = ?").get(id) as
+    | TemplateRow
+    | undefined;
   return row && toTemplate(row);
 }
 
@@ -1043,7 +1051,9 @@ export function updateTemplate(
   id: string,
   patch: Partial<Omit<TemplateRow, "id" | "created_at">>,
 ): void {
-  const sets = Object.keys(patch).map((k) => `${k} = @${k}`).join(", ");
+  const sets = Object.keys(patch)
+    .map((k) => `${k} = @${k}`)
+    .join(", ");
   db.prepare(`UPDATE templates SET ${sets} WHERE id = @id`).run({
     ...patch,
     id,
@@ -1052,4 +1062,46 @@ export function updateTemplate(
 
 export function deleteTemplate(id: string): void {
   db.prepare("DELETE FROM templates WHERE id = ?").run(id);
+}
+
+export interface ApiKeyRow {
+  id: string;
+  name: string;
+  created_at: number;
+  last_used_at: number | null;
+}
+
+export function insertApiKey(key: {
+  id: string;
+  name: string;
+  hash: string;
+  created_at: number;
+}): void {
+  db.prepare(
+    "INSERT INTO api_keys (id, name, hash, created_at) VALUES (@id, @name, @hash, @created_at)",
+  ).run(key);
+}
+
+export function listApiKeys(): ApiKeyRow[] {
+  return db
+    .prepare(
+      "SELECT id, name, created_at, last_used_at FROM api_keys ORDER BY created_at DESC",
+    )
+    .all() as ApiKeyRow[];
+}
+
+export function getApiKeyByHash(hash: string): ApiKeyRow | undefined {
+  return db
+    .prepare(
+      "SELECT id, name, created_at, last_used_at FROM api_keys WHERE hash = ?",
+    )
+    .get(hash) as ApiKeyRow | undefined;
+}
+
+export function touchApiKey(id: string, ts: number): void {
+  db.prepare("UPDATE api_keys SET last_used_at = ? WHERE id = ?").run(ts, id);
+}
+
+export function deleteApiKey(id: string): void {
+  db.prepare("DELETE FROM api_keys WHERE id = ?").run(id);
 }
