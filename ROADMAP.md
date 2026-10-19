@@ -2,16 +2,9 @@
 
 Behaviors agreed on but not yet specced in detail. Each becomes its own spec directory when we open a PR for it.
 
-- **Chat channels** — talk to bots interactively (web chat first, then external chat apps).
+- **External chat services** — external chat platforms (Slack, Discord, Telegram, …) as trigger sources with reply delivery; web chat is already specced in `web-ui/chat-messages.md`.
 - **Approvals** — a human-approval layer for sensitive tool actions that the agent cannot bypass.
 - **Auth & multi-user** — protect API/UI; per-user bots and credentials (placeholder tokens so models never see secrets).
 - **CLI** — first-class command-line client (`bots <verb>`) driving the documented REST API with the same API keys: bot CRUD, run now/interrupt, trigger management, logs tail, template instantiation; scriptable output (`--json`) for cron/CI use.
 
-- **Documented REST API + API keys** — the whole UI surface available headlessly over a documented REST API; per-user API keys created/revoked in Settings authenticate it.
-- **Random name shuffle** — a circular-arrows icon button beside the prefilled name in Add bot re-rolls another random name from the pool (see `web-ui/create-bot.md`).
-- **Avatar animations** — status-driven avatar motion: disabled = still and gray, running = active animation, idle = sleeping animation (see web-ui/status-colors.md levels).
-
-- **Docs site on GitHub Pages** — user-facing documentation under `docs/` (how to use the app, capabilities, API) published via Pages Actions (see `docs/github-pages.md`).
-
-- **In-app notifications** — notification list for failed runs and pending approvals with an unread badge; delivered as native browser push through the PWA service worker once subscriptions exist.
 - **External coding agents** — a bot can run a third-party headless CLI agent (opencode, Claude Code, …) inside its sandbox instead of the built-in pi loop: per-bot engine selection behind an adapter interface that spawns the CLI in print mode with JSON event streaming (`claude -p --output-format stream-json`, `opencode run --format json`) via container exec; role/system prompt bridged to the CLI's system-prompt flag, role MCP servers written as `.mcp.json`/config into `/workspace`; CLIs installed in the sandbox image with their provider keys injected as exec env.
