@@ -441,6 +441,7 @@ export function createApp(): Hono {
       return c.json({ error: "not found" }, 404);
     deleteTemplate(c.req.param("templateId"));
     return c.json({ ok: true });
+  });
 
   const MCP_TOOLS: Record<
     string,
@@ -593,7 +594,6 @@ export function createApp(): Hono {
       });
     }
     return rpcError(msg.id, -32601, `unknown method: ${msg.method}`);
-
   });
 
   app.get("/api/api-keys", (c) => c.json(listApiKeys()));

@@ -349,6 +349,7 @@ test("templates CRUD with validation", async () => {
   assert.ok(Array.isArray(list) && list.length === 1);
   assert.equal((await req("DELETE", `/api/templates/${id}`)).status, 200);
   assert.equal((await req("DELETE", `/api/templates/${id}`)).status, 404);
+});
 
 test("control mcp over json-rpc with api key auth", async () => {
   const created = await req("POST", "/api/api-keys", { name: "mcp" });
@@ -362,7 +363,10 @@ test("control mcp over json-rpc with api key auth", async () => {
       },
       body: JSON.stringify(body),
     });
-  assert.equal((await post({ jsonrpc: "2.0", method: "ping" }, false)).status, 401);
+  assert.equal(
+    (await post({ jsonrpc: "2.0", method: "ping" }, false)).status,
+    401,
+  );
 
   const init = await post({
     jsonrpc: "2.0",
@@ -404,9 +408,11 @@ test("control mcp over json-rpc with api key auth", async () => {
     control_mcp_enabled: false,
   });
   assert.equal(off.status, 200);
-  assert.equal((await post({ jsonrpc: "2.0", id: 5, method: "ping" })).status, 404);
+  assert.equal(
+    (await post({ jsonrpc: "2.0", id: 5, method: "ping" })).status,
+    404,
+  );
   await req("PUT", "/api/settings", { control_mcp_enabled: true });
-
 });
 
 test("openapi.json documents the API", async () => {
@@ -416,7 +422,6 @@ test("openapi.json documents the API", async () => {
   assert.equal(doc.openapi, "3.1.0");
   const paths = doc.paths as Record<string, unknown>;
   assert.ok("/api/bots" in paths && "/api/api-keys" in paths);
-
 });
 
 test("api keys: create, list, bearer auth, revoke", async () => {

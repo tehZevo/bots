@@ -1724,7 +1724,6 @@ export function SettingsPanel() {
         Headless access: <a href="/api/openapi.json">OpenAPI spec</a>
       </p>
 
-
       <p className="muted">Control MCP server</p>
       <div className="tedithead">
         <label className="switch">
