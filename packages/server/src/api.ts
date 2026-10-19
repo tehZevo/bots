@@ -284,6 +284,7 @@ export function createApp(): Hono {
       sandbox_idle_minutes: idleMinutes(),
       default_provider_id: getSetting("default_provider_id") ?? null,
       default_model: getSetting("default_model") ?? null,
+      control_mcp_enabled: getSetting("control_mcp_enabled") !== "0",
     }),
   );
 
@@ -292,10 +293,17 @@ export function createApp(): Hono {
       sandbox_idle_minutes?: unknown;
       default_provider_id?: unknown;
       default_model?: unknown;
+      control_mcp_enabled?: unknown;
     } | null;
     if (!body || typeof body !== "object")
       return c.json({ error: "invalid body" }, 400);
     const out: Record<string, unknown> = {};
+    if (body.control_mcp_enabled !== undefined) {
+      if (typeof body.control_mcp_enabled !== "boolean")
+        return c.json({ error: "control_mcp_enabled must be a boolean" }, 400);
+      setSetting("control_mcp_enabled", body.control_mcp_enabled ? "1" : "0");
+      out.control_mcp_enabled = body.control_mcp_enabled;
+    }
     if (body.sandbox_idle_minutes !== undefined) {
       const raw = body.sandbox_idle_minutes;
       if (
@@ -433,6 +441,159 @@ export function createApp(): Hono {
       return c.json({ error: "not found" }, 404);
     deleteTemplate(c.req.param("templateId"));
     return c.json({ ok: true });
+
+  const MCP_TOOLS: Record<
+    string,
+    (a: Record<string, unknown>) => {
+      method: string;
+      path: string;
+      body?: unknown;
+    }
+  > = {
+    bots_list: () => ({ method: "GET", path: "/api/bots" }),
+    bot_get: (a) => ({ method: "GET", path: `/api/bots/${String(a.id)}` }),
+    bot_create: (a) => ({
+      method: "POST",
+      path: "/api/bots",
+      body: {
+        name: a.name,
+        description: a.description,
+        system_prompt: a.system_prompt,
+      },
+    }),
+    bot_set_role: (a) => ({
+      method: "PATCH",
+      path: `/api/bots/${String(a.id)}`,
+      body: { role_id: a.role_id ?? null },
+    }),
+    run_now: (a) => ({
+      method: "POST",
+      path: `/api/bots/${String(a.bot_id)}/run`,
+      body: { message: a.message },
+    }),
+    interrupt: (a) => ({
+      method: "POST",
+      path: `/api/bots/${String(a.bot_id)}/interrupt`,
+    }),
+    runs_tail: (a) => ({
+      method: "GET",
+      path: `/api/bots/${String(a.bot_id)}/runs`,
+    }),
+  };
+
+  const MCP_TOOL_DEFS = [
+    { name: "bots_list", description: "List bots with health and run state" },
+    {
+      name: "bot_get",
+      description: "Read one bot",
+      inputSchema: { type: "object", required: ["id"] },
+    },
+    {
+      name: "bot_create",
+      description: "Create a bot",
+      inputSchema: { type: "object", required: ["name"] },
+    },
+    {
+      name: "bot_set_role",
+      description: "Set or clear a bot's role",
+      inputSchema: { type: "object", required: ["id", "role_id"] },
+    },
+    {
+      name: "run_now",
+      description: "Inject a manual run into a bot",
+      inputSchema: { type: "object", required: ["bot_id"] },
+    },
+    {
+      name: "interrupt",
+      description: "Interrupt a running loop",
+      inputSchema: { type: "object", required: ["bot_id"] },
+    },
+    {
+      name: "runs_tail",
+      description: "Recent runs for a bot",
+      inputSchema: { type: "object", required: ["bot_id"] },
+    },
+  ];
+
+  const rpcError = (id: unknown, code: number, message: string) =>
+    Response.json({ jsonrpc: "2.0", id: id ?? null, error: { code, message } });
+
+  app.post("/mcp", async (c) => {
+    if (getSetting("control_mcp_enabled") === "0")
+      return c.json({ error: "not found" }, 404);
+    const header = c.req.header("authorization");
+    const value = header?.startsWith("Bearer ") ? header.slice(7).trim() : "";
+    if (!API_KEY_RE.test(value))
+      return c.json({ error: "api key required" }, 401);
+
+    const msg = (await c.req.json().catch(() => null)) as {
+      jsonrpc?: string;
+      id?: unknown;
+      method?: string;
+      params?: Record<string, unknown>;
+    } | null;
+    if (!msg || msg.jsonrpc !== "2.0" || typeof msg.method !== "string")
+      return rpcError(msg?.id, -32600, "invalid request");
+    if (msg.method === "notifications/initialized")
+      return new Response(null, { status: 202 });
+    if (msg.method === "initialize")
+      return c.json({
+        jsonrpc: "2.0",
+        id: msg.id ?? null,
+        result: {
+          protocolVersion:
+            typeof msg.params?.protocolVersion === "string"
+              ? msg.params.protocolVersion
+              : "2025-03-26",
+          capabilities: { tools: {} },
+          serverInfo: { name: "bots-control", version: "1.0.0" },
+        },
+      });
+    if (msg.method === "ping")
+      return c.json({ jsonrpc: "2.0", id: msg.id ?? null, result: {} });
+    if (msg.method === "tools/list")
+      return c.json({
+        jsonrpc: "2.0",
+        id: msg.id ?? null,
+        result: { tools: MCP_TOOL_DEFS },
+      });
+    if (msg.method === "tools/call") {
+      const name = String(msg.params?.name ?? "");
+      const args = (msg.params?.arguments ?? {}) as Record<string, unknown>;
+      const tool = MCP_TOOLS[name];
+      if (!tool) return rpcError(msg.id, -32602, `unknown tool: ${name}`);
+      const call = tool(args);
+      const sub = await app.fetch(
+        new Request(`http://localhost${call.path}`, {
+          method: call.method,
+          headers: {
+            authorization: header as string,
+            "content-type": "application/json",
+          },
+          body: call.body === undefined ? undefined : JSON.stringify(call.body),
+        }),
+      );
+      let payload: unknown;
+      try {
+        payload = await sub.json();
+      } catch {
+        payload = { ok: sub.status < 400 };
+      }
+      if (name === "runs_tail" && Array.isArray(payload)) {
+        const limit = typeof args.limit === "number" ? args.limit : 20;
+        payload = payload.slice(0, Math.max(1, Math.min(limit, 100)));
+      }
+      return c.json({
+        jsonrpc: "2.0",
+        id: msg.id ?? null,
+        result: {
+          content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+          isError: sub.status >= 400,
+        },
+      });
+    }
+    return rpcError(msg.id, -32601, `unknown method: ${msg.method}`);
+
   });
 
   app.get("/api/api-keys", (c) => c.json(listApiKeys()));

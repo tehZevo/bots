@@ -45,6 +45,11 @@ Authenticate with `Authorization: Bearer <api key>` or the browser session cooki
 
 See [Bots → Templates](/bots#templates) for the UI flow.
 
+## Control MCP (`/mcp`)
+
+External agents drive the same surface over MCP: streamable HTTP `POST /mcp`, authenticated with an API key (`Authorization: Bearer bots_…` — required, session cookies don't apply here). JSON-RPC methods: `initialize`, `tools/list`, `tools/call`. Tools are flat verbs whose results mirror the REST payloads exactly: `bots_list`, `bot_get`, `bot_create`, `bot_set_role`, `run_now`, `interrupt`, `runs_tail` (accepts `limit`, max 100). A Settings → Control MCP switch (admin) enables the endpoint; while disabled `/mcp` returns `404`.
+
+
 ## Notifications
 
 | Method | Path | Purpose |
