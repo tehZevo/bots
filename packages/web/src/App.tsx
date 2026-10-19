@@ -48,6 +48,21 @@ interface Run {
   error: string | null;
 }
 
+interface NotificationItem {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  bot_id: string | null;
+  read: number;
+  created_at: number;
+}
+
+interface NotificationsResponse {
+  items: NotificationItem[];
+  unread_count: number;
+}
+
 interface Trigger {
   id: string;
   kind: "schedule" | "webhook";
@@ -287,12 +302,21 @@ export function App() {
     "all",
   );
   const [runs, setRuns] = useState<Run[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      setBots(await api<Bot[]>("/api/bots"));
+      const [botData, notificationData] = await Promise.all([
+        api<Bot[]>("/api/bots"),
+        api<NotificationsResponse>("/api/notifications"),
+      ]);
+      setBots(botData);
+      setNotifications(notificationData.items);
+      setUnreadNotifications(notificationData.unread_count);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -326,12 +350,13 @@ export function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      if (addOpen) setAddOpen(false);
+      if (notificationPanelOpen) setNotificationPanelOpen(false);
+      else if (addOpen) setAddOpen(false);
       else if (detailOpen) setDetailOpen(false);
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [addOpen, detailOpen]);
+  }, [notificationPanelOpen, addOpen, detailOpen]);
 
   const botFilter = botQuery.trim().toLowerCase();
   const visibleBots = bots.filter(
@@ -341,6 +366,28 @@ export function App() {
   );
 
   const openBotRow = bots.find((b) => b.id === openBot);
+
+  async function markOneNotification(id: string): Promise<void> {
+    try {
+      await api(`/api/notifications/${id}/read`, { method: "POST" });
+      setNotifications((items) =>
+        items.map((item) => (item.id === id ? { ...item, read: 1 } : item)),
+      );
+      setUnreadNotifications((count) => Math.max(0, count - 1));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function markAllRead(): Promise<void> {
+    try {
+      await api("/api/notifications/read-all", { method: "POST" });
+      setNotifications((items) => items.map((item) => ({ ...item, read: 1 })));
+      setUnreadNotifications(0);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
 
   const [rail, setRail] = useState(
     () => localStorage.getItem("bots-sidebar") === "rail",
@@ -387,6 +434,85 @@ export function App() {
             </>
           )}
         </span>
+        <div className="notifwrap">
+          <button
+            type="button"
+            aria-label={`Notifications${unreadNotifications > 0 ? `, ${unreadNotifications} unread` : ""}`}
+            aria-expanded={notificationPanelOpen}
+            onClick={() => setNotificationPanelOpen((open) => !open)}
+          >
+            🔔
+            {unreadNotifications > 0 && (
+              <span className="notifbadge">
+                {unreadNotifications > 99 ? "99+" : unreadNotifications}
+              </span>
+            )}
+          </button>
+          {notificationPanelOpen && (
+            <>
+              <button
+                type="button"
+                className="notifscrim"
+                aria-label="Close notifications"
+                onClick={() => setNotificationPanelOpen(false)}
+              />
+              <section className="notifpanel" aria-label="Notifications">
+                <div className="notifhdr">
+                  <strong>Notifications</strong>
+                  <div>
+                    <button
+                      type="button"
+                      disabled={unreadNotifications === 0}
+                      onClick={() => void markAllRead()}
+                    >
+                      Mark all read
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Close notifications"
+                      onClick={() => setNotificationPanelOpen(false)}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+                {notifications.length === 0 ? (
+                  <p className="notifempty">No notifications.</p>
+                ) : (
+                  <ul className="notiflist">
+                    {notifications.map((notification) => (
+                      <li key={notification.id} className={notification.read ? "" : "unread"}>
+                        <button
+                          type="button"
+                          className="notifbody"
+                          disabled={notification.read === 0}
+                          title={notification.read ? undefined : "Mark as read"}
+                          onClick={() => void markOneNotification(notification.id)}
+                        >
+                          <strong>{notification.title}</strong>
+                          <time dateTime={new Date(notification.created_at).toISOString()}>
+                            {fmt(notification.created_at)}
+                          </time>
+                          <p>{notification.body}</p>
+                        </button>
+                        {!notification.read && (
+                          <div className="notifactions">
+                            <button
+                              type="button"
+                              onClick={() => void markOneNotification(notification.id)}
+                            >
+                              Mark read
+                            </button>
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </>
+          )}
+        </div>
       </header>
       <div className="layout">
         <aside className={rail ? "rail" : ""}>

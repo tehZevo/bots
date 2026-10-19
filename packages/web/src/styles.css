@@ -316,6 +316,129 @@ article header {
   flex: 1;
 }
 
+.notifwrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.notifwrap > button[aria-label^="Notifications"] {
+  min-width: 2.5rem;
+  padding-inline: 0.5rem;
+}
+
+.notifbadge {
+  position: absolute;
+  top: -4px;
+  right: -5px;
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding-inline: 4px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.notifscrim {
+  position: fixed;
+  inset: 0;
+  z-index: 19;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.notifpanel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(70vh, 520px);
+  overflow: auto;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 18px 40px rgb(0 0 0 / 28%);
+}
+
+.notifhdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.notifhdr > div {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.notifempty {
+  margin: 1rem 0;
+  color: var(--muted);
+  text-align: center;
+}
+
+.notiflist {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notiflist li {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.notiflist li:last-child {
+  border-bottom: none;
+}
+
+.notiflist li.unread {
+  padding-left: 0.5rem;
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+
+.notifbody {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  text-align: start;
+}
+
+.notifbody time {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.notiflist p {
+  margin: 0.25rem 0 0;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.notifactions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .sidetabs.wide button {
   max-width: 240px;
 }
