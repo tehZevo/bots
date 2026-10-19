@@ -1,7 +1,8 @@
-# Team chat channels
+# Team messaging (DM tool)
 
-- Every team has one shared chat channel; it is the room where team members talk. Draft — no behavior ships until this spec lands.
-- Bots that are members of the team can post to and read the channel; non-member bots cannot see or write it.
-- A new channel message wakes member bots as a trigger source (like webhook payloads): each wake-up delivers the message plus recent channel context into the bot's loop (`context/persistent-context.md`).
-- Leaders are the addressees by default: replies and directives in the channel are framed toward leader bots, while all members observe and may chime in. The exact leadership semantics are settled alongside `teams/teams.md`.
-- Humans read and post from the Teams view in the UI; a channel is browsable like the per-bot Chat tab.
+- Team members talk via a `send_message` tool rather than a shared channel: a bot can DM another bot only when both share at least one team. DMs wake the recipient immediately (injected as a trigger) and carry a depth counter to prevent reply loops.
+- Recipients only: messages are delivered to the recipient's context; there is no shared team history (a team audit log is a future roadmap item).
+- Humans do not DM through this tool; they use per-bot chat (`web-ui/chat-messages.md`, `web-ui/chat-sidebar.md`), which also wakes the bot.
+- Team membership grants each bot a system-prompt section listing its teammates (id, name, role) so it can address DMs by bot id.
+- An orchestrator bot (receives triggers, delegates via DMs) is the recommended coordination pattern; other bots stay targeted to avoid broadcast wake-ups.
+- Delivery is best-effort and depth-limited; a DM that cannot be delivered (unknown recipient, no shared team, depth exceeded) fails without waking anyone.
