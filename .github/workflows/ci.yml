@@ -39,6 +39,10 @@ jobs:
   coverage:
     name: ci / coverage
     runs-on: ubuntu-latest
+    # pipefail so a node threshold breach isn't swallowed by `| tee`.
+    defaults:
+      run:
+        shell: bash -euo pipefail {0}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
