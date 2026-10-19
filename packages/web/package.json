@@ -9,6 +9,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "dompurify": "^3.4.17",
+    "marked": "^18.1.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
