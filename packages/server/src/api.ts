@@ -1034,32 +1034,63 @@ export function createApp(): Hono {
   app.get("/api/bots/:id/messages", (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
-    const turns: { role: string; text: string }[] = [];
+    type ToolCallTurn = { name: string; input: unknown; output?: string };
+    type ChatTurn = {
+      role: string;
+      text: string;
+      thinking?: string;
+      tool_calls?: ToolCallTurn[];
+    };
+    const turns: ChatTurn[] = [];
+    const callsById = new Map<string, ToolCallTurn>();
     for (const row of loadMessages(bot.id)) {
-      let msg: unknown;
+      let msg: Record<string, unknown>;
       try {
-        msg = JSON.parse(row.payload);
+        msg = JSON.parse(row.payload) as Record<string, unknown>;
       } catch {
         continue;
       }
-      const content = (msg as { content?: unknown }).content;
-      const text =
-        typeof content === "string"
-          ? content
-          : Array.isArray(content)
-            ? content
-                .map((b) =>
-                  b &&
-                  typeof b === "object" &&
-                  (b as { type?: string }).type === "text"
-                    ? String((b as { text?: string }).text ?? "")
-                    : "",
-                )
-                .join("")
-            : "";
-      if (!text.trim()) continue;
-      const stripped = text.replace(/^\[(schedule|manual|chat) [^\]]*\]\n/, "");
-      turns.push({ role: row.role, text: stripped });
+      const blocks: { type?: string; text?: string; thinking?: string }[] =
+        typeof msg.content === "string"
+          ? [{ type: "text", text: msg.content }]
+          : Array.isArray(msg.content)
+            ? (msg.content as typeof blocks)
+            : [];
+      if (row.role === "toolResult") {
+        const call = callsById.get(String(msg.toolCallId ?? ""));
+        if (call) {
+          const out = blocks
+            .filter((b) => b?.type === "text")
+            .map((b) => String(b.text ?? ""))
+            .join("");
+          call.output = msg.isError ? `error: ${out}` : out;
+        }
+        continue;
+      }
+      if (row.role === "assistant") {
+        const turn: ChatTurn = { role: "assistant", text: "" };
+        for (const b of blocks) {
+          if (b?.type === "text") turn.text += String(b.text ?? "");
+          else if (b?.type === "thinking")
+            turn.thinking = `${turn.thinking ?? ""}${String(b.thinking ?? "")}`;
+          else if (b?.type === "toolCall") {
+            const call: ToolCallTurn = {
+              name: String((b as Record<string, unknown>).name ?? "?"),
+              input: (b as Record<string, unknown>).arguments ?? {},
+            };
+            (turn.tool_calls ??= []).push(call);
+            callsById.set(String((b as Record<string, unknown>).id), call);
+          }
+        }
+        if (turn.text.trim() || turn.tool_calls) turns.push(turn);
+      } else {
+        const text = blocks
+          .filter((b) => b?.type === "text")
+          .map((b) => String(b.text ?? ""))
+          .join("")
+          .replace(/^\[(schedule|manual|chat|webhook) [^\]]*\]\n/, "");
+        if (text.trim()) turns.push({ role: "user", text });
+      }
     }
     return c.json(turns);
   });

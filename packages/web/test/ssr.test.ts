@@ -43,6 +43,7 @@ const {
   IntegrationsPanel,
   BotGeneral,
   Chat,
+  ChatTurnView,
   Triggers,
   AddBotModal,
   TemplateEditorModal,
@@ -226,4 +227,24 @@ test("templates panel and editor render", () => {
   );
   assert.match(editor, /Daily sweep/);
   assert.match(editor, /@every 1h/);
+});
+
+test("chat turns render bot name, markdown and collapsibles", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(ChatTurnView, {
+      turn: {
+        role: "assistant",
+        text: "**bold**\n\n- one\n- two\n",
+        thinking: "hmm",
+        tool_calls: [{ name: "shell", input: { cmd: "ls" }, output: "files" }],
+      },
+      botName: "Sable",
+    }),
+  );
+  assert.match(html, /<span class="who">Sable<\/span>/);
+  assert.match(html, /<strong>bold<\/strong>/);
+  assert.match(html, /<li>one<\/li>/);
+  assert.match(html, /tool: shell/);
+  assert.match(html, /files/);
+  assert.match(html, /thinking/);
 });
