@@ -243,11 +243,13 @@ function Avatar({
   id,
   shape = null,
   color = null,
+  health = null,
 }: {
   name: string;
   id: string;
   shape?: number | null;
   color?: number | null;
+  health?: Bot["health"] | null;
 }) {
   const rand = mulberry32(fnv(id));
   const radii = shapeRadii(rand, shape);
@@ -259,12 +261,16 @@ function Avatar({
   const gaze = (rand() - 0.5) * 3;
   const droop = rand() < 0.3;
   const col = color == null ? avatarColor(id) : AVATAR_COLORS[color];
+  const blinkPeriod = 3 + rand() * 5;
+  const animClass = health === null ? "" : ` anim-${health}`;
   return (
     <span
-      className="avatar"
+      className={`avatar${animClass}`}
       style={{
         color: col,
         ["--avatar-glow" as string]: `${col}59`,
+        ["--blink-period" as string]: `${blinkPeriod.toFixed(2)}s`,
+        ["--blink-delay" as string]: `${(-rand() * blinkPeriod).toFixed(2)}s`,
       }}
       aria-hidden
     >
@@ -803,6 +809,7 @@ export function App() {
                         id={bot.id}
                         shape={bot.avatar_shape}
                         color={bot.avatar_color}
+                        health={bot.health}
                       />
                       <span className="cardtext">
                         <strong>{bot.name}</strong>
@@ -877,6 +884,7 @@ export function App() {
                     id={openBotRow.id}
                     shape={openBotRow.avatar_shape}
                     color={openBotRow.avatar_color}
+                    health={openBotRow.health}
                   />
                 </button>
                 {detailOpen && avatarMenu && (
