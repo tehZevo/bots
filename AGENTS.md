@@ -24,6 +24,7 @@
 ## Pull requests
 
 - UI changes: attach **light-mode, dark-mode, and one mobile-width (390px) screenshot** to the PR when able.
+- Keep a UI PR in **draft until all screenshots are attached**; mark ready only then.
 - Attach those screenshots to the main PR description (e.g. `gh pr edit --attach`), not as separate comments; on later UI changes update the existing attachments in place by re-editing the body.
 
 ## Commands

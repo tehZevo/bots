@@ -490,16 +490,25 @@ export function App() {
                 ) : (
                   <ul className="notiflist">
                     {notifications.map((notification) => (
-                      <li key={notification.id} className={notification.read ? "" : "unread"}>
+                      <li
+                        key={notification.id}
+                        className={notification.read ? "" : "unread"}
+                      >
                         <button
                           type="button"
                           className="notifbody"
                           disabled={notification.read === 0}
                           title={notification.read ? undefined : "Mark as read"}
-                          onClick={() => void markOneNotification(notification.id)}
+                          onClick={() =>
+                            void markOneNotification(notification.id)
+                          }
                         >
                           <strong>{notification.title}</strong>
-                          <time dateTime={new Date(notification.created_at).toISOString()}>
+                          <time
+                            dateTime={new Date(
+                              notification.created_at,
+                            ).toISOString()}
+                          >
                             {fmt(notification.created_at)}
                           </time>
                           <p>{notification.body}</p>
@@ -508,7 +517,9 @@ export function App() {
                           <div className="notifactions">
                             <button
                               type="button"
-                              onClick={() => void markOneNotification(notification.id)}
+                              onClick={() =>
+                                void markOneNotification(notification.id)
+                              }
                             >
                               Mark read
                             </button>
@@ -571,7 +582,10 @@ export function App() {
               />
               <div className="filterrow">
                 <details className="filterdd">
-                  <summary>
+                  <summary
+                    aria-label={`Status filter: ${statusSel.length === 0 ? "All" : `${statusSel.length} selected`}`}
+                  >
+                    Status:{" "}
                     {statusSel.length === 0
                       ? "All"
                       : statusSel
@@ -589,9 +603,7 @@ export function App() {
                           <input
                             type="checkbox"
                             checked={statusSel.includes(s)}
-                            onChange={() =>
-                              setStatusSel((v) => toggleIn(v, s))
-                            }
+                            onChange={() => setStatusSel((v) => toggleIn(v, s))}
                           />{" "}
                           {HEALTH_LABEL[s][0].toUpperCase() +
                             HEALTH_LABEL[s].slice(1)}
@@ -601,7 +613,10 @@ export function App() {
                   </div>
                 </details>
                 <details className="filterdd">
-                  <summary>
+                  <summary
+                    aria-label={`Role filter: ${roleSel.length === 0 ? "All" : `${roleSel.length} selected`}`}
+                  >
+                    Role:{" "}
                     {roleSel.length === 0
                       ? "All"
                       : roleSel
@@ -617,7 +632,8 @@ export function App() {
                       placeholder="Search roles"
                       onChange={(e) => {
                         const q = e.target.value.trim().toLowerCase();
-                        for (const el of e.currentTarget.parentElement?.children ?? [])
+                        for (const el of e.currentTarget.parentElement
+                          ?.children ?? [])
                           if (el instanceof HTMLElement && el.dataset.name)
                             el.hidden =
                               q !== "" &&
