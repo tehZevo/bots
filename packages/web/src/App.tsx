@@ -16,8 +16,7 @@ export interface ApiKey {
 interface Bot {
   id: string;
   name: string;
-  description: string;
-  system_prompt: string;
+  instructions: string;
   model_id: string | null;
   role_id: string | null;
   machine_id: string | null;
@@ -48,7 +47,7 @@ interface Template {
   id: string;
   name: string;
   description: string;
-  system_prompt: string;
+  instructions: string;
   machine_id: string | null;
   role_id: string | null;
   triggers: TemplateTrigger[];
@@ -1122,13 +1121,12 @@ export function AddBotModal({
     setSuggestion(next);
     setName(next);
   };
-  const [systemPrompt, setSystemPrompt] = useState("");
+  const [instructions, setInstructions] = useState("");
   const [roleId, setRoleId] = useState("");
   const [roles, setRoles] = useState<Role[]>([]);
   const [machineId, setMachineId] = useState("");
   const [machines, setMachines] = useState<Machine[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
-  const [description, setDescription] = useState("");
   const [templateSel, setTemplateSel] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -1146,8 +1144,7 @@ export function AddBotModal({
   const applyTemplate = (id: string) => {
     const t = templates.find((x) => x.id === id);
     if (!t) return;
-    setDescription(t.description);
-    setSystemPrompt(t.system_prompt);
+    setInstructions(t.instructions);
     setRoleId(t.role_id ?? "");
     setMachineId(t.machine_id ?? "");
   };
@@ -1173,8 +1170,7 @@ export function AddBotModal({
               headers: { "content-type": "application/json" },
               body: JSON.stringify({
                 name,
-                description,
-                system_prompt: systemPrompt,
+                instructions,
                 role_id: roleId || null,
                 machine_id: machineId || null,
               }),
@@ -1248,16 +1244,11 @@ export function AddBotModal({
             </button>
           )}
         </div>
-        <input
-          placeholder="description (optional)"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
         <textarea
-          placeholder="system prompt (optional)"
+          placeholder="instructions (optional)"
           rows={3}
-          value={systemPrompt}
-          onChange={(e) => setSystemPrompt(e.target.value)}
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
         />
         <p className="rolepick">
           Role{" "}
@@ -2357,7 +2348,7 @@ export function BotGeneral({
 }) {
   const [roles, setRoles] = useState<Role[]>([]);
   const [name, setName] = useState(bot?.name ?? "");
-  const [description, setDescription] = useState(bot?.description ?? "");
+  const [instructions, setInstructions] = useState(bot?.instructions ?? "");
   const [roleId, setRoleId] = useState(bot?.role_id ?? "");
   const [machineId, setMachineId] = useState(bot?.machine_id ?? "");
   const [machines, setMachines] = useState<Machine[]>([]);
@@ -2377,8 +2368,8 @@ export function BotGeneral({
     );
     setTplDraft({
       name: `${bot.name} template`,
-      description: bot.description ?? "",
-      system_prompt: bot.system_prompt ?? "",
+      description: "",
+      instructions: bot.instructions ?? "",
       machine_id: bot.machine_id,
       role_id: bot.role_id,
       triggers: trs
@@ -2397,7 +2388,7 @@ export function BotGeneral({
   if (!bot) return null;
   const dirty =
     name.trim() !== bot.name ||
-    description !== bot.description ||
+    instructions !== bot.instructions ||
     roleId !== (bot.role_id ?? "") ||
     machineId !== (bot.machine_id ?? "");
   const patchBot = (body: Record<string, unknown>) =>
@@ -2416,11 +2407,11 @@ export function BotGeneral({
           onChange={(e) => setName(e.target.value)}
         />
         <textarea
-          aria-label="Description"
-          placeholder="description (optional)"
-          rows={2}
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
+          aria-label="Instructions"
+          placeholder="instructions (optional)"
+          rows={3}
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
         />
         <div className="actions">
           <button
@@ -2430,7 +2421,7 @@ export function BotGeneral({
               setBusy(true);
               patchBot({
                 name: name.trim(),
-                description,
+                instructions,
                 role_id: roleId || null,
                 machine_id: machineId || null,
               })
@@ -3766,7 +3757,7 @@ export function TemplateEditorModal({
 }) {
   const [name, setName] = useState(initial.name);
   const [description, setDescription] = useState(initial.description);
-  const [systemPrompt, setSystemPrompt] = useState(initial.system_prompt);
+  const [instructions, setInstructions] = useState(initial.instructions);
   const [machineId, setMachineId] = useState(initial.machine_id ?? "");
   const [roleId, setRoleId] = useState(initial.role_id ?? "");
   const [triggers, setTriggers] = useState<TemplateTrigger[]>(initial.triggers);
@@ -3805,7 +3796,7 @@ export function TemplateEditorModal({
             const body = JSON.stringify({
               name,
               description,
-              system_prompt: systemPrompt,
+              instructions,
               machine_id: machineId || null,
               role_id: roleId || null,
               triggers,
@@ -3848,10 +3839,10 @@ export function TemplateEditorModal({
           onChange={(e) => setDescription(e.target.value)}
         />
         <textarea
-          placeholder="system prompt (optional)"
+          placeholder="instructions (optional)"
           rows={3}
-          value={systemPrompt}
-          onChange={(e) => setSystemPrompt(e.target.value)}
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
         />
         {missing.length > 0 && (
           <p className="warnline">
@@ -3968,7 +3959,7 @@ export function TemplatesPanel() {
             setEditing({
               name: "",
               description: "",
-              system_prompt: "",
+              instructions: "",
               machine_id: null,
               role_id: null,
               triggers: [],

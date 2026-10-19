@@ -35,11 +35,13 @@ function effectiveSystemPrompt(bot: BotRow): string {
     .map((id) => getSkill(id)?.instructions.trim())
     .filter((t): t is string => Boolean(t));
   const parts = [
-    bot.system_prompt.trim(),
+    DEFAULT_SYSTEM_PROMPT,
+    `You are "${bot.name}".`,
+    bot.instructions.trim(),
     role?.instructions.trim(),
     ...skillTexts,
   ].filter(Boolean);
-  return parts.join("\n\n") || DEFAULT_SYSTEM_PROMPT;
+  return parts.join("\n\n");
 }
 
 const MCP_NAME_SAFE = /[^a-zA-Z0-9_-]/g;

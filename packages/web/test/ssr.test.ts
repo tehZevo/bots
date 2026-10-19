@@ -162,8 +162,7 @@ test("panels and tab bodies render with stubbed fetch", () => {
   const botRow = {
     id: "b1",
     name: "N",
-    description: "",
-    system_prompt: "",
+    instructions: "",
     model_id: null,
     role_id: null,
     machine_id: null,
@@ -215,7 +214,7 @@ test("templates panel and editor render", () => {
       initial: {
         name: "Daily sweep",
         description: "nightly tidy",
-        system_prompt: "be terse",
+        instructions: "be terse",
         machine_id: null,
         role_id: null,
         triggers: [{ message: "sweep", schedule: "@every 1h" }],

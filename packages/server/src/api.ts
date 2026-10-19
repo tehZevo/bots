@@ -95,8 +95,7 @@ const DEFAULT_MANUAL_MESSAGE = "Continue with your current work.";
 
 interface BotInput {
   name?: unknown;
-  description?: unknown;
-  system_prompt?: unknown;
+  instructions?: unknown;
   model_id?: unknown;
   role_id?: unknown;
   machine_id?: unknown;
@@ -157,9 +156,8 @@ function toBotPayload(input: BotInput) {
   }
   return {
     name: input.name.trim(),
-    description: typeof input.description === "string" ? input.description : "",
-    system_prompt:
-      typeof input.system_prompt === "string" ? input.system_prompt : "",
+    instructions:
+      typeof input.instructions === "string" ? input.instructions : "",
     model_id:
       typeof input.model_id === "string" && input.model_id.trim()
         ? input.model_id.trim()
@@ -353,7 +351,7 @@ export function createApp(): Hono {
   type TemplateInput = {
     name?: unknown;
     description?: unknown;
-    system_prompt?: unknown;
+    instructions?: unknown;
     machine_id?: unknown;
     role_id?: unknown;
     triggers?: unknown;
@@ -362,7 +360,7 @@ export function createApp(): Hono {
   function toTemplatePayload(input: TemplateInput) {
     const name = typeof input.name === "string" ? input.name.trim() : "";
     if (!name) return { error: "name is required" };
-    for (const key of ["description", "system_prompt"] as const) {
+    for (const key of ["description", "instructions"] as const) {
       const v = input[key];
       if (v !== undefined && typeof v !== "string")
         return { error: `${key} must be a string` };
@@ -396,7 +394,7 @@ export function createApp(): Hono {
     return {
       name,
       description: (input.description as string | undefined) ?? "",
-      system_prompt: (input.system_prompt as string | undefined) ?? "",
+      instructions: (input.instructions as string | undefined) ?? "",
       ...refs,
       triggers,
     };
@@ -430,7 +428,7 @@ export function createApp(): Hono {
     const p = toTemplatePayload({
       name: body.name ?? existing.name,
       description: body.description ?? existing.description,
-      system_prompt: body.system_prompt ?? existing.system_prompt,
+      instructions: body.instructions ?? existing.instructions,
       machine_id:
         body.machine_id === undefined ? existing.machine_id : body.machine_id,
       role_id: body.role_id === undefined ? existing.role_id : body.role_id,
@@ -468,8 +466,7 @@ export function createApp(): Hono {
       path: "/api/bots",
       body: {
         name: a.name,
-        description: a.description,
-        system_prompt: a.system_prompt,
+        instructions: a.instructions,
       },
     }),
     bot_set_role: (a) => ({

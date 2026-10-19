@@ -17,7 +17,7 @@ Authenticate with `Authorization: Bearer <api key>` or the browser session cooki
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/api/bots` | List bots incl. derived `health` (`green`/`blue`/`yellow`/`red`/`gray`) and `run_state` |
-| POST | `/api/bots` | Create — `{ name, description?, system_prompt?, model_id?, role_id? }` |
+| POST | `/api/bots` | Create — `{ name, instructions?, model_id?, role_id? }` |
 | GET/PATCH/DELETE | `/api/bots/:id` | Read / update fields incl. `enabled` / delete (cascades triggers + runs + notifications) |
 | POST | `/api/bots/:id/run` | Run now — `{ message? }`, steers a live loop, returns `{ runId, steered }` |
 | POST | `/api/bots/:id/interrupt` | Stop the live loop |
@@ -39,7 +39,7 @@ Authenticate with `Authorization: Bearer <api key>` or the browser session cooki
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/api/templates` | List reusable bundles — newest first |
-| POST | `/api/templates` | Create — `{ name, description?, system_prompt?, machine_id?, role_id?, triggers?: [{ message, schedule }] }`; unknown refs / bad schedules → `400`, duplicate name → `409` |
+| POST | `/api/templates` | Create — `{ name, description?, instructions?, machine_id?, role_id?, triggers?: [{ message, schedule }] }`; unknown refs / bad schedules → `400`, duplicate name → `409` |
 | PATCH | `/api/templates/:id` | Partial update (same validation) |
 | DELETE | `/api/templates/:id` | Delete — bots created from it are untouched |
 

@@ -1,6 +1,6 @@
 # Getting started
 
-**bots** is a self-hosted orchestrator for LLM-driven bots. Each bot has a name, an optional system prompt and role, and runs on a schedule or on demand — with shell access in its own sandbox container (bash, git, GitHub CLI, and curl), MCP tools it was granted, and full run history.
+**bots** is a self-hosted orchestrator for LLM-driven bots. Each bot has a name, optional instructions and a role, and runs on a schedule or on demand — with shell access in its own sandbox container (bash, git, GitHub CLI, and curl), MCP tools it was granted, and full run history.
 
 ## The console
 

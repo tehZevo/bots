@@ -214,8 +214,7 @@ export function openApiDoc(): Json {
           properties: {
             id: str,
             name: str,
-            description: str,
-            system_prompt: str,
+            instructions: str,
             model_id: strOrNone,
             role_id: strOrNone,
             machine_id: strOrNone,
@@ -231,8 +230,7 @@ export function openApiDoc(): Json {
           required: ["name"],
           properties: {
             name: str,
-            description: str,
-            system_prompt: str,
+            instructions: str,
             model_id: strOrNone,
             role_id: strOrNone,
             machine_id: strOrNone,

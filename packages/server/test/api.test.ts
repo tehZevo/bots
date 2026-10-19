@@ -97,8 +97,7 @@ test("bot get/patch/delete lifecycle", async () => {
   assert.equal((await req("GET", "/api/bots/nope")).status, 404);
   const p = await req("PATCH", `/api/bots/${id}`, {
     name: "renamed",
-    description: "d",
-    system_prompt: "sp",
+    instructions: "sp",
     enabled: false,
   });
   assert.equal(p.status, 200);
@@ -315,7 +314,7 @@ test("templates CRUD with validation", async () => {
   const created = await req("POST", "/api/templates", {
     name: "Nightly",
     description: "night sweep",
-    system_prompt: "be brief",
+    instructions: "be brief",
     triggers: [{ message: "run the sweep", schedule: "@every 30m" }],
   });
   assert.equal(created.status, 201);
@@ -340,10 +339,10 @@ test("templates CRUD with validation", async () => {
     400,
   );
   const patched = await req("PATCH", `/api/templates/${id}`, {
-    system_prompt: "be terse",
+    instructions: "be terse",
   });
   assert.equal(patched.status, 200);
-  assert.equal(patched.json.system_prompt, "be terse");
+  assert.equal(patched.json.instructions, "be terse");
   assert.equal(patched.json.description, "night sweep");
   assert.equal(
     (await req("PATCH", "/api/templates/zzz", { name: "x" })).status,

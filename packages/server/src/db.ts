@@ -7,8 +7,7 @@ import { config } from "./config.ts";
 export interface BotRow {
   id: string;
   name: string;
-  description: string;
-  system_prompt: string;
+  instructions: string;
   model_id: string | null;
   role_id: string | null;
   machine_id: string | null;
@@ -84,8 +83,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS bots (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
-    system_prompt TEXT NOT NULL DEFAULT '',
+    instructions TEXT NOT NULL DEFAULT '',
     model_id TEXT,
     avatar_shape INTEGER,
     avatar_color INTEGER,
@@ -109,7 +107,7 @@ db.exec(`
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
     description TEXT NOT NULL DEFAULT '',
-    system_prompt TEXT NOT NULL DEFAULT '',
+    instructions TEXT NOT NULL DEFAULT '',
     machine_id TEXT REFERENCES machines(id),
     role_id TEXT REFERENCES roles(id),
     triggers TEXT NOT NULL DEFAULT '[]',
@@ -250,10 +248,57 @@ if (!roleCols.has("skill_ids")) {
   ).run();
 }
 
-if (!botColumns.has("description"))
+if (!botColumns.has("instructions")) {
   db.prepare(
-    "ALTER TABLE bots ADD COLUMN description TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE bots ADD COLUMN instructions TEXT NOT NULL DEFAULT ''",
   ).run();
+  const legacy = new Set(
+    (db.prepare("PRAGMA table_info(bots)").all() as { name: string }[]).map(
+      (c) => c.name,
+    ),
+  );
+  const parts: string[] = [];
+  if (legacy.has("description") && legacy.has("system_prompt")) {
+    parts.push(
+      `UPDATE bots SET instructions = TRIM(CASE
+         WHEN TRIM(description) <> '' AND TRIM(system_prompt) <> ''
+           THEN description || char(10) || char(10) || system_prompt
+         WHEN TRIM(description) <> '' THEN description
+         ELSE system_prompt END)`,
+    );
+  } else if (legacy.has("description")) {
+    parts.push("UPDATE bots SET instructions = TRIM(description)");
+  } else if (legacy.has("system_prompt")) {
+    parts.push("UPDATE bots SET instructions = TRIM(system_prompt)");
+  }
+  for (const stmt of parts) db.prepare(stmt).run();
+  for (const col of ["description", "system_prompt"] as const) {
+    if (
+      new Set(
+        (db.prepare("PRAGMA table_info(bots)").all() as { name: string }[]).map(
+          (c) => c.name,
+        ),
+      ).has(col)
+    )
+      db.prepare(`ALTER TABLE bots DROP COLUMN ${col}`).run();
+  }
+}
+
+const tplCols = new Set(
+  (db.prepare("PRAGMA table_info(templates)").all() as { name: string }[]).map(
+    (c) => c.name,
+  ),
+);
+if (!tplCols.has("instructions")) {
+  if (tplCols.has("system_prompt"))
+    db.prepare(
+      "ALTER TABLE templates RENAME COLUMN system_prompt TO instructions",
+    ).run();
+  else
+    db.prepare(
+      "ALTER TABLE templates ADD COLUMN instructions TEXT NOT NULL DEFAULT ''",
+    ).run();
+}
 
 if (!botColumns.has("avatar_shape"))
   db.prepare("ALTER TABLE bots ADD COLUMN avatar_shape INTEGER").run();
@@ -353,8 +398,8 @@ type NewBot = Omit<
 
 export function insertBot(bot: NewBot): void {
   db.prepare(
-    `INSERT INTO bots (id, name, description, system_prompt, model_id, role_id, machine_id, avatar_shape, avatar_color, sound, enabled, created_at)
-     VALUES (@id, @name, @description, @system_prompt, @model_id, @role_id, @machine_id, @avatar_shape, @avatar_color, @sound, @enabled, @created_at)`,
+    `INSERT INTO bots (id, name, instructions, model_id, role_id, machine_id, avatar_shape, avatar_color, sound, enabled, created_at)
+     VALUES (@id, @name, @instructions, @model_id, @role_id, @machine_id, @avatar_shape, @avatar_color, @sound, @enabled, @created_at)`,
   ).run({
     model_id: null,
     role_id: null,
@@ -1024,7 +1069,7 @@ export interface TemplateRow {
   id: string;
   name: string;
   description: string;
-  system_prompt: string;
+  instructions: string;
   machine_id: string | null;
   role_id: string | null;
   triggers: string;
@@ -1058,15 +1103,15 @@ export function insertTemplate(t: {
   id: string;
   name: string;
   description: string;
-  system_prompt: string;
+  instructions: string;
   machine_id: string | null;
   role_id: string | null;
   triggers: string;
   created_at: number;
 }): Template {
   db.prepare(
-    `INSERT INTO templates (id, name, description, system_prompt, machine_id, role_id, triggers, created_at)
-     VALUES (@id, @name, @description, @system_prompt, @machine_id, @role_id, @triggers, @created_at)`,
+    `INSERT INTO templates (id, name, description, instructions, machine_id, role_id, triggers, created_at)
+     VALUES (@id, @name, @description, @instructions, @machine_id, @role_id, @triggers, @created_at)`,
   ).run(t);
   return getTemplate(t.id) as Template;
 }
