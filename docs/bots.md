@@ -1,6 +1,6 @@
 # Bots
 
-A bot is a persistent agent loop: system prompt + model + tools + memory. Cards show name, generated avatar (deterministic from the bot id), current task and health dot; filters match those health words exactly.
+A bot is a persistent agent loop: system prompt + model + tools + memory. Cards show name, generated avatar (deterministic from the bot id), current task and health dot; filters match those health words exactly. Above the cards sit a name search plus two dropdown multiselects — status (`Active`/`Idle`/`Issues`/`Blocked`/`Disabled`) and a searchable role list including `(no role)`; both read `All` when nothing is selected, selections inside one dropdown OR together and across dropdowns AND.
 
 ## Detail tabs
 
