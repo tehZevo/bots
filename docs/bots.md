@@ -20,3 +20,11 @@ A bot is a persistent agent loop: system prompt + model + tools + memory. Cards 
 ## Memory
 
 Conversation context persists across runs and survives restarts; when it grows past the configured token budget, older turns are compacted into a summary automatically. Clear memory resets the loop's stored context.
+
+## Templates
+
+Templates are reusable bundles — machine, role, description, system prompt and optional starter triggers (message + schedule). Manage them under **Templates**: add from scratch, edit, or delete behind a confirm dialog; if a referenced machine or role is deleted the editor shows an inline warning.
+
+- **Save as template…** in a bot's General tab copies its fields and schedule triggers into a new, editable template named `<bot> template`.
+- The **Add bot** dialog offers a *Template* dropdown when templates exist: picking one pre-fills description, system prompt, role and machine — everything stays editable before you hit Create.
+- Instantiating copies values into fresh rows; starter triggers are created on the new bot, and template and bot stay fully independent afterwards.

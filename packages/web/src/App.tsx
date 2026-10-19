@@ -32,6 +32,22 @@ interface GrantOption {
   name: string;
 }
 
+interface TemplateTrigger {
+  message: string;
+  schedule: string;
+}
+
+interface Template {
+  id: string;
+  name: string;
+  description: string;
+  system_prompt: string;
+  machine_id: string | null;
+  role_id: string | null;
+  triggers: TemplateTrigger[];
+  created_at: number;
+}
+
 interface Role {
   id: string;
   name: string;
@@ -433,9 +449,7 @@ function playSound(id: string): void {
 
 export function App() {
   const [bots, setBots] = useState<Bot[]>([]);
-  const [tab, setTab] = useState<
-    "bots" | "roles" | "machines" | "integrations" | "skills" | "settings"
-  >("bots");
+  const [tab, setTab] = useState<Tab>("bots");
   const [openBot, setOpenBot] = useState<string | null>(null);
   const [modalTab, setModalTab] = useState<
     "general" | "triggers" | "chat" | "logs"
@@ -887,6 +901,7 @@ export function App() {
           {tab === "machines" && <MachinesPanel />}
           {tab === "integrations" && <IntegrationsPanel />}
           {tab === "skills" && <SkillsPanel />}
+          {tab === "templates" && <TemplatesPanel />}
           {tab === "settings" && <SettingsPanel />}
         </main>
         {detailOpen && openBotRow && (
@@ -1090,6 +1105,9 @@ export function AddBotModal({
   const [roles, setRoles] = useState<Role[]>([]);
   const [machineId, setMachineId] = useState("");
   const [machines, setMachines] = useState<Machine[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [description, setDescription] = useState("");
+  const [templateSel, setTemplateSel] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -1098,7 +1116,19 @@ export function AddBotModal({
       (ms) => setMachines(ms.filter((m) => !m.builtin)),
       () => setMachines([]),
     );
+    void api<Template[]>("/api/templates")
+      .then(setTemplates)
+      .catch(() => setTemplates([]));
   }, []);
+
+  const applyTemplate = (id: string) => {
+    const t = templates.find((x) => x.id === id);
+    if (!t) return;
+    setDescription(t.description);
+    setSystemPrompt(t.system_prompt);
+    setRoleId(t.role_id ?? "");
+    setMachineId(t.machine_id ?? "");
+  };
 
   return (
     <div className="modal">
@@ -1116,16 +1146,29 @@ export function AddBotModal({
           e.preventDefault();
           setBusy(true);
           try {
-            await api("/api/bots", {
+            const bot = await api<Bot>("/api/bots", {
               method: "POST",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({
                 name,
+                description,
                 system_prompt: systemPrompt,
                 role_id: roleId || null,
                 machine_id: machineId || null,
               }),
             });
+            const tpl = templates.find((t) => t.id === templateSel);
+            for (const t of tpl?.triggers ?? []) {
+              await api(`/api/bots/${bot.id}/triggers`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  kind: "schedule",
+                  message: t.message,
+                  schedule: t.schedule,
+                }),
+              }).catch(() => null);
+            }
             onCreated();
           } catch (err) {
             alert(err instanceof Error ? err.message : String(err));
@@ -1144,6 +1187,25 @@ export function AddBotModal({
             ×
           </button>
         </div>
+        {templates.length > 0 && (
+          <p className="rolepick">
+            Template{" "}
+            <select
+              value={templateSel}
+              onChange={(e) => {
+                setTemplateSel(e.target.value);
+                applyTemplate(e.target.value);
+              }}
+            >
+              <option value="">None</option>
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </p>
+        )}
         <div className="namerow">
           <input
             ref={(el) => el?.focus()}
@@ -1164,6 +1226,11 @@ export function AddBotModal({
             </button>
           )}
         </div>
+        <input
+          placeholder="description (optional)"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
         <textarea
           placeholder="system prompt (optional)"
           rows={3}
@@ -1330,8 +1397,36 @@ export function MachineIcon({ size = 18 }: { size?: number }) {
   );
 }
 
+type Tab =
+  | "bots"
+  | "roles"
+  | "machines"
+  | "integrations"
+  | "skills"
+  | "templates"
+  | "settings";
+
+function TemplateIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="8" y="3" width="13" height="7" rx="1.5" />
+      <rect x="8" y="14" width="13" height="7" rx="1.5" />
+      <path d="M3 6v12" />
+    </svg>
+  );
+}
+
 const NAV_ITEMS: {
-  id: "bots" | "roles" | "machines" | "integrations" | "skills" | "settings";
+  id: Tab;
   label: string;
   Icon: (p: { size?: number }) => ReactElement;
 }[] = [
@@ -1340,6 +1435,7 @@ const NAV_ITEMS: {
   { id: "machines", label: "Machines", Icon: MachineIcon },
   { id: "integrations", label: "Integrations", Icon: PlugIcon },
   { id: "skills", label: "Skills", Icon: BookIcon },
+  { id: "templates", label: "Templates", Icon: TemplateIcon },
   { id: "settings", label: "Settings", Icon: GearIcon },
 ];
 
@@ -1348,11 +1444,9 @@ function Nav({
   rail,
   onSelect,
 }: {
-  tab: "bots" | "roles" | "machines" | "integrations" | "skills" | "settings";
+  tab: Tab;
   rail: boolean;
-  onSelect: (
-    tab: "bots" | "roles" | "machines" | "integrations" | "skills" | "settings",
-  ) => void;
+  onSelect: (tab: Tab) => void;
 }) {
   return (
     <nav className="sidetabs">
@@ -2127,6 +2221,26 @@ export function BotGeneral({
   const [pending, setPending] = useState<"delete" | "clear" | "restart" | null>(
     null,
   );
+  const [tplDraft, setTplDraft] = useState<
+    (Omit<Template, "id" | "created_at"> & { id?: string }) | null
+  >(null);
+
+  const openTemplateDraft = async () => {
+    if (!bot) return;
+    const trs = await api<Trigger[]>(`/api/bots/${bot.id}/triggers`).catch(
+      () => [] as Trigger[],
+    );
+    setTplDraft({
+      name: `${bot.name} template`,
+      description: bot.description ?? "",
+      system_prompt: bot.system_prompt ?? "",
+      machine_id: bot.machine_id,
+      role_id: bot.role_id,
+      triggers: trs
+        .filter((t) => t.kind === "schedule")
+        .map((t) => ({ message: t.message, schedule: t.schedule })),
+    });
+  };
 
   useEffect(() => {
     void api<Role[]>("/api/roles").then(setRoles, () => setRoles([]));
@@ -2229,6 +2343,9 @@ export function BotGeneral({
         <button type="button" onClick={() => setPending("clear")}>
           Clear memory
         </button>
+        <button type="button" onClick={() => void openTemplateDraft()}>
+          Save as template…
+        </button>
         <button
           type="button"
           className="danger"
@@ -2306,6 +2423,13 @@ export function BotGeneral({
             await api(`/api/bots/${bot.id}`, { method: "DELETE" });
             onChanged();
           }}
+        />
+      )}
+      {tplDraft && (
+        <TemplateEditorModal
+          initial={tplDraft}
+          onClose={() => setTplDraft(null)}
+          onSaved={() => setTplDraft(null)}
         />
       )}
       {pending === "clear" && (
@@ -3448,5 +3572,282 @@ export function MachineModal({
         </form>
       </div>
     </div>
+  );
+}
+
+function TemplateEditorModal({
+  initial,
+  onClose,
+  onSaved,
+}: {
+  initial: Omit<Template, "id" | "created_at"> & { id?: string };
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(initial.name);
+  const [description, setDescription] = useState(initial.description);
+  const [systemPrompt, setSystemPrompt] = useState(initial.system_prompt);
+  const [machineId, setMachineId] = useState(initial.machine_id ?? "");
+  const [roleId, setRoleId] = useState(initial.role_id ?? "");
+  const [triggers, setTriggers] = useState<TemplateTrigger[]>(initial.triggers);
+  const [machines, setMachines] = useState<Machine[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void api<Role[]>("/api/roles").then(setRoles, () => setRoles([]));
+    void api<Machine[]>("/api/machines")
+      .then((ms) => setMachines(ms.filter((m) => !m.builtin)))
+      .catch(() => setMachines([]));
+  }, []);
+
+  const missing = [
+    machineId && !machines.some((m) => m.id === machineId) ? "machine" : null,
+    roleId && !roles.some((r) => r.id === roleId) ? "role" : null,
+  ].filter(Boolean);
+
+  return (
+    <div className="modal">
+      <button
+        type="button"
+        className="mscrim"
+        aria-label="Cancel"
+        onClick={onClose}
+      />
+      <form
+        className="dialog narrow"
+        role="dialog"
+        aria-label="Template"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          try {
+            const body = JSON.stringify({
+              name,
+              description,
+              system_prompt: systemPrompt,
+              machine_id: machineId || null,
+              role_id: roleId || null,
+              triggers,
+            });
+            await api(
+              initial.id ? `/api/templates/${initial.id}` : "/api/templates",
+              {
+                method: initial.id ? "PATCH" : "POST",
+                headers: { "content-type": "application/json" },
+                body,
+              },
+            );
+            onSaved();
+          } catch (err) {
+            alert(err instanceof Error ? err.message : String(err));
+            setBusy(false);
+          }
+        }}
+      >
+        <div className="viewhead">
+          <h2>{initial.id ? "Edit template" : "New template"}</h2>
+          <button
+            type="button"
+            className="close"
+            aria-label="Cancel"
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
+        <input
+          placeholder="template name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
+        <input
+          placeholder="description (optional)"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+        <textarea
+          placeholder="system prompt (optional)"
+          rows={3}
+          value={systemPrompt}
+          onChange={(e) => setSystemPrompt(e.target.value)}
+        />
+        {missing.length > 0 && (
+          <p className="warnline">
+            ⚠ referenced {missing.join(" and ")} deleted
+          </p>
+        )}
+        <p className="rolepick">
+          Role{" "}
+          <select value={roleId} onChange={(e) => setRoleId(e.target.value)}>
+            <option value="">None</option>
+            {roles.map((role) => (
+              <option key={role.id} value={role.id}>
+                {role.name}
+              </option>
+            ))}
+          </select>
+        </p>
+        <p className="rolepick">
+          Machine{" "}
+          <select
+            value={machineId}
+            onChange={(e) => setMachineId(e.target.value)}
+          >
+            <option value="">Default</option>
+            {machines.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        </p>
+        <p className="muted">Starter triggers</p>
+        {triggers.map((t, i) => (
+          <div className="keyrow" key={i}>
+            <input
+              placeholder="message"
+              value={t.message}
+              onChange={(e) =>
+                setTriggers((ts) =>
+                  ts.map((x, j) =>
+                    j === i ? { ...x, message: e.target.value } : x,
+                  ),
+                )
+              }
+            />
+            <input
+              className="sched"
+              placeholder="@every 1h"
+              value={t.schedule}
+              onChange={(e) =>
+                setTriggers((ts) =>
+                  ts.map((x, j) =>
+                    j === i ? { ...x, schedule: e.target.value } : x,
+                  ),
+                )
+              }
+            />
+            <button
+              type="button"
+              aria-label={`Remove trigger ${i + 1}`}
+              onClick={() => setTriggers((ts) => ts.filter((_, j) => j !== i))}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() =>
+            setTriggers((ts) => [...ts, { message: "", schedule: "@every 1h" }])
+          }
+        >
+          Add trigger
+        </button>
+        <div className="actions">
+          <button type="submit" disabled={busy}>
+            Save
+          </button>
+          <button type="button" onClick={onClose}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function TemplatesPanel() {
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [editing, setEditing] = useState<
+    (Omit<Template, "id" | "created_at"> & { id?: string }) | null
+  >(null);
+  const [removing, setRemoving] = useState<Template | null>(null);
+
+  const reload = useCallback(
+    () =>
+      api<Template[]>("/api/templates")
+        .then(setTemplates)
+        .catch(() => setTemplates([])),
+    [],
+  );
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  return (
+    <section>
+      <div className="viewhead">
+        <h2>Templates</h2>
+        <button
+          type="button"
+          onClick={() =>
+            setEditing({
+              name: "",
+              description: "",
+              system_prompt: "",
+              machine_id: null,
+              role_id: null,
+              triggers: [],
+            })
+          }
+        >
+          Add template
+        </button>
+      </div>
+      <div className="mcpsection">
+        {templates.length === 0 && (
+          <p className="muted">No templates yet — add one above.</p>
+        )}
+        {templates.map((t) => (
+          <div className="mcpsrv" key={t.id}>
+            <header>
+              <strong>{t.name}</strong>
+              <button type="button" onClick={() => setEditing(t)}>
+                Edit
+              </button>
+              <button
+                type="button"
+                className="danger"
+                onClick={() => setRemoving(t)}
+              >
+                Delete
+              </button>
+            </header>
+            {t.description && <p className="muted">{t.description}</p>}
+            <p className="muted">
+              {t.triggers.length} starter trigger
+              {t.triggers.length === 1 ? "" : "s"}
+            </p>
+          </div>
+        ))}
+      </div>
+      {removing && (
+        <ConfirmDialog
+          text={`Delete template ${removing.name}? Bots created from it are untouched.`}
+          confirmLabel="Delete template"
+          onCancel={() => setRemoving(null)}
+          onConfirm={() =>
+            void api(`/api/templates/${removing.id}`, { method: "DELETE" })
+              .then(reload)
+              .catch((e) => alert(e.message))
+              .finally(() => setRemoving(null))
+          }
+        />
+      )}
+      {editing && (
+        <TemplateEditorModal
+          initial={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            void reload();
+          }}
+        />
+      )}
+    </section>
   );
 }

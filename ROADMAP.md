@@ -11,7 +11,6 @@ Behaviors agreed on but not yet specced in detail. Each becomes its own spec dir
 - **MCP server for control** — orchestrator exposes an MCP server (list/create bots, set roles, fire runs, read logs) so external agents drive exactly what the UI can.
 - **Random name shuffle** — a circular-arrows icon button beside the prefilled name in Add bot re-rolls another random name from the pool (see `web-ui/create-bot.md`).
 - **Avatar animations** — status-driven avatar motion: disabled = still and gray, running = active animation, idle = sleeping animation (see web-ui/status-colors.md levels).
-- **Bot templates** — reusable bundles of machine + role (+ description, system prompt, starter triggers) created from any bot or from scratch; "New bot from template" pre-fills the create dialog and can be instantiated repeatedly.
 
 - **Docs site on GitHub Pages** — user-facing documentation under `docs/` (how to use the app, capabilities, API) published via Pages Actions (see `docs/github-pages.md`).
 
