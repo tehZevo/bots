@@ -14,6 +14,8 @@ interface Bot {
   model_id: string | null;
   role_id: string | null;
   machine_id: string | null;
+  avatar_shape: number | null;
+  avatar_color: number | null;
   enabled: number;
   created_at: number;
   run_state: "running" | "enabled" | "disabled";
@@ -138,49 +140,70 @@ function StatusDot({
   );
 }
 
-const SHAPE_PRESETS: ((r: () => number) => [number, number, number][])[] = [
+const SHAPE_PRESETS: {
+  name: string;
+  gen: (r: () => number) => [number, number, number][];
+}[] = [
   // pebble — near-circle with a tiny two-harmonic ripple
-  (r) => [
-    [3, 0.04 + r() * 0.02, r() * 6.28],
-    [4, 0.03 + r() * 0.02, r() * 6.28],
-  ],
+  {
+    name: "pebble",
+    gen: (r) => [
+      [3, 0.04 + r() * 0.02, r() * 6.28],
+      [4, 0.03 + r() * 0.02, r() * 6.28],
+    ],
+  },
   // egg — vertical n=2 bulge
-  () => [[2, 0.15, Math.PI / 2]],
+  { name: "egg", gen: () => [[2, 0.15, Math.PI / 2]] },
   // pear — stacked asymmetry, heavy bottom
-  () => [
-    [1, 0.07, Math.PI / 2],
-    [2, 0.1, 0],
-  ],
+  {
+    name: "pear",
+    gen: () => [
+      [1, 0.07, Math.PI / 2],
+      [2, 0.1, 0],
+    ],
+  },
   // bean — crescent indent plus mild n=1
-  (r) => [
-    [2, 0.16, r() < 0.5 ? 0.79 : 3.93],
-    [1, 0.05, r() * 6.28],
-  ],
+  {
+    name: "bean",
+    gen: (r) => [
+      [2, 0.16, r() < 0.5 ? 0.79 : 3.93],
+      [1, 0.05, r() * 6.28],
+    ],
+  },
   // cushion — rounded square
-  (r) => [[4, 0.09 + r() * 0.02, r() * 6.28]],
+  { name: "cushion", gen: (r) => [[4, 0.09 + r() * 0.02, r() * 6.28]] },
   // trilobe — soft rounded triangle
-  (r) => [[3, 0.1 + r() * 0.02, r() * 6.28]],
+  { name: "trilobe", gen: (r) => [[3, 0.1 + r() * 0.02, r() * 6.28]] },
   // hexpebble — gentle hexagon
-  (r) => [[6, 0.07 + r() * 0.02, r() * 6.28]],
+  { name: "hexpebble", gen: (r) => [[6, 0.07 + r() * 0.02, r() * 6.28]] },
   // clover — five soft lobes
-  (r) => [[5, 0.13, r() * 6.28]],
+  { name: "clover", gen: (r) => [[5, 0.13, r() * 6.28]] },
   // star5 / star6 — puffy rounded points
-  (r) => [[5, 0.19, r() * 6.28]],
-  (r) => [[6, 0.17, r() * 6.28]],
+  { name: "star5", gen: (r) => [[5, 0.19, r() * 6.28]] },
+  { name: "star6", gen: (r) => [[6, 0.17, r() * 6.28]] },
   // dimple — one flattened side at a seeded angle
-  () => [[1, -0.14, 0]],
+  { name: "dimple", gen: () => [[1, -0.14, 0]] },
   // drop — teardrop leaning to a seeded direction
-  (r) => {
-    const dir = r() < 0.5 ? 0 : Math.PI;
-    return [
-      [1, 0.12, dir],
-      [2, 0.06, dir],
-    ];
+  {
+    name: "drop",
+    gen: (r) => {
+      const dir = r() < 0.5 ? 0 : Math.PI;
+      return [
+        [1, 0.12, dir],
+        [2, 0.06, dir],
+      ];
+    },
   },
 ];
 
-function shapeRadii(rand: () => number): number[] {
-  const terms = SHAPE_PRESETS[Math.floor(rand() * SHAPE_PRESETS.length)](rand);
+function shapeRadii(
+  rand: () => number,
+  preset: number | null = null,
+): number[] {
+  const terms =
+    SHAPE_PRESETS[preset ?? Math.floor(rand() * SHAPE_PRESETS.length)].gen(
+      rand,
+    );
   rand();
   const n = 72;
   return Array.from({ length: n }, (_, i) => {
@@ -216,9 +239,18 @@ function avatarColor(id: string): string {
   return AVATAR_COLORS[fnv(id) % AVATAR_COLORS.length];
 }
 
-function Avatar({ id }: { name: string; id: string }) {
+function Avatar({
+  id,
+  shape = null,
+  color = null,
+}: {
+  name: string;
+  id: string;
+  shape?: number | null;
+  color?: number | null;
+}) {
   const rand = mulberry32(fnv(id));
-  const radii = shapeRadii(rand);
+  const radii = shapeRadii(rand, shape);
   const maxR = Math.max(...radii);
   const base = 46 / maxR;
   const eyeGap = 7 + rand() * 5;
@@ -226,12 +258,13 @@ function Avatar({ id }: { name: string; id: string }) {
   const eyeRy = eyeRx * (1.8 + rand() * 0.5);
   const gaze = (rand() - 0.5) * 3;
   const droop = rand() < 0.3;
+  const col = color == null ? avatarColor(id) : AVATAR_COLORS[color];
   return (
     <span
       className="avatar"
       style={{
-        color: avatarColor(id),
-        ["--avatar-glow" as string]: `${avatarColor(id)}59`,
+        color: col,
+        ["--avatar-glow" as string]: `${col}59`,
       }}
       aria-hidden
     >
@@ -265,6 +298,92 @@ const HEALTH_LABEL: Record<Bot["health"], string> = {
   gray: "disabled",
 };
 
+function ShapePreview({ preset }: { preset: number }) {
+  const radii = shapeRadii(mulberry32(1000 + preset * 7919), preset);
+  const base = 46 / Math.max(...radii);
+  return (
+    <svg viewBox="0 0 100 100" width="100%" height="100%" aria-hidden>
+      <path d={smoothClosedPath(radii, 50, base)} fill="currentColor" />
+    </svg>
+  );
+}
+
+function AvatarPicker({
+  bot,
+  onPick,
+  onClose,
+}: {
+  bot: Bot;
+  onPick: (body: Record<string, unknown>) => Promise<unknown>;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [onClose]);
+  const pick = (body: Record<string, unknown>) => {
+    void onPick(body).catch((e) => alert((e as Error).message));
+  };
+  return (
+    <>
+      <button
+        type="button"
+        className="pickscrim"
+        aria-label="Close avatar picker"
+        onClick={onClose}
+      />
+      <div className="avatarmenu" role="dialog" aria-label="Avatar picker">
+        <div className="shapes">
+          {SHAPE_PRESETS.map((p, i) => (
+            <button
+              key={p.name}
+              type="button"
+              className={`shapeprev${bot.avatar_shape === i ? " sel" : ""}`}
+              aria-label={`Shape ${p.name}`}
+              style={{
+                color:
+                  bot.avatar_color == null
+                    ? avatarColor(bot.id)
+                    : AVATAR_COLORS[bot.avatar_color],
+              }}
+              onClick={() => pick({ avatar_shape: i })}
+            >
+              <ShapePreview preset={i} />
+            </button>
+          ))}
+        </div>
+        <div className="swatches">
+          {AVATAR_COLORS.map((c, i) => (
+            <button
+              key={c}
+              type="button"
+              className={`swatch${bot.avatar_color === i ? " sel" : ""}`}
+              style={{ background: c, color: c }}
+              aria-label={`Color ${i + 1}`}
+              onClick={() => pick({ avatar_color: i })}
+            />
+          ))}
+        </div>
+        <button
+          type="button"
+          className="resetauto"
+          disabled={bot.avatar_shape === null && bot.avatar_color === null}
+          onClick={() => {
+            void onPick({ avatar_shape: null, avatar_color: null })
+              .then(onClose)
+              .catch((e) => alert((e as Error).message));
+          }}
+        >
+          Reset to auto
+        </button>
+      </div>
+    </>
+  );
+}
+
 function relTime(ts: number): string {
   const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
   if (s < 60) return `${s}s ago`;
@@ -296,6 +415,7 @@ export function App() {
     "general" | "triggers" | "chat" | "logs"
   >("general");
   const [detailOpen, setDetailOpen] = useState(false);
+  const [avatarMenu, setAvatarMenu] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [botQuery, setBotQuery] = useState("");
   const [statusSel, setStatusSel] = useState<Bot["health"][]>([]);
@@ -330,6 +450,10 @@ export function App() {
     const t = setInterval(load, 5000);
     return () => clearInterval(t);
   }, [load]);
+
+  useEffect(() => {
+    if (!detailOpen) setAvatarMenu(false);
+  }, [detailOpen]);
 
   useEffect(() => {
     setModalTab("general");
@@ -674,7 +798,12 @@ export function App() {
                     }}
                   >
                     <span className="cardhead">
-                      <Avatar name={bot.name} id={bot.id} />
+                      <Avatar
+                        name={bot.name}
+                        id={bot.id}
+                        shape={bot.avatar_shape}
+                        color={bot.avatar_color}
+                      />
                       <span className="cardtext">
                         <strong>{bot.name}</strong>
                         <StatusDot
@@ -737,7 +866,32 @@ export function App() {
               aria-label={`${openBotRow.name} details`}
             >
               <div className="viewhead">
-                <Avatar name={openBotRow.name} id={openBotRow.id} />
+                <button
+                  type="button"
+                  className="avatarpick"
+                  aria-label="Change avatar"
+                  onClick={() => setAvatarMenu((v) => !v)}
+                >
+                  <Avatar
+                    name={openBotRow.name}
+                    id={openBotRow.id}
+                    shape={openBotRow.avatar_shape}
+                    color={openBotRow.avatar_color}
+                  />
+                </button>
+                {detailOpen && avatarMenu && (
+                  <AvatarPicker
+                    bot={openBotRow}
+                    onClose={() => setAvatarMenu(false)}
+                    onPick={(body) =>
+                      api(`/api/bots/${openBotRow.id}`, {
+                        method: "PATCH",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify(body),
+                      }).then(load)
+                    }
+                  />
+                )}
                 <h2>{openBotRow.name}</h2>
                 {openBotRow.current_task && !openBotRow.status && (
                   <p className="taskline">

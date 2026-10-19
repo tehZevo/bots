@@ -12,6 +12,8 @@ export interface BotRow {
   model_id: string | null;
   role_id: string | null;
   machine_id: string | null;
+  avatar_shape: number | null;
+  avatar_color: number | null;
   enabled: number;
   current_task: string | null;
   current_task_updated_at: number | null;
@@ -83,6 +85,8 @@ db.exec(`
     description TEXT NOT NULL DEFAULT '',
     system_prompt TEXT NOT NULL DEFAULT '',
     model_id TEXT,
+    avatar_shape INTEGER,
+    avatar_color INTEGER,
     enabled INTEGER NOT NULL DEFAULT 1,
     created_at INTEGER NOT NULL
   );
@@ -228,6 +232,12 @@ if (!botColumns.has("description"))
     "ALTER TABLE bots ADD COLUMN description TEXT NOT NULL DEFAULT ''",
   ).run();
 
+if (!botColumns.has("avatar_shape"))
+  db.prepare("ALTER TABLE bots ADD COLUMN avatar_shape INTEGER").run();
+
+if (!botColumns.has("avatar_color"))
+  db.prepare("ALTER TABLE bots ADD COLUMN avatar_color INTEGER").run();
+
 if (!botColumns.has("status")) {
   db.prepare("ALTER TABLE bots ADD COLUMN status TEXT").run();
   db.prepare(
@@ -282,14 +292,29 @@ export function getBot(id: string): BotRow | undefined {
     | undefined;
 }
 
-type NewBot = Omit<BotRow, "model_id" | "role_id" | "machine_id"> &
-  Partial<Pick<BotRow, "model_id" | "role_id" | "machine_id">>;
+type NewBot = Omit<
+  BotRow,
+  "model_id" | "role_id" | "machine_id" | "avatar_shape" | "avatar_color"
+> &
+  Partial<
+    Pick<
+      BotRow,
+      "model_id" | "role_id" | "machine_id" | "avatar_shape" | "avatar_color"
+    >
+  >;
 
 export function insertBot(bot: NewBot): void {
   db.prepare(
-    `INSERT INTO bots (id, name, description, system_prompt, model_id, role_id, machine_id, enabled, created_at)
-     VALUES (@id, @name, @description, @system_prompt, @model_id, @role_id, @machine_id, @enabled, @created_at)`,
-  ).run({ model_id: null, role_id: null, machine_id: null, ...bot });
+    `INSERT INTO bots (id, name, description, system_prompt, model_id, role_id, machine_id, avatar_shape, avatar_color, enabled, created_at)
+     VALUES (@id, @name, @description, @system_prompt, @model_id, @role_id, @machine_id, @avatar_shape, @avatar_color, @enabled, @created_at)`,
+  ).run({
+    model_id: null,
+    role_id: null,
+    machine_id: null,
+    avatar_shape: null,
+    avatar_color: null,
+    ...bot,
+  });
 }
 
 export interface MachineRow {
@@ -541,7 +566,8 @@ export function finishRun(
     createNotification({
       kind: "run_error",
       title: `${info?.name ?? "Bot"}: run failed`,
-      body: error || output || `Run ${info?.trigger ?? "manual"} ended in error.`,
+      body:
+        error || output || `Run ${info?.trigger ?? "manual"} ended in error.`,
       botId: info?.bot_id,
       dedupeKey: `run-error:${id}`,
     });
@@ -552,7 +578,7 @@ export function finishRun(
 export function listNotifications(limit = 100): NotificationRow[] {
   return db
     .prepare(
-      'SELECT * FROM notifications ORDER BY created_at DESC, rowid DESC LIMIT ?',
+      "SELECT * FROM notifications ORDER BY created_at DESC, rowid DESC LIMIT ?",
     )
     .all(limit) as NotificationRow[];
 }
