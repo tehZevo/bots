@@ -1680,4 +1680,23 @@ button.danger.ghost {
   .avatar .eye {
     animation: none !important;
   }
+.keyrow {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0 0 0.5rem;
+}
+
+.keyrow input {
+  flex: 1;
+}
+
+.keyrow .sched {
+  max-width: 9rem;
+}
+
+.warnline {
+  margin: 0.25rem 0;
+  color: var(--err);
+  font-size: 0.85rem;
 }
