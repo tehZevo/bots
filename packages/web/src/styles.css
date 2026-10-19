@@ -674,6 +674,12 @@ pre {
   max-width: 480px;
 }
 
+.teditor form {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+
 @media (max-width: 720px) {
   .layout {
     grid-template-columns: 1fr;

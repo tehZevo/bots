@@ -2802,15 +2802,18 @@ export function Triggers({ botId }: { botId: string }) {
                   required
                 />
               </label>
-              <select
-                value={kind}
-                onChange={(e) =>
-                  setKind(e.target.value as "schedule" | "webhook")
-                }
-              >
-                <option value="schedule">Schedule</option>
-                <option value="webhook">Webhook</option>
-              </select>
+              <label className="field">
+                Type
+                <select
+                  value={kind}
+                  onChange={(e) =>
+                    setKind(e.target.value as "schedule" | "webhook")
+                  }
+                >
+                  <option value="schedule">Schedule</option>
+                  <option value="webhook">Webhook</option>
+                </select>
+              </label>
               {kind === "schedule" && (
                 <input
                   placeholder="cron or @every 30m"
