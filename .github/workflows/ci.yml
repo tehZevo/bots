@@ -63,6 +63,11 @@ jobs:
         run: |
           node --import ./packages/server/node_modules/tsx/dist/loader.mjs \
             --test packages/server/test/*.test.ts
+      - name: Web unit tests
+        run: |
+          cd packages/web
+          node --import ../../packages/server/node_modules/tsx/dist/loader.mjs \
+            --test test/*.test.ts
 
   coverage:
     name: ci / coverage
@@ -94,21 +99,19 @@ jobs:
         run: |
           PCT=$(grep "all files" cov.log | grep -oE "[0-9]+\.[0-9]+" | head -1)
           echo "measured line coverage (server): ${PCT:-unknown}%" >> "$GITHUB_STEP_SUMMARY"
-      # Web suite is spec'd but not landed yet: measured report-only, no floor (specs/testing/ci.md).
-      - name: Web coverage (report only)
+      # Web floor 70% lines (specs/testing/unit-tests.md); run inside packages/web so tsx picks up its jsx config.
+      - name: Web tests with V8 coverage
         if: always()
         run: |
-          shopt -s nullglob
-          files=(packages/web/test/*.test.ts)
-          if [ ${#files[@]} -eq 0 ]; then
-            echo "web suite not enabled yet — no test files" >> "$GITHUB_STEP_SUMMARY"
-          else
-            node --import ./packages/server/node_modules/tsx/dist/loader.mjs \
-              --experimental-test-coverage --test-coverage-include='packages/web/src/**' \
-              --test "${files[@]}" 2>&1 | tee cov-web.log || true
-            PCT=$(grep "all files" cov-web.log | grep -oE "[0-9]+\.[0-9]+" | head -1)
-            echo "measured line coverage (web, report only): ${PCT:-unknown}%" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          cd packages/web
+          node --import ../../packages/server/node_modules/tsx/dist/loader.mjs \
+            --experimental-test-coverage --test-coverage-include='src/**' \
+            --test-coverage-lines=70 --test test/*.test.ts 2>&1 | tee ../cov-web.log
+      - name: Report web coverage
+        if: always()
+        run: |
+          PCT=$(grep "all files" cov-web.log | grep -oE "[0-9]+\.[0-9]+" | head -1)
+          echo "measured line coverage (web): ${PCT:-unknown}%" >> "$GITHUB_STEP_SUMMARY"
 
   build:
     name: ci / build
