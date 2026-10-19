@@ -10,6 +10,12 @@ process.env.DATABASE_PATH = join(
 );
 
 const { createApp } = await import("../src/api.ts");
+const {
+  insertRun,
+  latestErrorBotIds,
+  setSetting,
+  supersedeInterruptedRuns,
+} = await import("../src/db.ts");
 const app = createApp();
 
 async function req(
@@ -513,4 +519,39 @@ test("trigger names: optional, validated, editable", async () => {
 
   const list = await (await app.request(`/api/bots/${bot}/triggers`)).json();
   assert.ok(Array.isArray(list) && list.every((t) => "name" in t));
+});
+
+test("accepting new work un-interrupts a bot", async () => {
+  setSetting("default_provider_id", "p1");
+  setSetting("default_model", "m1");
+  const bot = await makeBot("resumable");
+  insertRun({
+    id: "r1",
+    bot_id: bot,
+    status: "error",
+    trigger: "chat",
+    started_at: 1000,
+    finished_at: 2000,
+    output: null,
+    error: "interrupted",
+  });
+  assert.ok(latestErrorBotIds().has(bot));
+
+  const red = (
+    (await (await app.request("/api/bots")).json()) as {
+      id: string;
+      health: string;
+    }[]
+  ).find((b) => b.id === bot);
+  assert.equal(red?.health, "red");
+
+  supersedeInterruptedRuns(bot);
+  assert.ok(!latestErrorBotIds().has(bot));
+  const blue = (
+    (await (await app.request("/api/bots")).json()) as {
+      id: string;
+      health: string;
+    }[]
+  ).find((b) => b.id === bot);
+  assert.equal(blue?.health, "blue");
 });
