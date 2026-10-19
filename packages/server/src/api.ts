@@ -1,4 +1,9 @@
-import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
@@ -14,15 +19,17 @@ import { repoRoot } from "./config.ts";
 import {
   botsUsingMachine,
   clearMessages,
+  deleteApiKey,
   deleteBot,
-  deleteTemplate,
   deleteMachine,
   deleteMcpServer,
   deleteProvider,
   deleteRole,
   deleteSetting,
   deleteSkill,
+  deleteTemplate,
   deleteTrigger,
+  getApiKeyByHash,
   getBot,
   getMachine,
   getMcpServer,
@@ -33,16 +40,17 @@ import {
   getSkill,
   getTemplate,
   getTrigger,
+  insertApiKey,
   insertBot,
-  insertTemplate,
   insertMachine,
   insertMcpServer,
   insertProvider,
-  listTemplates,
   insertRole,
   insertSkill,
+  insertTemplate,
   insertTrigger,
   latestErrorBotIds,
+  listApiKeys,
   listBots,
   listMachines,
   listMcpServers,
@@ -51,6 +59,7 @@ import {
   listRoles,
   listRuns,
   listSkills,
+  listTemplates,
   listTriggers,
   loadMessages,
   markAllNotificationsRead,
@@ -59,6 +68,7 @@ import {
   setMachineBuild,
   setSetting,
   setTriggerSecret,
+  touchApiKey,
   unreadNotificationCount,
   updateBot,
   updateMachine,
@@ -247,6 +257,23 @@ function toTriggerPayload(input: TriggerInput) {
 export function createApp(): Hono {
   const app = new Hono();
 
+  const API_KEY_RE = /^bots_[0-9a-f]{40}$/;
+  app.use("/api/*", async (c, next) => {
+    const header = c.req.header("authorization");
+    if (!header?.startsWith("Bearer ")) return next();
+    const value = header.slice(7).trim();
+    if (!API_KEY_RE.test(value)) return next();
+    const row = getApiKeyByHash(
+      createHash("sha256").update(value).digest("hex"),
+    );
+    if (!row) return c.json({ error: "invalid api key" }, 401);
+    const now = Date.now();
+    if (row.last_used_at === null || now - row.last_used_at >= 60_000) {
+      touchApiKey(row.id, now);
+    }
+    return next();
+  });
+
   app.get("/api/health", (c) => c.json({ ok: true }));
 
   app.get("/api/settings", (c) =>
@@ -331,7 +358,7 @@ export function createApp(): Hono {
       if (!exists) return { error: `unknown ${key.replace("_id", "")}: ${v}` };
       refs[key] = v;
     }
-    let triggers: { message: string; schedule: string }[] = [];
+    const triggers: { message: string; schedule: string }[] = [];
     if (input.triggers !== undefined) {
       if (!Array.isArray(input.triggers))
         return { error: "triggers must be an array" };
@@ -402,6 +429,32 @@ export function createApp(): Hono {
     if (!getTemplate(c.req.param("templateId")))
       return c.json({ error: "not found" }, 404);
     deleteTemplate(c.req.param("templateId"));
+    return c.json({ ok: true });
+  });
+
+  app.get("/api/api-keys", (c) => c.json(listApiKeys()));
+
+  app.post("/api/api-keys", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      name?: unknown;
+    } | null;
+    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    if (!name) return c.json({ error: "name is required" }, 400);
+    const value = `bots_${randomBytes(20).toString("hex")}`;
+    const key = {
+      id: randomUUID(),
+      name,
+      hash: createHash("sha256").update(value).digest("hex"),
+      created_at: Date.now(),
+    };
+    insertApiKey(key);
+    return c.json({ id: key.id, name, created_at: key.created_at, value }, 201);
+  });
+
+  app.delete("/api/api-keys/:keyId", (c) => {
+    if (!listApiKeys().some((k) => k.id === c.req.param("keyId")))
+      return c.json({ error: "not found" }, 404);
+    deleteApiKey(c.req.param("keyId"));
     return c.json({ ok: true });
   });
 
