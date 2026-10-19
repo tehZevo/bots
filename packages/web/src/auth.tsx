@@ -57,12 +57,6 @@ export function AuthScreen({ onDone }: { onDone: () => void }) {
         <div className="viewhead">
           <h2>{mode === "login" ? "Sign in" : "Create account"}</h2>
         </div>
-        {!config.has_users && !config.allow_registration && (
-          <p className="warnline">
-            No accounts exist yet. Start the server with ALLOW_REGISTRATION=true
-            to create the first one.
-          </p>
-        )}
         <label className="field">
           Email
           <input
