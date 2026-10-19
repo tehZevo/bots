@@ -55,6 +55,7 @@ import {
   setMachineBuild,
   setSetting,
   setTriggerSecret,
+  unreadNotificationCount,
   updateBot,
   updateMachine,
   updateMcpServer,
@@ -62,7 +63,6 @@ import {
   updateRole,
   updateSkill,
   updateTrigger,
-  unreadNotificationCount,
 } from "./db.ts";
 import { testMcpConnection } from "./mcp.ts";
 import {
@@ -84,7 +84,23 @@ interface BotInput {
   model_id?: unknown;
   role_id?: unknown;
   machine_id?: unknown;
+  avatar_shape?: unknown;
+  avatar_color?: unknown;
   enabled?: unknown;
+}
+
+const AVATAR_OPTIONS_COUNT = 12;
+
+function toAvatarIndex(value: unknown): number | null {
+  if (value === undefined || value === null) return null;
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    value < 0 ||
+    value >= AVATAR_OPTIONS_COUNT
+  )
+    return -1;
+  return value;
 }
 
 function toBotPayload(input: BotInput) {
@@ -102,6 +118,10 @@ function toBotPayload(input: BotInput) {
       return { error: `unknown machine: ${input.machine_id}` };
     machine_id = input.machine_id.trim();
   }
+  const shape = toAvatarIndex(input.avatar_shape);
+  if (shape === -1) return { error: "avatar_shape must be an index or null" };
+  const color = toAvatarIndex(input.avatar_color);
+  if (color === -1) return { error: "avatar_color must be an index or null" };
   return {
     name: input.name.trim(),
     description: typeof input.description === "string" ? input.description : "",
@@ -119,6 +139,8 @@ function toBotPayload(input: BotInput) {
       input.enabled === "false"
         ? 0
         : 1,
+    avatar_shape: shape,
+    avatar_color: color,
   };
 }
 

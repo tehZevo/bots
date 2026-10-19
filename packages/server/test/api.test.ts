@@ -47,6 +47,30 @@ test("bot create validates name", async () => {
   assert.equal((await req("POST", "/api/bots", { name: "  " })).status, 400);
 });
 
+test("bot avatar overrides validate and persist", async () => {
+  const id = await makeBot("avatar-bot");
+  assert.equal(
+    (await req("PATCH", `/api/bots/${id}`, { avatar_shape: 99 })).status,
+    400,
+  );
+  assert.equal(
+    (await req("PATCH", `/api/bots/${id}`, { avatar_color: -3 })).status,
+    400,
+  );
+  const ok = await req("PATCH", `/api/bots/${id}`, {
+    avatar_shape: 3,
+    avatar_color: 7,
+  });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.json.avatar_shape, 3);
+  assert.equal(ok.json.avatar_color, 7);
+  const reset = await req("PATCH", `/api/bots/${id}`, {
+    avatar_shape: null,
+    avatar_color: null,
+  });
+  assert.equal(reset.json.avatar_shape, null);
+});
+
 test("bot get/patch/delete lifecycle", async () => {
   const id = await makeBot("lifecycle-bot");
   assert.equal((await req("GET", `/api/bots/${id}`)).status, 200);
