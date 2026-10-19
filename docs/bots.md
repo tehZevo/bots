@@ -1,10 +1,10 @@
 # Bots
 
-A bot is a persistent agent loop: system prompt + model + tools + memory. Cards show a one-line name (long names truncate with an ellipsis, full text on hover), generated avatar (deterministic from the bot id — it blinks on a seeded cadence and floats/tilts per health level; disabled bots sit perfectly still), current task and health dot; filters match those health words exactly. A visible gap separates the search/filter bar from the content below it on every main screen. A single control bar above the cards holds the name search with two labeled dropdown multiselects beside it — `Status:` (`Active`/`Idle`/`Issues`/`Blocked`/`Disabled`) and a searchable `Role:` list including `(no role)`; both show `All` when nothing is selected, selections inside one dropdown OR together and across dropdowns AND.
+A bot is a persistent agent loop: instructions + model + tools + memory. Cards show a one-line name (long names truncate with an ellipsis, full text on hover), generated avatar (deterministic from the bot id — it blinks on a seeded cadence and floats/tilts per health level; disabled bots sit perfectly still), current task and health dot; filters match those health words exactly. A visible gap separates the search/filter bar from the content below it on every main screen. A single control bar above the cards holds the name search with two labeled dropdown multiselects beside it — `Status:` (`Active`/`Idle`/`Issues`/`Blocked`/`Disabled`) and a searchable `Role:` list including `(no role)`; both show `All` when nothing is selected, selections inside one dropdown OR together and across dropdowns AND.
 
 ## Detail tabs
 
-- **General** — name/description editing, role and machine pickers, with Save disabled until one of them changes; enable toggle switch, Stop while running, Restart machine, Clear memory, Delete.
+- **General** — name and instructions editing, role and machine pickers, with Save disabled until one of them changes; enable toggle switch, Stop while running, Restart machine, Clear memory, Delete.
 - **Triggers** — schedule and webhook triggers, each with its own pause switch ([details](/triggers-scheduling)).
 - **Chat** — talk to the bot directly; your message appears instantly and a typing indicator shows until the reply lands. Chat turns enter the same persistent context as everything else.
 - **Logs** — run history: trigger source, status (ok/error), output, errors.
@@ -23,8 +23,8 @@ Conversation context persists across runs and survives restarts; when it grows p
 
 ## Templates
 
-Templates are reusable bundles — machine, role, description, system prompt and optional starter triggers (message + schedule). Manage them under **Templates**: add from scratch, edit, or delete behind a confirm dialog; if a referenced machine or role is deleted the editor shows an inline warning.
+Templates are reusable bundles — machine, role, description, instructions and optional starter triggers (message + schedule). Manage them under **Templates**: add from scratch, edit, or delete behind a confirm dialog; if a referenced machine or role is deleted the editor shows an inline warning.
 
 - **Save as template…** in a bot's General tab copies its fields and schedule triggers into a new, editable template named `<bot> template`.
-- The **Add bot** dialog offers a *Template* dropdown when templates exist: picking one pre-fills description, system prompt, role and machine — everything stays editable before you hit Create.
+- The **Add bot** dialog offers a *Template* dropdown when templates exist: picking one pre-fills instructions, role and machine — everything stays editable before you hit Create.
 - Instantiating copies values into fresh rows; starter triggers are created on the new bot, and template and bot stay fully independent afterwards.

@@ -26,8 +26,7 @@ test("new runs persist only messages added after the loaded history", () => {
   db.insertBot({
     id: botId,
     name: botId,
-    description: "",
-    system_prompt: "",
+    instructions: "",
     model_id: null,
     role_id: null,
     enabled: 1,
@@ -76,8 +75,7 @@ test("replacement persistence preserves the current task and status", () => {
   db.insertBot({
     id: botId,
     name: botId,
-    description: "",
-    system_prompt: "",
+    instructions: "",
     model_id: null,
     role_id: null,
     enabled: 1,

@@ -16,8 +16,7 @@ function makeBot(name: string): string {
   db.insertBot({
     id,
     name,
-    description: "",
-    system_prompt: "",
+    instructions: "",
     model_id: null,
     role_id: null,
     enabled: 1,

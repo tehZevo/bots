@@ -11,7 +11,7 @@ Single-page console for operating bots; any client that can reach the API may op
 - A visible gap separates the search/filter bar from the content below it on every main screen. Above the cards sit a search field (case-insensitive substring match on bot name), a status filter: one dropdown multiselect over the health levels of `status-colors.md` — `Active` / `Idle` / `Issues` / `Blocked` / `Disabled`, and a role filter: one searchable dropdown multiselect listing defined roles plus a `(no role)` entry.
 >>>>>>> c5d3eaf (spec: space between filter bar and cards)
 - Each dropdown's summary button carries its label — `Status:` or `Role:` followed by `All` when nothing is selected and the comma-joined selection otherwise; selecting entries keeps only bots matching the chosen statuses AND the chosen roles (entries within one filter are OR-ed), and clearing every selection returns that filter to `All`. All three combine, with an empty "no matches" state. Filtering is client-side over the polled list.
-- Create a bot via the "Add bot" modal on the bots tab (see `create-bot.md`) — name, optional system prompt, optional role.
+- Create a bot via the "Add bot" modal on the bots tab (see `create-bot.md`) — name, optional instructions, optional role.
 - Detail modal contents are specified in `bot-detail.md` (General / Triggers / Logs tabs).
 - The logs tab shows run history (status + output/error); the view refreshes by polling the API.
 - Works on phones and desktops: single-column layout below tablet width — navigation moves behind a hamburger menu (see `navigation.md`), modals span the screen, and controls are touch-sized. No horizontal scrolling at 360px wide.

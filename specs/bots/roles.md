@@ -11,4 +11,4 @@ A role is reusable instruction text that shapes what a bot does; a bot has at mo
 - Delete role asks for confirmation first (see `web-ui/confirm.md`).
 - Stored per role: name (required), instructions (required). CRUD via `/api/roles`; invalid input returns 400 with an error message.
 - A bot's detail view assigns its role from a picker; assigning or switching applies to subsequent runs — clearing sets it back to none. Deleting a used role unsets it on those bots.
-- The effective system prompt is the bot's own system prompt followed by the assigned role's instructions; with no role, only the bot's prompt (or generic default) is sent.
+- The effective system prompt always starts from the generic default plus the bot's name line and instructions, then the assigned role's instructions and granted skill markdown.
