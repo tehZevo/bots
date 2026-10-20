@@ -5,4 +5,4 @@
 - `ci / build` produces the production artifacts (`pnpm build`, both packages) so packaging breaks surface on the PR; developers verify locally with typecheck and tests only, building themselves just when a running artifact or screenshots require it.
 - Coverage is gated per package: both server and web floors are 70% lines.
 - Checks never require a Docker daemon, provider keys or network LLM calls (`testing/unit-tests.md` isolation rules apply).
-- A failing check blocks merge like any required status; waivers (e.g. a temporarily lowered coverage floor) are expressed in the workflow file with a comment referencing the spec target of 90%.
+- A failing check blocks merge like any required status; waivers (e.g. a temporarily lowered coverage floor) are expressed in the workflow file with a comment.
