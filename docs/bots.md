@@ -10,7 +10,7 @@ Clicking a bot card opens that bot's chat in a closeable sidebar pinned to the r
 
 The settings modal (opened from the chat sidebar's gear) holds:
 
-- **General** — name and instructions editing, role and machine pickers, with Save disabled until one of them changes; enable toggle switch, Stop while running, Restart machine, Clear memory, Delete.
+- **General** — name and instructions editing, role and machine pickers, with Save disabled until one of them changes (see [Editors & unsaved changes](/editors)); enable toggle switch, Stop while running, Restart machine, Clear memory, Delete.
 - **Triggers** — schedule and webhook triggers, each with its own pause switch ([details](/triggers-scheduling)).
 - **Logs** — run history: trigger source, status (ok/error), output, errors.
 

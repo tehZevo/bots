@@ -1984,3 +1984,7 @@ button.danger.ghost {
     border-left: none;
   }
 }
+.unsavednote {
+  color: var(--muted);
+  font-style: italic;
+}

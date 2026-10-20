@@ -35,6 +35,9 @@ const {
   GearIcon,
   PlugIcon,
   MachineIcon,
+  ConfirmDialog,
+  UnsavedNote,
+  formDirty,
   App,
   SettingsPanel,
   RolesPanel,
@@ -189,7 +192,10 @@ test("panels and tab bodies render with stubbed fetch", () => {
     bot: botRow,
     onChanged: () => undefined,
   });
-  assert.ok(renderToStaticMarkup(withBot).includes("Save"));
+  const generalHtml = renderToStaticMarkup(withBot);
+  assert.ok(generalHtml.includes("Save"));
+  assert.match(generalHtml, /disabled=""/);
+  assert.ok(!generalHtml.includes("Unsaved changes"));
   for (const C of [Chat, Triggers])
     assert.ok(
       renderToStaticMarkup(React.createElement(C, { botId: "x" })).length > 50,
@@ -444,4 +450,36 @@ test("chat sidebar renders header, gear and close", () => {
   assert.match(html, /Alpha chat/);
   assert.match(html, /Alpha settings/);
   assert.match(html, /aria-label="Close"/);
+});
+
+test("formDirty compares saveable values against a snapshot", () => {
+  const snap = { name: "a", instructions: "", role_id: "" };
+  assert.equal(formDirty(snap, { ...snap }), false);
+  assert.equal(formDirty(snap, { ...snap, name: "b" }), true);
+  assert.equal(formDirty(snap, { ...snap, role_id: "r1" }), true);
+});
+
+test("unsaved note and discard dialog render", () => {
+  assert.equal(
+    renderToStaticMarkup(React.createElement(UnsavedNote, { dirty: false })),
+    "",
+  );
+  const note = renderToStaticMarkup(
+    React.createElement(UnsavedNote, { dirty: true }),
+  );
+  assert.match(note, /Unsaved changes/);
+  assert.match(note, /role="status"/);
+
+  const dlg = renderToStaticMarkup(
+    React.createElement(ConfirmDialog, {
+      text: "Discard unsaved changes to the bot Sage?",
+      confirmLabel: "Discard changes",
+      cancelLabel: "Keep editing",
+      onCancel: () => undefined,
+      onConfirm: () => undefined,
+    }),
+  );
+  assert.match(dlg, /Discard unsaved changes to the bot Sage\?/);
+  assert.match(dlg, /Discard changes/);
+  assert.match(dlg, /Keep editing/);
 });

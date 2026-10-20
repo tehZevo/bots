@@ -1,6 +1,8 @@
 import {
+  createContext,
   type ReactElement,
   useCallback,
+  useContext,
   useEffect,
   useRef,
   useState,
@@ -485,13 +487,43 @@ export function App() {
   const [tab, setTabRaw] = useState<Tab>(() =>
     typeof location === "undefined" ? "bots" : tabFromPath(location.pathname),
   );
+  const [pendingDiscard, setPendingDiscard] = useState<null | {
+    label: string;
+    fn: () => void;
+  }>(null);
+  const discardGuard = useCallback((fn: () => void) => {
+    const label = anyDirtyLabel();
+    if (label) setPendingDiscard({ label, fn });
+    else fn();
+  }, []);
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+  useEffect(() => {
+    const h = (e: BeforeUnloadEvent) => {
+      if (anyDirtyLabel()) e.preventDefault();
+    };
+    addEventListener("beforeunload", h);
+    return () => removeEventListener("beforeunload", h);
+  }, []);
   const setTab = (t: Tab) => {
-    setTabRaw(t);
-    if (typeof history !== "undefined") history.pushState({}, "", TAB_PATHS[t]);
+    discardGuard(() => {
+      setTabRaw(t);
+      if (typeof history !== "undefined")
+        history.pushState({}, "", TAB_PATHS[t]);
+    });
   };
   useEffect(() => {
     if (typeof addEventListener === "undefined") return;
-    const onPop = () => setTabRaw(tabFromPath(location.pathname));
+    const onPop = () => {
+      const target = tabFromPath(location.pathname);
+      const label = anyDirtyLabel();
+      if (!label) {
+        setTabRaw(target);
+        return;
+      }
+      history.pushState({}, "", TAB_PATHS[tabRef.current]);
+      setPendingDiscard({ label, fn: () => setTabRaw(target) });
+    };
     addEventListener("popstate", onPop);
     return () => removeEventListener("popstate", onPop);
   }, []);
@@ -586,8 +618,7 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (notificationPanelOpen) setNotificationPanelOpen(false);
-      else if (addOpen) setAddOpen(false);
-      else if (detailOpen) setDetailOpen(false);
+      else if (detailOpen) discardGuard(() => setDetailOpen(false));
       else if (chatBot) setChatBot(null);
     };
     document.addEventListener("keydown", onKey);
@@ -658,182 +689,186 @@ export function App() {
 
   const redCount = bots.filter((b) => b.health === "red").length;
   return (
-    <div className="app">
-      <header className="statusbar">
-        <button
-          type="button"
-          className="railtoggle"
-          aria-label={rail ? "Expand sidebar" : "Collapse sidebar"}
-          onClick={toggleRail}
-        >
-          {rail ? "›" : "‹"}
-        </button>
-        <span className="counts">
-          {bots.length} total ·{" "}
-          {bots.filter((b) => b.run_state === "running").length} running
-          {redCount > 0 && (
-            <>
-              {" "}
-              · <span className="redcount">{redCount} blocked</span>
-            </>
-          )}
-        </span>
-        <div className="notifwrap">
+    <NavGuardContext.Provider value={discardGuard}>
+      <div className="app">
+        <header className="statusbar">
           <button
             type="button"
-            aria-label={`Notifications${unreadNotifications > 0 ? `, ${unreadNotifications} unread` : ""}`}
-            aria-expanded={notificationPanelOpen}
-            onClick={() => setNotificationPanelOpen((open) => !open)}
+            className="railtoggle"
+            aria-label={rail ? "Expand sidebar" : "Collapse sidebar"}
+            onClick={toggleRail}
           >
-            🔔
-            {unreadNotifications > 0 && (
-              <span className="notifbadge">
-                {unreadNotifications > 99 ? "99+" : unreadNotifications}
-              </span>
+            {rail ? "›" : "‹"}
+          </button>
+          <span className="counts">
+            {bots.length} total ·{" "}
+            {bots.filter((b) => b.run_state === "running").length} running
+            {redCount > 0 && (
+              <>
+                {" "}
+                · <span className="redcount">{redCount} blocked</span>
+              </>
             )}
-          </button>
-          {notificationPanelOpen && (
-            <>
-              <button
-                type="button"
-                className="notifscrim"
-                aria-label="Close notifications"
-                onClick={() => setNotificationPanelOpen(false)}
-              />
-              <section className="notifpanel" aria-label="Notifications">
-                <div className="notifhdr">
-                  <strong>Notifications</strong>
-                  <div>
-                    <button
-                      type="button"
-                      disabled={unreadNotifications === 0}
-                      onClick={() => void markAllRead()}
-                    >
-                      Mark all read
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Close notifications"
-                      onClick={() => setNotificationPanelOpen(false)}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-                {notifications.length === 0 ? (
-                  <p className="notifempty">No notifications.</p>
-                ) : (
-                  <ul className="notiflist">
-                    {notifications.map((notification) => (
-                      <li
-                        key={notification.id}
-                        className={notification.read ? "" : "unread"}
-                      >
-                        <button
-                          type="button"
-                          className="notifbody"
-                          disabled={notification.read === 0}
-                          title={notification.read ? undefined : "Mark as read"}
-                          onClick={() =>
-                            void markOneNotification(notification.id)
-                          }
-                        >
-                          <strong>{notification.title}</strong>
-                          <time
-                            dateTime={new Date(
-                              notification.created_at,
-                            ).toISOString()}
-                          >
-                            {fmt(notification.created_at)}
-                          </time>
-                          <p>{notification.body}</p>
-                        </button>
-                        {!notification.read && (
-                          <div className="notifactions">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void markOneNotification(notification.id)
-                              }
-                            >
-                              Mark read
-                            </button>
-                          </div>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
-            </>
-          )}
-        </div>
-      </header>
-      <div className="layout">
-        <aside className={rail ? "rail" : ""}>
-          {error && <p className="error">{error}</p>}
-          {renderNav(rail)}
-        </aside>
-        <div className="topbar">
-          <button
-            type="button"
-            className="hamburger"
-            aria-label="Menu"
-            onClick={() => setNavOpen(true)}
-          >
-            ☰
-          </button>
-        </div>
-        {navOpen && (
-          <div className="drawer">
+          </span>
+          <div className="notifwrap">
             <button
               type="button"
-              className="scrim"
-              aria-label="Close menu"
-              onClick={() => setNavOpen(false)}
-            />
-            <div className="panel">
-              <div className="hdr">
-                <h1>Bots</h1>
-              </div>
-              {error && <p className="error">{error}</p>}
-              {renderNav(false)}
-            </div>
-          </div>
-        )}
-        <main>
-          {tab === "bots" && (
-            <>
-              <div className="mainhead">
-                <h2>Bots</h2>
-                <button type="button" onClick={() => setAddOpen(true)}>
-                  Add bot
-                </button>
-              </div>
-              <div className="filterrow">
-                <input
-                  placeholder="Search bots by name"
-                  value={botQuery}
-                  onChange={(e) => setBotQuery(e.target.value)}
+              aria-label={`Notifications${unreadNotifications > 0 ? `, ${unreadNotifications} unread` : ""}`}
+              aria-expanded={notificationPanelOpen}
+              onClick={() => setNotificationPanelOpen((open) => !open)}
+            >
+              🔔
+              {unreadNotifications > 0 && (
+                <span className="notifbadge">
+                  {unreadNotifications > 99 ? "99+" : unreadNotifications}
+                </span>
+              )}
+            </button>
+            {notificationPanelOpen && (
+              <>
+                <button
+                  type="button"
+                  className="notifscrim"
+                  aria-label="Close notifications"
+                  onClick={() => setNotificationPanelOpen(false)}
                 />
-                <details className="filterdd">
-                  <summary
-                    aria-label={`Status filter: ${statusSel.length === 0 ? "All" : `${statusSel.length} selected`}`}
-                  >
-                    Status:{" "}
-                    {statusSel.length === 0
-                      ? "All"
-                      : statusSel
-                          .map(
-                            (s) =>
-                              HEALTH_LABEL[s][0].toUpperCase() +
-                              HEALTH_LABEL[s].slice(1),
-                          )
-                          .join(", ")}
-                  </summary>
-                  <div className="filterpanel">
-                    {(["green", "blue", "yellow", "red", "gray"] as const).map(
-                      (s) => (
+                <section className="notifpanel" aria-label="Notifications">
+                  <div className="notifhdr">
+                    <strong>Notifications</strong>
+                    <div>
+                      <button
+                        type="button"
+                        disabled={unreadNotifications === 0}
+                        onClick={() => void markAllRead()}
+                      >
+                        Mark all read
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Close notifications"
+                        onClick={() => setNotificationPanelOpen(false)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                  {notifications.length === 0 ? (
+                    <p className="notifempty">No notifications.</p>
+                  ) : (
+                    <ul className="notiflist">
+                      {notifications.map((notification) => (
+                        <li
+                          key={notification.id}
+                          className={notification.read ? "" : "unread"}
+                        >
+                          <button
+                            type="button"
+                            className="notifbody"
+                            disabled={notification.read === 0}
+                            title={
+                              notification.read ? undefined : "Mark as read"
+                            }
+                            onClick={() =>
+                              void markOneNotification(notification.id)
+                            }
+                          >
+                            <strong>{notification.title}</strong>
+                            <time
+                              dateTime={new Date(
+                                notification.created_at,
+                              ).toISOString()}
+                            >
+                              {fmt(notification.created_at)}
+                            </time>
+                            <p>{notification.body}</p>
+                          </button>
+                          {!notification.read && (
+                            <div className="notifactions">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void markOneNotification(notification.id)
+                                }
+                              >
+                                Mark read
+                              </button>
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              </>
+            )}
+          </div>
+        </header>
+        <div className="layout">
+          <aside className={rail ? "rail" : ""}>
+            {error && <p className="error">{error}</p>}
+            {renderNav(rail)}
+          </aside>
+          <div className="topbar">
+            <button
+              type="button"
+              className="hamburger"
+              aria-label="Menu"
+              onClick={() => setNavOpen(true)}
+            >
+              ☰
+            </button>
+          </div>
+          {navOpen && (
+            <div className="drawer">
+              <button
+                type="button"
+                className="scrim"
+                aria-label="Close menu"
+                onClick={() => setNavOpen(false)}
+              />
+              <div className="panel">
+                <div className="hdr">
+                  <h1>Bots</h1>
+                </div>
+                {error && <p className="error">{error}</p>}
+                {renderNav(false)}
+              </div>
+            </div>
+          )}
+          <main>
+            {tab === "bots" && (
+              <>
+                <div className="mainhead">
+                  <h2>Bots</h2>
+                  <button type="button" onClick={() => setAddOpen(true)}>
+                    Add bot
+                  </button>
+                </div>
+                <div className="filterrow">
+                  <input
+                    placeholder="Search bots by name"
+                    value={botQuery}
+                    onChange={(e) => setBotQuery(e.target.value)}
+                  />
+                  <details className="filterdd">
+                    <summary
+                      aria-label={`Status filter: ${statusSel.length === 0 ? "All" : `${statusSel.length} selected`}`}
+                    >
+                      Status:{" "}
+                      {statusSel.length === 0
+                        ? "All"
+                        : statusSel
+                            .map(
+                              (s) =>
+                                HEALTH_LABEL[s][0].toUpperCase() +
+                                HEALTH_LABEL[s].slice(1),
+                            )
+                            .join(", ")}
+                    </summary>
+                    <div className="filterpanel">
+                      {(
+                        ["green", "blue", "yellow", "red", "gray"] as const
+                      ).map((s) => (
                         <label key={s}>
                           <input
                             type="checkbox"
@@ -843,268 +878,296 @@ export function App() {
                           {HEALTH_LABEL[s][0].toUpperCase() +
                             HEALTH_LABEL[s].slice(1)}
                         </label>
-                      ),
-                    )}
-                  </div>
-                </details>
-                <details className="filterdd">
-                  <summary
-                    aria-label={`Role filter: ${roleSel.length === 0 ? "All" : `${roleSel.length} selected`}`}
-                  >
-                    Role:{" "}
-                    {roleSel.length === 0
-                      ? "All"
-                      : roleSel
-                          .map(
-                            (id) =>
-                              roles.find((r) => r.id === id)?.name ??
-                              "(no role)",
-                          )
-                          .join(", ")}
-                  </summary>
-                  <div className="filterpanel">
-                    <input
-                      placeholder="Search roles"
-                      onChange={(e) => {
-                        const q = e.target.value.trim().toLowerCase();
-                        for (const el of e.currentTarget.parentElement
-                          ?.children ?? [])
-                          if (el instanceof HTMLElement && el.dataset.name)
-                            el.hidden =
-                              q !== "" &&
-                              !el.dataset.name.toLowerCase().includes(q);
-                      }}
-                    />
-                    <label data-name="(no role)">
+                      ))}
+                    </div>
+                  </details>
+                  <details className="filterdd">
+                    <summary
+                      aria-label={`Role filter: ${roleSel.length === 0 ? "All" : `${roleSel.length} selected`}`}
+                    >
+                      Role:{" "}
+                      {roleSel.length === 0
+                        ? "All"
+                        : roleSel
+                            .map(
+                              (id) =>
+                                roles.find((r) => r.id === id)?.name ??
+                                "(no role)",
+                            )
+                            .join(", ")}
+                    </summary>
+                    <div className="filterpanel">
                       <input
-                        type="checkbox"
-                        checked={roleSel.includes("")}
-                        onChange={() => setRoleSel((v) => toggleIn(v, ""))}
-                      />{" "}
-                      (no role)
-                    </label>
-                    {roles.map((r) => (
-                      <label key={r.id} data-name={r.name}>
+                        placeholder="Search roles"
+                        onChange={(e) => {
+                          const q = e.target.value.trim().toLowerCase();
+                          for (const el of e.currentTarget.parentElement
+                            ?.children ?? [])
+                            if (el instanceof HTMLElement && el.dataset.name)
+                              el.hidden =
+                                q !== "" &&
+                                !el.dataset.name.toLowerCase().includes(q);
+                        }}
+                      />
+                      <label data-name="(no role)">
                         <input
                           type="checkbox"
-                          checked={roleSel.includes(r.id)}
-                          onChange={() => setRoleSel((v) => toggleIn(v, r.id))}
+                          checked={roleSel.includes("")}
+                          onChange={() => setRoleSel((v) => toggleIn(v, ""))}
                         />{" "}
-                        {r.name}
+                        (no role)
                       </label>
-                    ))}
-                  </div>
-                </details>
-              </div>
-              <div className="cards">
-                {visibleBots.map((bot) => (
-                  <button
-                    type="button"
-                    key={bot.id}
-                    className="card"
-                    data-bot-card={bot.id}
-                    aria-label={`${bot.name} (${bot.status})`}
-                    onClick={() => setChatBot(bot.id)}
-                  >
-                    <span className="cardhead">
-                      <Avatar
-                        name={bot.name}
-                        id={bot.id}
-                        shape={bot.avatar_shape}
-                        color={bot.avatar_color}
-                        health={bot.health}
-                      />
-                      <span className="cardtext">
-                        <strong title={bot.name}>{bot.name}</strong>
-                        <StatusDot
+                      {roles.map((r) => (
+                        <label key={r.id} data-name={r.name}>
+                          <input
+                            type="checkbox"
+                            checked={roleSel.includes(r.id)}
+                            onChange={() =>
+                              setRoleSel((v) => toggleIn(v, r.id))
+                            }
+                          />{" "}
+                          {r.name}
+                        </label>
+                      ))}
+                    </div>
+                  </details>
+                </div>
+                <div className="cards">
+                  {visibleBots.map((bot) => (
+                    <button
+                      type="button"
+                      key={bot.id}
+                      className="card"
+                      data-bot-card={bot.id}
+                      aria-label={`${bot.name} (${bot.status})`}
+                      onClick={() => setChatBot(bot.id)}
+                    >
+                      <span className="cardhead">
+                        <Avatar
+                          name={bot.name}
                           id={bot.id}
+                          shape={bot.avatar_shape}
+                          color={bot.avatar_color}
                           health={bot.health}
-                          label={HEALTH_LABEL[bot.health]}
-                          active={bot.run_state === "running"}
                         />
+                        <span className="cardtext">
+                          <strong title={bot.name}>{bot.name}</strong>
+                          <StatusDot
+                            id={bot.id}
+                            health={bot.health}
+                            label={HEALTH_LABEL[bot.health]}
+                            active={bot.run_state === "running"}
+                          />
+                        </span>
                       </span>
-                    </span>
-                    {bot.current_task && !bot.status && (
-                      <span className="taskline" title={bot.current_task}>
-                        {bot.current_task}
-                        {bot.current_task_updated_at && (
-                          <em> · {relTime(bot.current_task_updated_at)}</em>
-                        )}
-                      </span>
-                    )}
-                    {bot.status ? (
-                      <>
-                        {bot.current_task && (
-                          <span className="taskline" title={bot.current_task}>
-                            {bot.current_task}
-                          </span>
-                        )}
-                        <span className="statline" title={bot.status}>
-                          {bot.status}
+                      {bot.current_task && !bot.status && (
+                        <span className="taskline" title={bot.current_task}>
+                          {bot.current_task}
                           {bot.current_task_updated_at && (
                             <em> · {relTime(bot.current_task_updated_at)}</em>
                           )}
                         </span>
-                      </>
-                    ) : null}
-                  </button>
-                ))}
-              </div>
-              {bots.length === 0 && <p>No bots yet — press "Add bot".</p>}
-              {bots.length > 0 && visibleBots.length === 0 && (
-                <p className="muted">No bots match the current filters.</p>
-              )}
-            </>
-          )}
-          {tab === "roles" && <RolesPanel />}
-          {tab === "teams" && <TeamsPanel />}
-          {tab === "machines" && <MachinesPanel />}
-          {tab === "integrations" && <IntegrationsPanel />}
-          {tab === "skills" && <SkillsPanel />}
-          {tab === "templates" && <TemplatesPanel />}
-          {tab === "projects" && <ProjectsPanel />}
-          {tab === "settings" && <SettingsPanel />}
-        </main>
-        {chatBotRow && (
-          <ChatSidebar
-            bot={chatBotRow}
-            onSettings={() => {
-              setOpenBot(chatBotRow.id);
-              setDetailOpen(true);
-            }}
-            onClose={() => setChatBot(null)}
-          />
-        )}
-        {detailOpen && openBotRow && (
-          <div className="modal">
-            <button
-              type="button"
-              className="mscrim"
-              aria-label="Close details"
-              onClick={() => setDetailOpen(false)}
-            />
-            <div
-              className="dialog tabs"
-              role="dialog"
-              aria-label={`${openBotRow.name} details`}
-            >
-              <div className="viewhead">
-                <button
-                  type="button"
-                  className="avatarpick"
-                  aria-label="Change avatar"
-                  onClick={() => setAvatarMenu((v) => !v)}
-                >
-                  <Avatar
-                    name={openBotRow.name}
-                    id={openBotRow.id}
-                    shape={openBotRow.avatar_shape}
-                    color={openBotRow.avatar_color}
-                    health={openBotRow.health}
-                  />
-                </button>
-                {detailOpen && avatarMenu && (
-                  <AvatarPicker
-                    bot={openBotRow}
-                    onClose={() => setAvatarMenu(false)}
-                    onPick={(body) =>
-                      api(`/api/bots/${openBotRow.id}`, {
-                        method: "PATCH",
-                        headers: { "content-type": "application/json" },
-                        body: JSON.stringify(body),
-                      }).then(load)
-                    }
-                  />
-                )}
-                <h2>{openBotRow.name}</h2>
-                {openBotRow.current_task && !openBotRow.status && (
-                  <p className="taskline">
-                    {openBotRow.current_task}
-                    {openBotRow.current_task_updated_at && (
-                      <em> · {relTime(openBotRow.current_task_updated_at)}</em>
-                    )}
-                  </p>
-                )}
-                {openBotRow.current_task && openBotRow.status && (
-                  <p className="taskline">{openBotRow.current_task}</p>
-                )}
-                {openBotRow.status && (
-                  <p className="statline">
-                    {openBotRow.status}
-                    {openBotRow.current_task_updated_at && (
-                      <em> · {relTime(openBotRow.current_task_updated_at)}</em>
-                    )}
-                  </p>
-                )}
-                <button
-                  type="button"
-                  className="close"
-                  aria-label="Close"
-                  onClick={() => setDetailOpen(false)}
-                >
-                  ×
-                </button>
-              </div>
-              <nav className="mtabs">
-                {(["general", "triggers", "logs"] as const).map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    className={modalTab === t ? "sel" : ""}
-                    onClick={() => setModalTab(t)}
-                  >
-                    {t[0].toUpperCase() + t.slice(1)}
-                  </button>
-                ))}
-              </nav>
-              <div className="tabbody">
-                {modalTab === "general" && (
-                  <BotGeneral
-                    key={openBotRow.id}
-                    bot={openBotRow}
-                    onChanged={load}
-                  />
-                )}
-                {modalTab === "triggers" && <Triggers botId={openBotRow.id} />}
-                {modalTab === "logs" && (
-                  <>
-                    {runs.length === 0 && (
-                      <p>No runs yet. Press "Run now" or wait for a trigger.</p>
-                    )}
-                    {runs.map((run) => (
-                      <article key={run.id}>
-                        <header>
-                          <span className={`status ${run.status}`}>
-                            {run.status}
-                          </span>
-                          <span>{run.trigger}</span>
-                          <span>{fmt(run.started_at)}</span>
-                          {run.finished_at && (
-                            <span>→ {fmt(run.finished_at)}</span>
+                      )}
+                      {bot.status ? (
+                        <>
+                          {bot.current_task && (
+                            <span className="taskline" title={bot.current_task}>
+                              {bot.current_task}
+                            </span>
                           )}
-                        </header>
-                        {run.output && <pre>{run.output}</pre>}
-                        {run.error && <pre className="error">{run.error}</pre>}
-                      </article>
-                    ))}
-                  </>
+                          <span className="statline" title={bot.status}>
+                            {bot.status}
+                            {bot.current_task_updated_at && (
+                              <em> · {relTime(bot.current_task_updated_at)}</em>
+                            )}
+                          </span>
+                        </>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+                {bots.length === 0 && <p>No bots yet — press "Add bot".</p>}
+                {bots.length > 0 && visibleBots.length === 0 && (
+                  <p className="muted">No bots match the current filters.</p>
                 )}
+              </>
+            )}
+            {tab === "roles" && <RolesPanel />}
+            {tab === "teams" && <TeamsPanel />}
+            {tab === "machines" && <MachinesPanel />}
+            {tab === "integrations" && <IntegrationsPanel />}
+            {tab === "skills" && <SkillsPanel />}
+            {tab === "templates" && <TemplatesPanel />}
+            {tab === "projects" && <ProjectsPanel />}
+            {tab === "settings" && <SettingsPanel />}
+          </main>
+          {chatBotRow && (
+            <ChatSidebar
+              bot={chatBotRow}
+              onSettings={() => {
+                setOpenBot(chatBotRow.id);
+                setDetailOpen(true);
+              }}
+              onClose={() => setChatBot(null)}
+            />
+          )}
+          {detailOpen && openBotRow && (
+            <div className="modal">
+              <button
+                type="button"
+                className="mscrim"
+                aria-label="Close details"
+                onClick={() => discardGuard(() => setDetailOpen(false))}
+              />
+              <div
+                className="dialog tabs"
+                role="dialog"
+                aria-label={`${openBotRow.name} details`}
+              >
+                <div className="viewhead">
+                  <button
+                    type="button"
+                    className="avatarpick"
+                    aria-label="Change avatar"
+                    onClick={() => setAvatarMenu((v) => !v)}
+                  >
+                    <Avatar
+                      name={openBotRow.name}
+                      id={openBotRow.id}
+                      shape={openBotRow.avatar_shape}
+                      color={openBotRow.avatar_color}
+                      health={openBotRow.health}
+                    />
+                  </button>
+                  {detailOpen && avatarMenu && (
+                    <AvatarPicker
+                      bot={openBotRow}
+                      onClose={() => setAvatarMenu(false)}
+                      onPick={(body) =>
+                        api(`/api/bots/${openBotRow.id}`, {
+                          method: "PATCH",
+                          headers: { "content-type": "application/json" },
+                          body: JSON.stringify(body),
+                        }).then(load)
+                      }
+                    />
+                  )}
+                  <h2>{openBotRow.name}</h2>
+                  {openBotRow.current_task && !openBotRow.status && (
+                    <p className="taskline">
+                      {openBotRow.current_task}
+                      {openBotRow.current_task_updated_at && (
+                        <em>
+                          {" "}
+                          · {relTime(openBotRow.current_task_updated_at)}
+                        </em>
+                      )}
+                    </p>
+                  )}
+                  {openBotRow.current_task && openBotRow.status && (
+                    <p className="taskline">{openBotRow.current_task}</p>
+                  )}
+                  {openBotRow.status && (
+                    <p className="statline">
+                      {openBotRow.status}
+                      {openBotRow.current_task_updated_at && (
+                        <em>
+                          {" "}
+                          · {relTime(openBotRow.current_task_updated_at)}
+                        </em>
+                      )}
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    className="close"
+                    aria-label="Close"
+                    onClick={() => discardGuard(() => setDetailOpen(false))}
+                  >
+                    ×
+                  </button>
+                </div>
+                <nav className="mtabs">
+                  {(["general", "triggers", "logs"] as const).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      className={modalTab === t ? "sel" : ""}
+                      onClick={() => discardGuard(() => setModalTab(t))}
+                    >
+                      {t[0].toUpperCase() + t.slice(1)}
+                    </button>
+                  ))}
+                </nav>
+                <div className="tabbody">
+                  {modalTab === "general" && (
+                    <BotGeneral
+                      key={openBotRow.id}
+                      bot={openBotRow}
+                      onChanged={load}
+                    />
+                  )}
+                  {modalTab === "triggers" && (
+                    <Triggers botId={openBotRow.id} />
+                  )}
+                  {modalTab === "logs" && (
+                    <>
+                      {runs.length === 0 && (
+                        <p>
+                          No runs yet. Press "Run now" or wait for a trigger.
+                        </p>
+                      )}
+                      {runs.map((run) => (
+                        <article key={run.id}>
+                          <header>
+                            <span className={`status ${run.status}`}>
+                              {run.status}
+                            </span>
+                            <span>{run.trigger}</span>
+                            <span>{fmt(run.started_at)}</span>
+                            {run.finished_at && (
+                              <span>→ {fmt(run.finished_at)}</span>
+                            )}
+                          </header>
+                          {run.output && <pre>{run.output}</pre>}
+                          {run.error && (
+                            <pre className="error">{run.error}</pre>
+                          )}
+                        </article>
+                      ))}
+                    </>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        )}
-        {addOpen && (
-          <AddBotModal
-            usedNames={bots.map((b) => b.name)}
-            onClose={() => setAddOpen(false)}
-            onCreated={() => {
-              setAddOpen(false);
-              void load();
+          )}
+          {addOpen && (
+            <AddBotModal
+              usedNames={bots.map((b) => b.name)}
+              onClose={() => setAddOpen(false)}
+              onCreated={() => {
+                setAddOpen(false);
+                void load();
+              }}
+            />
+          )}
+        </div>
+        {pendingDiscard && (
+          <ConfirmDialog
+            text={`Discard unsaved changes to ${pendingDiscard.label}?`}
+            confirmLabel="Discard changes"
+            cancelLabel="Keep editing"
+            onCancel={() => setPendingDiscard(null)}
+            onConfirm={() => {
+              const p = pendingDiscard;
+              setPendingDiscard(null);
+              clearAllDirty();
+              p.fn();
             }}
           />
         )}
       </div>
-    </div>
+    </NavGuardContext.Provider>
   );
 }
 
@@ -1157,7 +1220,7 @@ export function AddBotModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const initialName = pickBotName(usedNames);
+  const initialName = useRef(pickBotName(usedNames)).current;
   const [name, setName] = useState(initialName);
   const [suggestion, setSuggestion] = useState(initialName);
 
@@ -1197,6 +1260,19 @@ export function AddBotModal({
     setRoleId(t.role_id ?? "");
     setMachineId(t.machine_id ?? "");
   };
+  const dirty =
+    name !== initialName ||
+    instructions !== "" ||
+    roleId !== "" ||
+    machineId !== "";
+  const attemptClose = useDiscardGuard("this new bot", dirty, onClose);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") attemptClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [attemptClose]);
 
   return (
     <div className="modal">
@@ -1204,7 +1280,7 @@ export function AddBotModal({
         type="button"
         className="mscrim"
         aria-label="Cancel"
-        onClick={onClose}
+        onClick={attemptClose}
       />
       <form
         className="dialog narrow"
@@ -1249,7 +1325,7 @@ export function AddBotModal({
             type="button"
             className="close"
             aria-label="Cancel"
-            onClick={onClose}
+            onClick={attemptClose}
           >
             ×
           </button>
@@ -1328,7 +1404,8 @@ export function AddBotModal({
           <button type="submit" disabled={busy}>
             Create
           </button>
-          <button type="button" onClick={onClose}>
+          <UnsavedNote dirty={dirty} />
+          <button type="button" onClick={attemptClose}>
             Cancel
           </button>
         </div>
@@ -1609,6 +1686,7 @@ interface Provider {
 export function SettingsPanel() {
   const [theme, setTheme] = useState<Theme>(currentTheme);
   const [idle, setIdle] = useState(5);
+  const [savedIdle, setSavedIdle] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [defaultProviderId, setDefaultProviderId] = useState<string | null>(
@@ -1712,9 +1790,15 @@ export function SettingsPanel() {
 
   useEffect(() => {
     void api<{ sandbox_idle_minutes: number }>("/api/settings")
-      .then((s) => setIdle(s.sandbox_idle_minutes))
+      .then((s) => {
+        setIdle(s.sandbox_idle_minutes);
+        setSavedIdle(s.sandbox_idle_minutes);
+      })
       .catch(() => {});
   }, []);
+
+  const idleDirty = savedIdle !== null && idle !== savedIdle;
+  useDirtyGuard("the sandbox idle timeout", idleDirty);
 
   const saveIdle = async () => {
     setSaving(true);
@@ -1724,6 +1808,7 @@ export function SettingsPanel() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ sandbox_idle_minutes: idle }),
       });
+      setSavedIdle(idle);
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1773,6 +1858,7 @@ export function SettingsPanel() {
         <button type="button" disabled={saving} onClick={() => void saveIdle()}>
           Save
         </button>
+        <UnsavedNote dirty={idleDirty} />
       </div>
       <p className="muted">Notification sounds</p>
       <div className="actions">
@@ -1985,6 +2071,16 @@ export function ProviderFormModal({
   const [manual, setManual] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dirty =
+    name !== (provider?.name ?? "") ||
+    baseUrl !== (provider?.base_url ?? "") ||
+    apiKey !== "" ||
+    models.join(",") !== (provider?.models ?? []).join(",");
+  const attemptClose = useDiscardGuard(
+    provider ? `provider ${provider.name}` : "this new provider",
+    dirty,
+    onClose,
+  );
 
   const toggleModel = (id: string) => {
     setModels((ms) =>
@@ -2045,7 +2141,7 @@ export function ProviderFormModal({
         type="button"
         className="mscrim"
         aria-label="Cancel"
-        onClick={onClose}
+        onClick={attemptClose}
       />
       <div className="dialog">
         <div className="viewhead">
@@ -2054,7 +2150,7 @@ export function ProviderFormModal({
             type="button"
             className="close"
             aria-label="Cancel"
-            onClick={onClose}
+            onClick={attemptClose}
           >
             ×
           </button>
@@ -2381,6 +2477,7 @@ export function TeamConfigModal({
   const dirty =
     name.trim() !== team.name ||
     attached.join(",") !== (team.project_ids ?? []).join(",");
+  const attemptClose = useDiscardGuard(`team ${team.name}`, dirty, onClose);
 
   return (
     <div className="modal">
@@ -2388,7 +2485,7 @@ export function TeamConfigModal({
         type="button"
         className="mscrim"
         aria-label="Cancel"
-        onClick={onClose}
+        onClick={attemptClose}
       />
       <form
         className="dialog narrow"
@@ -2471,6 +2568,7 @@ export function TeamConfigModal({
           <button type="submit" disabled={busy || !name.trim() || !dirty}>
             Save
           </button>
+          <UnsavedNote dirty={dirty} />
           <button
             type="button"
             className="danger"
@@ -2479,7 +2577,7 @@ export function TeamConfigModal({
           >
             Delete
           </button>
-          <button type="button" onClick={onClose}>
+          <button type="button" onClick={attemptClose}>
             Cancel
           </button>
         </div>
@@ -2552,6 +2650,7 @@ export function BotTeams({ botId }: { botId: string }) {
 
 export function ProjectsPanel() {
   const [projects, setProjects] = useState<Project[]>([]);
+  const navGuard = useNavGuard();
   const [creating, setCreating] = useState(false);
   const [selProject, setSelProject] = useState<Project | null>(null);
 
@@ -2582,7 +2681,7 @@ export function ProjectsPanel() {
             type="button"
             key={project.id}
             className="card"
-            onClick={() => setSelProject(project)}
+            onClick={() => navGuard(() => setSelProject(project))}
           >
             <strong>{project.name}</strong>
             <span className="preview">{project.description}</span>
@@ -2621,6 +2720,15 @@ export function ProjectModal({
   const [body, setBody] = useState(project?.body ?? "");
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
+  const dirty =
+    name !== (project?.name ?? "") ||
+    description !== (project?.description ?? "") ||
+    body !== (project?.body ?? "");
+  const attemptClose = useDiscardGuard(
+    project ? `project ${project.name}` : "this new project",
+    dirty,
+    onClose,
+  );
 
   const save = async () => {
     setBusy(true);
@@ -2643,7 +2751,7 @@ export function ProjectModal({
         type="button"
         className="mscrim"
         aria-label="Cancel"
-        onClick={onClose}
+        onClick={attemptClose}
       />
       <form
         className="dialog narrow"
@@ -2690,6 +2798,7 @@ export function ProjectModal({
           <button type="submit" disabled={busy || !name.trim() || !body.trim()}>
             Save
           </button>
+          <UnsavedNote dirty={dirty} />
           {project && (
             <button
               type="button"
@@ -2768,6 +2877,7 @@ export function BotProjects({ botId }: { botId: string }) {
 
 export function RolesPanel() {
   const [roles, setRoles] = useState<Role[]>([]);
+  const navGuard = useNavGuard();
   const [query, setQuery] = useState("");
   const [formRole, setFormRole] = useState<Role | null>(null);
   const [creating, setCreating] = useState(false);
@@ -2813,7 +2923,7 @@ export function RolesPanel() {
             type="button"
             key={role.id}
             className="card"
-            onClick={() => setFormRole(role)}
+            onClick={() => navGuard(() => setFormRole(role))}
           >
             <strong>{role.name}</strong>
             <span className="preview">{role.instructions}</span>
@@ -2856,6 +2966,16 @@ export function RoleFormModal({
   const [skillOptions, setSkillOptions] = useState<GrantOption[]>([]);
   const [mcpIds, setMcpIds] = useState<string[]>(role?.mcp_server_ids ?? []);
   const [skillIds, setSkillIds] = useState<string[]>(role?.skill_ids ?? []);
+  const dirty =
+    name !== (role?.name ?? "") ||
+    instructions !== (role?.instructions ?? "") ||
+    mcpIds.join(",") !== (role?.mcp_server_ids ?? []).join(",") ||
+    skillIds.join(",") !== (role?.skill_ids ?? []).join(",");
+  const attemptClose = useDiscardGuard(
+    role ? `role ${role.name}` : "this new role",
+    dirty,
+    onClose,
+  );
 
   useEffect(() => {
     void api<GrantOption[]>("/api/mcp-servers")
@@ -2882,7 +3002,7 @@ export function RoleFormModal({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !confirmDel) onClose();
+      if (e.key === "Escape" && !confirmDel) attemptClose();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -2894,7 +3014,7 @@ export function RoleFormModal({
         type="button"
         className="mscrim"
         aria-label="Cancel"
-        onClick={onClose}
+        onClick={attemptClose}
       />
       <form
         className="dialog narrow"
@@ -2937,7 +3057,7 @@ export function RoleFormModal({
             type="button"
             className="close"
             aria-label="Cancel"
-            onClick={onClose}
+            onClick={attemptClose}
           >
             ×
           </button>
@@ -3008,6 +3128,7 @@ export function RoleFormModal({
           <button type="submit" disabled={busy}>
             {role ? "Save role" : "Create role"}
           </button>
+          <UnsavedNote dirty={dirty} />
           {role && (
             <button
               type="button"
@@ -3018,7 +3139,7 @@ export function RoleFormModal({
               Delete role
             </button>
           )}
-          <button type="button" onClick={onClose}>
+          <button type="button" onClick={attemptClose}>
             Cancel
           </button>
         </div>
@@ -3093,12 +3214,15 @@ export function BotGeneral({
       .catch(() => setMachines([]));
   }, []);
 
-  if (!bot) return null;
   const dirty =
-    name.trim() !== bot.name ||
-    instructions !== bot.instructions ||
-    roleId !== (bot.role_id ?? "") ||
-    machineId !== (bot.machine_id ?? "");
+    !!bot &&
+    (name.trim() !== bot.name ||
+      instructions !== bot.instructions ||
+      roleId !== (bot.role_id ?? "") ||
+      machineId !== (bot.machine_id ?? ""));
+  useDirtyGuard(bot ? `the bot ${bot.name}` : "this bot", dirty);
+
+  if (!bot) return null;
   const patchBot = (body: Record<string, unknown>) =>
     api(`/api/bots/${bot.id}`, {
       method: "PATCH",
@@ -3140,6 +3264,7 @@ export function BotGeneral({
           >
             Save
           </button>
+          <UnsavedNote dirty={dirty} />
         </div>
       </div>
       <p className="statusline">
@@ -3308,14 +3433,88 @@ export function BotGeneral({
   );
 }
 
+const dirtyEditors = new Map<string, string>();
+const dirtyListeners = new Set<() => void>();
+
+function bumpDirty(): void {
+  for (const l of dirtyListeners) l();
+}
+
+export function anyDirtyLabel(): string | null {
+  for (const label of dirtyEditors.values()) return label;
+  return null;
+}
+
+export function clearAllDirty(): void {
+  dirtyEditors.clear();
+  bumpDirty();
+}
+
+function subscribeDirty(l: () => void): () => void {
+  dirtyListeners.add(l);
+  return () => {
+    dirtyListeners.delete(l);
+  };
+}
+
+export function formDirty(
+  snapshot: Record<string, unknown>,
+  current: Record<string, unknown>,
+): boolean {
+  for (const key of Object.keys(snapshot))
+    if (snapshot[key] !== current[key]) return true;
+  return false;
+}
+
+export const NavGuardContext = createContext<(fn: () => void) => void>((fn) =>
+  fn(),
+);
+
+export function useNavGuard(): (fn: () => void) => void {
+  return useContext(NavGuardContext);
+}
+
+export function UnsavedNote({ dirty }: { dirty: boolean }) {
+  if (!dirty) return null;
+  return (
+    <span className="unsavednote" role="status">
+      Unsaved changes
+    </span>
+  );
+}
+
+export function useDirtyGuard(label: string, dirty: boolean): void {
+  useEffect(() => {
+    if (dirty) dirtyEditors.set(label, label);
+    else dirtyEditors.delete(label);
+    bumpDirty();
+    return () => {
+      dirtyEditors.delete(label);
+      bumpDirty();
+    };
+  }, [label, dirty]);
+}
+
+export function useDiscardGuard(
+  label: string,
+  dirty: boolean,
+  close: () => void,
+): () => void {
+  const guard = useNavGuard();
+  useDirtyGuard(label, dirty);
+  return () => guard(close);
+}
+
 export function ConfirmDialog({
   text,
   confirmLabel,
+  cancelLabel = "Cancel",
   onCancel,
   onConfirm,
 }: {
   text: string;
   confirmLabel: string;
+  cancelLabel?: string;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -3342,7 +3541,7 @@ export function ConfirmDialog({
             {confirmLabel}
           </button>
           <button type="button" onClick={onCancel}>
-            Cancel
+            {cancelLabel}
           </button>
         </div>
       </div>
@@ -3601,6 +3800,12 @@ function TriggerEditor({
     name !== (trigger.name ?? "") ||
     message !== trigger.message ||
     (trigger.kind === "schedule" && schedule !== trigger.schedule);
+  useDirtyGuard(
+    trigger.name?.trim()
+      ? `the trigger ${trigger.name}`
+      : `this ${trigger.kind} trigger`,
+    dirty,
+  );
   return (
     <>
       <div className="tedithead">
@@ -3663,6 +3868,7 @@ function TriggerEditor({
         >
           Save
         </button>
+        <UnsavedNote dirty={dirty} />
         {trigger.kind === "webhook" && (
           <button type="button" onClick={onRotate}>
             Rotate secret
@@ -4111,6 +4317,15 @@ export function SkillModal({
   const [instructions, setInstructions] = useState(skill?.instructions ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const dirty =
+    name !== (skill?.name ?? "") ||
+    description !== (skill?.description ?? "") ||
+    instructions !== (skill?.instructions ?? "");
+  const attemptClose = useDiscardGuard(
+    skill ? `skill ${skill.name}` : "this new skill",
+    dirty,
+    onClose,
+  );
 
   return (
     <div className="modal">
@@ -4118,7 +4333,7 @@ export function SkillModal({
         type="button"
         className="mscrim"
         aria-label="Close"
-        onClick={onClose}
+        onClick={attemptClose}
       />
       <div className="dialog" role="dialog" aria-label="Skill">
         <h2>{skill ? "Edit skill" : "Add skill"}</h2>
@@ -4171,7 +4386,8 @@ export function SkillModal({
             <button type="submit" disabled={busy}>
               {busy ? "Saving…" : skill ? "Save" : "Create"}
             </button>
-            <button type="button" onClick={onClose}>
+            <UnsavedNote dirty={dirty} />
+            <button type="button" onClick={attemptClose}>
               Cancel
             </button>
           </div>
@@ -4200,6 +4416,24 @@ export function McpServerModal({
   const [enabled, setEnabled] = useState(server ? server.enabled === 1 : true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const snap = useRef({
+    name: server?.name ?? "",
+    command: server?.command ?? "",
+    args: (server?.args ?? []).join("\n"),
+    env: JSON.stringify(envRows),
+    enabled: server ? server.enabled === 1 : true,
+  }).current;
+  const dirty =
+    name !== snap.name ||
+    command !== snap.command ||
+    args !== snap.args ||
+    JSON.stringify(envRows) !== snap.env ||
+    enabled !== snap.enabled;
+  const attemptClose = useDiscardGuard(
+    server ? `MCP server ${server.name}` : "this new MCP server",
+    dirty,
+    onClose,
+  );
 
   return (
     <div className="modal">
@@ -4207,7 +4441,7 @@ export function McpServerModal({
         type="button"
         className="mscrim"
         aria-label="Close"
-        onClick={onClose}
+        onClick={attemptClose}
       />
       <div className="dialog" role="dialog" aria-label="MCP server">
         <h2>{server ? "Edit MCP server" : "Add MCP server"}</h2>
@@ -4328,12 +4562,13 @@ export function McpServerModal({
           </label>
           {error && <p className="error">{error}</p>}
           <div className="actions">
-            <button type="button" onClick={onClose}>
+            <button type="button" onClick={attemptClose}>
               Cancel
             </button>
             <button type="submit" disabled={busy}>
               {busy ? "Saving…" : "Save"}
             </button>
+            <UnsavedNote dirty={dirty} />
           </div>
         </form>
       </div>
@@ -4463,6 +4698,15 @@ export function MachineModal({
   const [dockerfile, setDockerfile] = useState(machine?.dockerfile ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const dirty =
+    name !== (machine?.name ?? "") ||
+    description !== (machine?.description ?? "") ||
+    dockerfile !== (machine?.dockerfile ?? "");
+  const attemptClose = useDiscardGuard(
+    machine ? `machine ${machine.name}` : "this new machine",
+    dirty,
+    onClose,
+  );
 
   return (
     <div className="modal">
@@ -4470,7 +4714,7 @@ export function MachineModal({
         type="button"
         className="mscrim"
         aria-label="Close"
-        onClick={onClose}
+        onClick={attemptClose}
       />
       <div className="dialog" role="dialog" aria-label="Machine">
         <h2>{machine ? "Edit machine" : "Add machine"}</h2>
@@ -4530,7 +4774,8 @@ export function MachineModal({
             <button type="submit" disabled={busy}>
               {busy ? "Saving…" : machine ? "Save" : "Create"}
             </button>
-            <button type="button" onClick={onClose}>
+            <UnsavedNote dirty={dirty} />
+            <button type="button" onClick={attemptClose}>
               Cancel
             </button>
           </div>
@@ -4558,6 +4803,26 @@ export function TemplateEditorModal({
   const [machines, setMachines] = useState<Machine[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [busy, setBusy] = useState(false);
+  const snap = useRef({
+    name: initial.name,
+    description: initial.description,
+    instructions: initial.instructions,
+    machine_id: initial.machine_id ?? "",
+    role_id: initial.role_id ?? "",
+    triggers: JSON.stringify(initial.triggers),
+  }).current;
+  const dirty =
+    name !== snap.name ||
+    description !== snap.description ||
+    instructions !== snap.instructions ||
+    machineId !== snap.machine_id ||
+    roleId !== snap.role_id ||
+    JSON.stringify(triggers) !== snap.triggers;
+  const attemptClose = useDiscardGuard(
+    initial.id ? `template ${initial.name}` : "this new template",
+    dirty,
+    onClose,
+  );
 
   useEffect(() => {
     void api<Role[]>("/api/roles").then(setRoles, () => setRoles([]));
@@ -4577,7 +4842,7 @@ export function TemplateEditorModal({
         type="button"
         className="mscrim"
         aria-label="Cancel"
-        onClick={onClose}
+        onClick={attemptClose}
       />
       <form
         className="dialog narrow"
@@ -4616,7 +4881,7 @@ export function TemplateEditorModal({
             type="button"
             className="close"
             aria-label="Cancel"
-            onClick={onClose}
+            onClick={attemptClose}
           >
             ×
           </button>
@@ -4715,7 +4980,8 @@ export function TemplateEditorModal({
           <button type="submit" disabled={busy}>
             Save
           </button>
-          <button type="button" onClick={onClose}>
+          <UnsavedNote dirty={dirty} />
+          <button type="button" onClick={attemptClose}>
             Cancel
           </button>
         </div>
