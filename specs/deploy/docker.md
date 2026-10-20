@@ -9,4 +9,4 @@ The orchestrator ships as a single self-contained container image bundling the H
 - The bot sandbox image (`SANDBOX_IMAGE`, default `ghcr.io/<owner>/bots-sandbox:latest`) is referenced by the orchestrator, which mounts the docker socket so it can lazily create and reuse per-bot sandbox containers via `docker run`/`docker exec`, alongside the data volume and an outbound network.
 - Before first use the orchestrator checks the configured image exists locally (`docker image inspect`) and transparently pulls it when missing; a failed pull fails only that bot's run with a clear error, never crashes the loops of other bots.
 
-See also: `bots/sandbox.md`, `bots/registry.md`.
+See also: `../machines/sandbox.md`, `../bots/registry.md`.
