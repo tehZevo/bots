@@ -56,6 +56,7 @@ const {
   BotGeneral,
   ChatSidebar,
   Chat,
+  BotCard,
   ChatTurnView,
   ChatBar,
   Triggers,
@@ -163,6 +164,45 @@ test("icons render svgs", () => {
 test("App shell renders", () => {
   const html = renderToStaticMarkup(React.createElement(App));
   assert.ok(html.includes("Bots"));
+});
+
+test("bot cards carry a run-now button, disabled with the bot", () => {
+  const base = {
+    id: "b1",
+    name: "Alpha",
+    instructions: "",
+    model_id: null,
+    role_id: null,
+    machine_id: null,
+    created_at: 0,
+    run_state: "enabled",
+    health: "blue",
+    status: null,
+    status_level: null,
+    current_task: null,
+    current_task_updated_at: null,
+    avatar_shape: null,
+    avatar_color: null,
+  };
+  const on = renderToStaticMarkup(
+    React.createElement(BotCard, {
+      bot: { ...base, enabled: 1 } as never,
+      poking: false,
+      onOpen: () => undefined,
+      onRun: () => undefined,
+    }),
+  );
+  assert.match(on, /aria-label="Run Alpha now"/);
+  assert.doesNotMatch(on, /class="spin"/);
+  const off = renderToStaticMarkup(
+    React.createElement(BotCard, {
+      bot: { ...base, enabled: 0 } as never,
+      poking: false,
+      onOpen: () => undefined,
+      onRun: () => undefined,
+    }),
+  );
+  assert.match(off, /disabled=""/);
 });
 
 test("panels and tab bodies render with stubbed fetch", () => {

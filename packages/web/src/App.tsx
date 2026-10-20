@@ -482,6 +482,99 @@ function playSound(id: string): void {
   void a.play().catch(() => undefined);
 }
 
+export function BotCard({
+  bot,
+  poking,
+  onOpen,
+  onRun,
+}: {
+  bot: Bot;
+  poking: boolean;
+  onOpen: () => void;
+  onRun: () => void;
+}) {
+  return (
+    <div className="cardwrap">
+      <button
+        type="button"
+        className="card"
+        data-bot-card={bot.id}
+        aria-label={`${bot.name} (${bot.status})`}
+        onClick={() => onOpen()}
+      >
+        <span className="cardhead">
+          <Avatar
+            name={bot.name}
+            id={bot.id}
+            shape={bot.avatar_shape}
+            color={bot.avatar_color}
+            health={bot.health}
+          />
+          <span className="cardtext">
+            <strong title={bot.name}>{bot.name}</strong>
+            <StatusDot
+              id={bot.id}
+              health={bot.health}
+              label={HEALTH_LABEL[bot.health]}
+              active={bot.run_state === "running"}
+            />
+          </span>
+        </span>
+        {bot.current_task && !bot.status && (
+          <span className="taskline" title={bot.current_task}>
+            {bot.current_task}
+            {bot.current_task_updated_at && (
+              <em> · {relTime(bot.current_task_updated_at)}</em>
+            )}
+          </span>
+        )}
+        {bot.status ? (
+          <>
+            {bot.current_task && (
+              <span className="taskline" title={bot.current_task}>
+                {bot.current_task}
+              </span>
+            )}
+            <span className="statline" title={bot.status}>
+              {bot.status}
+              {bot.current_task_updated_at && (
+                <em> · {relTime(bot.current_task_updated_at)}</em>
+              )}
+            </span>
+          </>
+        ) : null}
+      </button>
+      <button
+        type="button"
+        className={`runcard${poking ? " poking" : ""}`}
+        aria-label={poking ? `${bot.name} is starting` : `Run ${bot.name} now`}
+        title="Run now"
+        disabled={!bot.enabled || !!poking}
+        onClick={() => onRun()}
+      >
+        {poking ? <SpinnerIcon size={14} /> : <PlayIcon size={14} />}
+      </button>
+    </div>
+  );
+}
+
+async function waitFirstAction(botId: string, runId: string): Promise<void> {
+  const countReplies = () =>
+    api<{ role: string }[]>(`/api/bots/${botId}/messages`)
+      .then((t) => t.filter((x) => x.role === "assistant").length)
+      .catch(() => null);
+  const base = await countReplies();
+  const started = Date.now();
+  while (Date.now() - started < 120_000) {
+    await new Promise((r) => setTimeout(r, 800));
+    const runs = await api<Run[]>(`/api/bots/${botId}/runs`).catch(() => []);
+    const run = runs.find((r) => r.id === runId);
+    if (run && run.status !== "running") return;
+    const now = await countReplies();
+    if (base !== null && now !== null && now > base) return;
+  }
+}
+
 export function App() {
   const [bots, setBots] = useState<Bot[]>([]);
   const [tab, setTabRaw] = useState<Tab>(() =>
@@ -529,6 +622,17 @@ export function App() {
   }, []);
   const [openBot, setOpenBot] = useState<string | null>(null);
   const [chatBot, setChatBot] = useState<string | null>(null);
+  const [poking, setPoking] = useState<Record<string, boolean>>({});
+
+  const poke = (bot: Bot) => {
+    if (!bot.enabled || poking[bot.id]) return;
+    setPoking((p) => ({ ...p, [bot.id]: true }));
+    void api<{ runId: string }>(`/api/bots/${bot.id}/run`, { method: "POST" })
+      .then((r) => waitFirstAction(bot.id, r.runId))
+      .catch(() => undefined)
+      .finally(() => setPoking((p) => ({ ...p, [bot.id]: false })));
+  };
+
   const [modalTab, setModalTab] = useState<"general" | "triggers" | "logs">(
     "general",
   );
@@ -934,56 +1038,13 @@ export function App() {
                 </div>
                 <div className="cards">
                   {visibleBots.map((bot) => (
-                    <button
-                      type="button"
+                    <BotCard
                       key={bot.id}
-                      className="card"
-                      data-bot-card={bot.id}
-                      aria-label={`${bot.name} (${bot.status})`}
-                      onClick={() => setChatBot(bot.id)}
-                    >
-                      <span className="cardhead">
-                        <Avatar
-                          name={bot.name}
-                          id={bot.id}
-                          shape={bot.avatar_shape}
-                          color={bot.avatar_color}
-                          health={bot.health}
-                        />
-                        <span className="cardtext">
-                          <strong title={bot.name}>{bot.name}</strong>
-                          <StatusDot
-                            id={bot.id}
-                            health={bot.health}
-                            label={HEALTH_LABEL[bot.health]}
-                            active={bot.run_state === "running"}
-                          />
-                        </span>
-                      </span>
-                      {bot.current_task && !bot.status && (
-                        <span className="taskline" title={bot.current_task}>
-                          {bot.current_task}
-                          {bot.current_task_updated_at && (
-                            <em> · {relTime(bot.current_task_updated_at)}</em>
-                          )}
-                        </span>
-                      )}
-                      {bot.status ? (
-                        <>
-                          {bot.current_task && (
-                            <span className="taskline" title={bot.current_task}>
-                              {bot.current_task}
-                            </span>
-                          )}
-                          <span className="statline" title={bot.status}>
-                            {bot.status}
-                            {bot.current_task_updated_at && (
-                              <em> · {relTime(bot.current_task_updated_at)}</em>
-                            )}
-                          </span>
-                        </>
-                      ) : null}
-                    </button>
+                      bot={bot}
+                      poking={!!poking[bot.id]}
+                      onOpen={() => setChatBot(bot.id)}
+                      onRun={() => poke(bot)}
+                    />
                   ))}
                 </div>
                 {bots.length === 0 && <p>No bots yet — press "Add bot".</p>}
@@ -1473,6 +1534,31 @@ export function BookIcon({ size = 18 }: { size?: number }) {
     >
       <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5v13z" />
       <path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5" />
+    </svg>
+  );
+}
+
+export function PlayIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8 5.5v13l11-6.5z" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function SpinnerIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      className="spin"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="3"
+      aria-hidden="true"
+    >
+      <path d="M12 3a9 9 0 1 0 9 9" strokeLinecap="round" />
     </svg>
   );
 }
@@ -2361,7 +2447,10 @@ export function TeamCreateModal({
               await api(`/api/teams/${created.id}/members`, {
                 method: "PUT",
                 headers: { "content-type": "application/json" },
-                body: JSON.stringify({ bot_id: id, leader: leaderSel.includes(id) }),
+                body: JSON.stringify({
+                  bot_id: id,
+                  leader: leaderSel.includes(id),
+                }),
               });
             onClose();
           });
@@ -2369,7 +2458,11 @@ export function TeamCreateModal({
       >
         <label className="field">
           Name
-          <input value={name} onChange={(e) => setName(e.target.value)} required />
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
         </label>
         <div className="field">
           Members
@@ -2549,14 +2642,21 @@ export function TeamConfigModal({
   const [confirmDel, setConfirmDel] = useState(false);
 
   const memberIds = Array.from(new Set([...memberSel, ...leaderSel]));
-  const curLeaderIds = team.members.filter((m) => m.leader).map((m) => m.bot_id);
+  const curLeaderIds = team.members
+    .filter((m) => m.leader)
+    .map((m) => m.bot_id);
   const dirty =
     name.trim() !== team.name ||
     attached.join(",") !== (team.project_ids ?? []).join(",") ||
     [...memberIds].sort().join(",") !==
-      team.members.map((m) => m.bot_id).sort().join(",") ||
-    leaderSel.filter((id) => memberIds.includes(id)).sort().join(",") !==
-      [...curLeaderIds].sort().join(",");
+      team.members
+        .map((m) => m.bot_id)
+        .sort()
+        .join(",") ||
+    leaderSel
+      .filter((id) => memberIds.includes(id))
+      .sort()
+      .join(",") !== [...curLeaderIds].sort().join(",");
 
   const save = () => {
     const cur = new Map(team.members.map((m) => [m.bot_id, m.leader]));

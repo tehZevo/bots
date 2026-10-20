@@ -538,6 +538,50 @@ article header {
   gap: 0.75rem;
 }
 
+.cardwrap {
+  position: relative;
+  display: flex;
+}
+.cardwrap .card {
+  flex: 1;
+}
+.runcard {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  z-index: 2;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  opacity: 0.75;
+  cursor: pointer;
+}
+.runcard:hover:not(:disabled),
+.runcard:focus-visible {
+  opacity: 1;
+  color: #3b82f6;
+}
+.runcard:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.spin {
+  animation: rotate 0.9s linear infinite;
+}
+@keyframes rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .card {
   position: relative;
   display: flex;
@@ -1152,7 +1196,7 @@ textarea.code {
 
 button:not(.sidetabs button):not(.mtabs button):not(.card):not(
   .avatarmenu button
-):not(.avatarpick):not(.pickscrim) {
+):not(.avatarpick):not(.runcard):not(.pickscrim) {
   min-height: var(--control-h);
   padding: 0 0.85rem;
   border-radius: var(--radius-control);
@@ -1402,6 +1446,9 @@ button.danger.ghost {
   .chat-working .dots i {
     animation: none;
     opacity: 0.7;
+  }
+  .spin {
+    animation-duration: 2.4s;
   }
 }
 
@@ -2013,5 +2060,12 @@ button.danger.ghost {
 @media (max-width: 720px) {
   .confirm > .dialog.narrow {
     width: calc(100vw - 2rem);
+  }
+}
+@media (max-width: 720px) {
+  .runcard {
+    width: 34px;
+    height: 34px;
+    padding: 0;
   }
 }
