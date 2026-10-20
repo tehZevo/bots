@@ -32,7 +32,17 @@ import { type ResolvedLlm, resolveDefault } from "./llm.ts";
 import { connectMcpServer, type McpSession } from "./mcp.ts";
 import { buildTools } from "./tools.ts";
 
-const DEFAULT_SYSTEM_PROMPT = "You are a helpful autonomous bot.";
+const DEFAULT_SYSTEM_PROMPT =
+  "You are a bot running in bots, a self-hosted automation system. Carry out the assignment you are given using the tools available to you.";
+
+const ASSIGNMENT_SCOPE = [
+  "## Assignment",
+  "The message or trigger that started this run, and any messages that steered it, is your assignment.",
+  "Work only on that assignment. Do not start adjacent tasks, research, refactors, or cleanups that were not asked for; mention them in your reply instead.",
+  "Do not message or delegate to other bots unless the assignment or your instructions explicitly ask for coordination, or a teammate's specific answer is required to finish. Do not send progress updates or recruit help.",
+  "Reply once, when the assignment is complete or you are blocked. Keep progress in the current-task and status tools instead of narrating it in chat.",
+  "When the assignment is complete, stop. Do not wait or poll for more work.",
+].join("\n");
 
 export function effectiveSystemPrompt(bot: BotRow): string {
   const role = bot.role_id ? getRole(bot.role_id) : undefined;
@@ -43,7 +53,7 @@ export function effectiveSystemPrompt(bot: BotRow): string {
   const teamSection = teammates.length
     ? [
         "## Teams",
-        "You share these teams with teammates. Message them by id with the send_message tool; they receive only your message and are woken by it.",
+        "You share these teams with teammates. Use send_message only when this assignment needs their input; do not send progress updates, side conversations, or unrequested work. They receive only your message and are woken by it.",
         ...teammates.map(
           (t) =>
             `- ${t.name} — id: ${t.id}${t.role_name ? ` — role: ${t.role_name}` : ""}${
@@ -65,6 +75,7 @@ export function effectiveSystemPrompt(bot: BotRow): string {
   const parts = [
     DEFAULT_SYSTEM_PROMPT,
     `You are "${bot.name}".`,
+    ASSIGNMENT_SCOPE,
     bot.instructions.trim(),
     role?.instructions.trim(),
     ...skillTexts,
@@ -415,7 +426,7 @@ export function deliverDm(
     return `not delivered: ${recipient.name} shares no team with you`;
   injectMessage(
     recipient,
-    `${text}\n\n— from ${sender.name} (bot id: ${sender.id}); reply with send_message if needed`,
+    `${text}\n\n— from ${sender.name} (bot id: ${sender.id}); reply with send_message only if the sender asked for a response`,
     "dm",
   );
   return `delivered to ${recipient.name}`;

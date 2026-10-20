@@ -152,7 +152,7 @@ export function buildTools(
       name: "send_message",
       label: "Send message",
       description:
-        "DM a teammate in one of your shared teams by bot id. Only the recipient receives and is woken by the message; teammates are listed in your system prompt.",
+        "DM a teammate in one of your shared teams by bot id. Use only when the assignment or your instructions require coordination, or you need a specific answer to finish. Do not send progress updates or recruit help. Only the recipient receives and is woken by the message; teammates are listed in your system prompt.",
       parameters: sendMessageSchema,
       execute: async (_id, params) => ({
         content: [
