@@ -9,3 +9,4 @@
 - Tool calls and thinking attach to their assistant turn as separate collapsible sections, collapsed by default: one section for thinking, one per tool call showing tool name plus input and output; expanded content scrolls within bounds.
 - Send is unavailable while the bot is disabled; API errors surface inline in the sidebar without closing it.
 - Chat turns are ordinary context: they appear in Logs and participate in compaction like any message.
+- Trigger-injected messages render in the chat as a full-width bar spanning the conversation, visually distinct from user and bot turns.
