@@ -27,6 +27,7 @@ export default defineConfig({
           { text: "Machines", link: "/machines" },
           { text: "MCP integrations", link: "/integrations-mcp" },
           { text: "Triggers & scheduling", link: "/triggers-scheduling" },
+          { text: "Projects", link: "/projects" },
           { text: "Notifications", link: "/notifications" },
         ],
       },

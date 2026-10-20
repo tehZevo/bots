@@ -78,6 +78,14 @@ interface Team {
   members: TeamMember[];
 }
 
+interface Project {
+  id: string;
+  name: string;
+  description: string;
+  body: string;
+  created_at: number;
+}
+
 interface Run {
   id: string;
   status: "running" | "ok" | "error";
@@ -939,6 +947,7 @@ export function App() {
           {tab === "integrations" && <IntegrationsPanel />}
           {tab === "skills" && <SkillsPanel />}
           {tab === "templates" && <TemplatesPanel />}
+          {tab === "projects" && <ProjectsPanel />}
           {tab === "settings" && <SettingsPanel />}
         </main>
         {detailOpen && openBotRow && (
@@ -1436,6 +1445,7 @@ type Tab =
   | "integrations"
   | "skills"
   | "templates"
+  | "projects"
   | "settings";
 
 const TAB_PATHS: Record<Tab, string> = {
@@ -1446,6 +1456,7 @@ const TAB_PATHS: Record<Tab, string> = {
   integrations: "/integrations",
   skills: "/skills",
   templates: "/templates",
+  projects: "/projects",
   settings: "/settings",
 };
 
@@ -1474,6 +1485,23 @@ function TeamIcon({ size = 18 }: { size?: number }) {
       <path d="M3.5 19c.6-3 2.8-4.6 5.5-4.6s4.9 1.6 5.5 4.6" />
       <circle cx="17" cy="9" r="2.4" />
       <path d="M15.6 13.7c2.4.2 4.2 1.7 4.8 4.1" />
+    </svg>
+  );
+}
+
+function ProjectIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
     </svg>
   );
 }
@@ -1509,6 +1537,7 @@ const NAV_ITEMS: {
   { id: "integrations", label: "Integrations", Icon: PlugIcon },
   { id: "skills", label: "Skills", Icon: BookIcon },
   { id: "templates", label: "Templates", Icon: TemplateIcon },
+  { id: "projects", label: "Projects", Icon: ProjectIcon },
   { id: "settings", label: "Settings", Icon: GearIcon },
 ];
 
@@ -2347,6 +2376,222 @@ export function BotTeams({ botId }: { botId: string }) {
   );
 }
 
+export function ProjectsPanel() {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [creating, setCreating] = useState(false);
+  const [selProject, setSelProject] = useState<Project | null>(null);
+
+  const load = useCallback(async () => {
+    setProjects(await api<Project[]>("/api/projects").catch(() => []));
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <section>
+      <div className="viewhead">
+        <h2>Projects</h2>
+        <button type="button" onClick={() => setCreating(true)}>
+          Add project
+        </button>
+      </div>
+      {projects.length === 0 && (
+        <p className="muted">
+          No projects yet — shared context attached to bots.
+        </p>
+      )}
+      <div className="cards">
+        {projects.map((project) => (
+          <button
+            type="button"
+            key={project.id}
+            className="card"
+            onClick={() => setSelProject(project)}
+          >
+            <strong>{project.name}</strong>
+            <span className="preview">{project.description}</span>
+          </button>
+        ))}
+      </div>
+      {(creating || selProject) && (
+        <ProjectModal
+          project={selProject}
+          onClose={() => {
+            setCreating(false);
+            setSelProject(null);
+          }}
+          onSaved={() => {
+            setCreating(false);
+            setSelProject(null);
+            void load();
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+export function ProjectModal({
+  project,
+  onClose,
+  onSaved,
+}: {
+  project: Project | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(project?.name ?? "");
+  const [description, setDescription] = useState(project?.description ?? "");
+  const [body, setBody] = useState(project?.body ?? "");
+  const [busy, setBusy] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api(project ? `/api/projects/${project.id}` : "/api/projects", {
+        method: project ? "PATCH" : "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), description, body }),
+      });
+      onSaved();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal">
+      <button
+        type="button"
+        className="mscrim"
+        aria-label="Cancel"
+        onClick={onClose}
+      />
+      <form
+        className="dialog narrow"
+        role="dialog"
+        aria-label={project ? "Edit project" : "Create project"}
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+      >
+        <label className="field">
+          Name
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
+        </label>
+        <label className="field">
+          Description (optional, one line)
+          <input
+            value={description}
+            maxLength={120}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </label>
+        <label className="field">
+          Markdown body
+          <textarea
+            className="projectbody"
+            rows={12}
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            required
+          />
+        </label>
+        {body.length > 8000 && (
+          <p className="muted">
+            Large body ({body.length.toLocaleString()} chars) — bots attaching
+            this project get a heavy prompt. Saving is still allowed.
+          </p>
+        )}
+        <div className="actions">
+          <button type="submit" disabled={busy || !name.trim() || !body.trim()}>
+            Save
+          </button>
+          {project && (
+            <button
+              type="button"
+              className="danger"
+              disabled={busy}
+              onClick={() => setConfirmDel(true)}
+            >
+              Delete
+            </button>
+          )}
+        </div>
+      </form>
+      {confirmDel && project && (
+        <ConfirmDialog
+          text={`Delete project ${project.name}? Attached bots lose it from their prompts.`}
+          confirmLabel="Delete project"
+          onCancel={() => setConfirmDel(false)}
+          onConfirm={() => {
+            api(`/api/projects/${project.id}`, { method: "DELETE" })
+              .then(onSaved)
+              .catch((e) => alert(e.message));
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+export function BotProjects({ botId }: { botId: string }) {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [attached, setAttached] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void api<Project[]>("/api/projects")
+      .then(setProjects)
+      .catch(() => setProjects([]));
+    void api<{ project_ids: string[] }>(`/api/bots/${botId}`)
+      .then((b) => setAttached(b.project_ids ?? []))
+      .catch(() => undefined);
+  }, [botId]);
+
+  if (projects.length === 0) return null;
+
+  const toggle = (id: string) => {
+    const next = attached.includes(id)
+      ? attached.filter((x) => x !== id)
+      : [...attached, id];
+    setBusy(true);
+    api(`/api/bots/${botId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ project_ids: next }),
+    })
+      .then(() => setAttached(next))
+      .catch((e) => alert(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div className="botteams">
+      {projects.map((project) => (
+        <label key={project.id}>
+          <input
+            type="checkbox"
+            disabled={busy}
+            checked={attached.includes(project.id)}
+            onChange={() => toggle(project.id)}
+          />
+          {project.name}
+        </label>
+      ))}
+    </div>
+  );
+}
+
 export function RolesPanel() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [query, setQuery] = useState("");
@@ -2732,6 +2977,7 @@ export function BotGeneral({
         />{" "}
         {HEALTH_LABEL[bot.health]}
       </p>
+      <BotProjects botId={bot.id} />
       <BotTeams botId={bot.id} />
       <div className="actions">
         <label className="switch">

@@ -1910,3 +1910,8 @@ button.danger.ghost {
   align-items: center;
   gap: 0.35rem;
 }
+.projectbody {
+  font-family: ui-monospace, monospace;
+  min-height: 260px;
+  resize: vertical;
+}
