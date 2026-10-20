@@ -11,7 +11,10 @@ process.env.DATABASE_PATH = join(
 
 const { createApp } = await import("../src/api.ts");
 const dbm = await import("../src/db.ts");
-const { deliverDm, isLoopActive } = await import("../src/agent.ts");
+const { deliverDm, effectiveSystemPrompt, isLoopActive } = await import(
+  "../src/agent.ts"
+);
+const { buildTools } = await import("../src/tools.ts");
 const app = createApp();
 
 process.env.ALLOW_REGISTRATION = "true";
@@ -164,4 +167,19 @@ test("send_message delivery semantics", () => {
   const runs = dbm.listRuns("bot-b");
   assert.equal(runs.length, 1);
   assert.equal(runs[0].trigger, "dm");
+});
+
+test("send_message tool and Teams section only exist with teammates", () => {
+  const soloNames = buildTools("bot-solo").map((t) => t.name);
+  assert.ok(!soloNames.includes("send_message"));
+  assert.doesNotMatch(
+    effectiveSystemPrompt(dbm.getBot("bot-solo")!),
+    /## Teams/,
+  );
+
+  const teamNames = buildTools("bot-a", () => "delivered").map((t) => t.name);
+  assert.ok(teamNames.includes("send_message"));
+  const prompt = effectiveSystemPrompt(dbm.getBot("bot-a")!);
+  assert.match(prompt, /## Teams/);
+  assert.match(prompt, /\bB\b.*id: bot-b/s);
 });

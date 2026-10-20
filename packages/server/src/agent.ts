@@ -34,7 +34,7 @@ import { buildTools } from "./tools.ts";
 
 const DEFAULT_SYSTEM_PROMPT = "You are a helpful autonomous bot.";
 
-function effectiveSystemPrompt(bot: BotRow): string {
+export function effectiveSystemPrompt(bot: BotRow): string {
   const role = bot.role_id ? getRole(bot.role_id) : undefined;
   const skillTexts = (role?.skill_ids ?? [])
     .map((id) => getSkill(id)?.instructions.trim())
@@ -286,8 +286,11 @@ async function startLoop(
       systemPrompt: effectiveSystemPrompt(bot),
       model,
       tools: [
-        ...buildTools(bot.id, (recipientId, text) =>
-          deliverDm(bot, recipientId, text),
+        ...buildTools(
+          bot.id,
+          teammatesOf(bot.id).length > 0
+            ? (recipientId, text) => deliverDm(bot, recipientId, text)
+            : undefined,
         ),
         ...mcp.tools,
       ],
