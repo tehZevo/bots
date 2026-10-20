@@ -16,6 +16,7 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "test": "node --import ./packages/server/node_modules/tsx/dist/loader.mjs --experimental-test-coverage --test-coverage-include='packages/server/src/**' --test-coverage-lines=80 --test packages/server/test/*.test.ts",
+    "test:web": "cd packages/web && node --import ../../packages/server/node_modules/tsx/dist/loader.mjs --test test/*.test.ts",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs"
