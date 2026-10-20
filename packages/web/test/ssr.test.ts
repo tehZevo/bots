@@ -38,6 +38,9 @@ const {
   App,
   SettingsPanel,
   RolesPanel,
+  TeamsPanel,
+  BotTeams,
+  TeamCard,
   MachinesPanel,
   SkillsPanel,
   IntegrationsPanel,
@@ -262,4 +265,40 @@ test("auth screen and account section render", () => {
   assert.match(account, /Account/);
   assert.match(account, /Change password/);
   assert.match(account, /Logout/);
+});
+
+test("teams panel and bot team picker render", () => {
+  const html = renderToStaticMarkup(React.createElement(TeamsPanel));
+  assert.match(html, /Create team/);
+  assert.match(html, /No teams yet/);
+  assert.equal(renderToStaticMarkup(React.createElement(BotTeams, { botId: "b1" })), "");
+});
+
+test("team card renders members, leader toggle and add controls", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(TeamCard, {
+      team: {
+        id: "t1",
+        name: "ops",
+        created_at: 0,
+        members: [
+          { bot_id: "b1", name: "Alpha", leader: true },
+          { bot_id: "b2", name: "Beta", leader: false },
+        ],
+      },
+      bots: [
+        { id: "b1", name: "Alpha" },
+        { id: "b2", name: "Beta" },
+        { id: "b3", name: "Gamma" },
+      ],
+      busy: false,
+      mutate: () => undefined,
+    }),
+  );
+  assert.match(html, /ops/);
+  assert.match(html, /Alpha/);
+  assert.match(html, /checked=""/);
+  assert.match(html, /leader/);
+  assert.match(html, /Gamma/);
+  assert.doesNotMatch(html, /<option[^>]*>Alpha</);
 });

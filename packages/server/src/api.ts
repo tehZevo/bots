@@ -32,6 +32,7 @@ import {
   deleteSessionsForUser,
   deleteSetting,
   deleteSkill,
+  deleteTeam,
   deleteTemplate,
   deleteTrigger,
   getApiKeyByHash,
@@ -44,6 +45,7 @@ import {
   getSessionUser,
   getSetting,
   getSkill,
+  getTeam,
   getTemplate,
   getTrigger,
   getUserByEmail,
@@ -56,6 +58,7 @@ import {
   insertProvider,
   insertRole,
   insertSkill,
+  insertTeam,
   insertTemplate,
   insertTrigger,
   insertUser,
@@ -69,14 +72,18 @@ import {
   listRoles,
   listRuns,
   listSkills,
+  listTeams,
   listTemplates,
   listTriggers,
   loadMessages,
   markAllNotificationsRead,
   markNotificationRead,
   type ProviderRow,
+  removeTeamMember,
+  renameTeam,
   setMachineBuild,
   setSetting,
+  setTeamMember,
   setTriggerSecret,
   setUserPassword,
   touchApiKey,
@@ -1051,6 +1058,57 @@ export function createApp() {
     if (!role) return c.json({ error: "not found" }, 404);
     deleteRole(role.id);
     return c.json({ ok: true });
+  });
+
+  app.get("/api/teams", (c) => c.json(listTeams()));
+
+  app.post("/api/teams", async (c) => {
+    const body = await c.req.json<{ name?: string }>();
+    const name = body.name?.trim();
+    if (!name) return c.json({ error: "name required" }, 400);
+    const team = { id: randomUUID(), name, created_at: Date.now() };
+    insertTeam(team);
+    return c.json({ ...team, members: [] }, 201);
+  });
+
+  app.get("/api/teams/:teamId", (c) => {
+    const team = getTeam(c.req.param("teamId"));
+    if (!team) return c.json({ error: "not found" }, 404);
+    return c.json(team);
+  });
+
+  app.patch("/api/teams/:teamId", async (c) => {
+    const team = getTeam(c.req.param("teamId"));
+    if (!team) return c.json({ error: "not found" }, 404);
+    const body = await c.req.json<{ name?: string }>();
+    const name = body.name?.trim();
+    if (!name) return c.json({ error: "name required" }, 400);
+    renameTeam(team.id, name);
+    return c.json(getTeam(team.id));
+  });
+
+  app.delete("/api/teams/:teamId", (c) => {
+    const team = getTeam(c.req.param("teamId"));
+    if (!team) return c.json({ error: "not found" }, 404);
+    deleteTeam(team.id);
+    return c.json({ ok: true });
+  });
+
+  app.put("/api/teams/:teamId/members", async (c) => {
+    const team = getTeam(c.req.param("teamId"));
+    if (!team) return c.json({ error: "not found" }, 404);
+    const body = await c.req.json<{ bot_id?: string; leader?: boolean }>();
+    const bot = body.bot_id ? getBot(body.bot_id) : undefined;
+    if (!bot) return c.json({ error: "unknown bot" }, 400);
+    setTeamMember(team.id, bot.id, body.leader === true);
+    return c.json(getTeam(team.id));
+  });
+
+  app.delete("/api/teams/:teamId/members/:botId", (c) => {
+    const team = getTeam(c.req.param("teamId"));
+    if (!team) return c.json({ error: "not found" }, 404);
+    removeTeamMember(team.id, c.req.param("botId"));
+    return c.json(getTeam(team.id));
   });
 
   const DEFAULT_MACHINE_ID = "default";

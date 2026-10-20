@@ -42,8 +42,18 @@ const shellSchema = Type.Object({
   command: Type.String({ description: "Command line to run with bash" }),
 });
 
+const sendMessageSchema = Type.Object({
+  recipient_bot_id: Type.String({
+    description: "Bot id of the teammate to message",
+  }),
+  message: Type.String({ description: "Message text to deliver" }),
+});
+
 // biome-ignore lint/suspicious/noExplicitAny: pi types its tool arrays as AgentTool<any>[]
-export function buildTools(botId: string): AgentTool<any>[] {
+export function buildTools(
+  botId: string,
+  deliverDm?: (recipientBotId: string, text: string) => string,
+): AgentTool<any>[] {
   const cwd = workspaceDir(botId);
 
   const webFetch: AgentTool<typeof webFetchSchema> = {
@@ -130,5 +140,32 @@ export function buildTools(botId: string): AgentTool<any>[] {
     },
   };
 
-  return [webFetch, shell, setCurrentTaskTool, setStatusTool];
+  const tools: AgentTool<any>[] = [
+    webFetch,
+    shell,
+    setCurrentTaskTool,
+    setStatusTool,
+  ];
+
+  if (deliverDm) {
+    const sendMessage: AgentTool<typeof sendMessageSchema> = {
+      name: "send_message",
+      label: "Send message",
+      description:
+        "DM a teammate in one of your shared teams by bot id. Only the recipient receives and is woken by the message; teammates are listed in your system prompt.",
+      parameters: sendMessageSchema,
+      execute: async (_id, params) => ({
+        content: [
+          {
+            type: "text" as const,
+            text: deliverDm(params.recipient_bot_id, params.message),
+          },
+        ],
+        details: {},
+      }),
+    };
+    tools.push(sendMessage);
+  }
+
+  return tools;
 }

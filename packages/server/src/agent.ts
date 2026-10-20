@@ -14,6 +14,7 @@ import {
   type BotRow,
   createNotification,
   finishRun,
+  getBot,
   getMcpServer,
   getRole,
   getSkill,
@@ -21,7 +22,9 @@ import {
   listMcpServers,
   loadMessages,
   replaceMessages,
+  sharesTeamWith,
   supersedeInterruptedRuns,
+  teammatesOf,
 } from "./db.ts";
 import { type ResolvedLlm, resolveDefault } from "./llm.ts";
 import { connectMcpServer, type McpSession } from "./mcp.ts";
@@ -34,12 +37,26 @@ function effectiveSystemPrompt(bot: BotRow): string {
   const skillTexts = (role?.skill_ids ?? [])
     .map((id) => getSkill(id)?.instructions.trim())
     .filter((t): t is string => Boolean(t));
+  const teammates = teammatesOf(bot.id);
+  const teamSection = teammates.length
+    ? [
+        "## Teams",
+        "You share these teams with teammates. Message them by id with the send_message tool; they receive only your message and are woken by it.",
+        ...teammates.map(
+          (t) =>
+            `- ${t.name} — id: ${t.id}${t.role_name ? ` — role: ${t.role_name}` : ""}${
+              t.leader_of.length ? ` — leads ${t.leader_of.join(", ")}` : ""
+            }`,
+        ),
+      ].join("\n")
+    : undefined;
   const parts = [
     DEFAULT_SYSTEM_PROMPT,
     `You are "${bot.name}".`,
     bot.instructions.trim(),
     role?.instructions.trim(),
     ...skillTexts,
+    teamSection,
   ].filter(Boolean);
   return parts.join("\n\n");
 }
@@ -255,7 +272,12 @@ async function startLoop(
     initialState: {
       systemPrompt: effectiveSystemPrompt(bot),
       model,
-      tools: [...buildTools(bot.id), ...mcp.tools],
+      tools: [
+        ...buildTools(bot.id, (recipientId, text) =>
+          deliverDm(bot, recipientId, text),
+        ),
+        ...mcp.tools,
+      ],
       messages: history,
     },
     prepareRequest: async ({ context }) => {
@@ -365,6 +387,24 @@ async function startLoop(
   })();
 }
 
+export function deliverDm(
+  sender: BotRow,
+  recipientId: string,
+  text: string,
+): string {
+  const recipient = getBot(recipientId);
+  if (!recipient) return "not delivered: no bot with that id";
+  if (recipient.id === sender.id) return "not delivered: cannot DM yourself";
+  if (!sharesTeamWith(sender.id, recipient.id))
+    return `not delivered: ${recipient.name} shares no team with you`;
+  injectMessage(
+    recipient,
+    `${text}\n\n— from ${sender.name} (bot id: ${sender.id}); reply with send_message if needed`,
+    "dm",
+  );
+  return `delivered to ${recipient.name}`;
+}
+
 export function isLoopActive(botId: string): boolean {
   return liveLoops.has(botId);
 }
@@ -372,7 +412,7 @@ export function isLoopActive(botId: string): boolean {
 export function injectMessage(
   bot: BotRow,
   text: string,
-  kind: "schedule" | "manual" | "chat" | "webhook",
+  kind: "schedule" | "manual" | "chat" | "webhook" | "dm",
 ): InjectResult {
   supersedeInterruptedRuns(bot.id);
   const message = {

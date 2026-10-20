@@ -23,6 +23,7 @@ export default defineConfig({
             text: "Roles, skills & capabilities",
             link: "/roles-capabilities-skills",
           },
+          { text: "Teams", link: "/teams" },
           { text: "Machines", link: "/machines" },
           { text: "MCP integrations", link: "/integrations-mcp" },
           { text: "Triggers & scheduling", link: "/triggers-scheduling" },

@@ -65,6 +65,19 @@ interface Role {
   skill_ids: string[];
 }
 
+interface TeamMember {
+  bot_id: string;
+  name: string;
+  leader: boolean;
+}
+
+interface Team {
+  id: string;
+  name: string;
+  created_at: number;
+  members: TeamMember[];
+}
+
 interface Run {
   id: string;
   status: "running" | "ok" | "error";
@@ -921,6 +934,7 @@ export function App() {
             </>
           )}
           {tab === "roles" && <RolesPanel />}
+          {tab === "teams" && <TeamsPanel />}
           {tab === "machines" && <MachinesPanel />}
           {tab === "integrations" && <IntegrationsPanel />}
           {tab === "skills" && <SkillsPanel />}
@@ -1416,6 +1430,7 @@ export function MachineIcon({ size = 18 }: { size?: number }) {
 
 type Tab =
   | "bots"
+  | "teams"
   | "roles"
   | "machines"
   | "integrations"
@@ -1425,6 +1440,7 @@ type Tab =
 
 const TAB_PATHS: Record<Tab, string> = {
   bots: "/bots",
+  teams: "/teams",
   roles: "/roles",
   machines: "/machines",
   integrations: "/integrations",
@@ -1440,6 +1456,26 @@ function tabFromPath(path: string): Tab {
       (path === "/" && t === "bots"),
   );
   return hit ?? "bots";
+}
+
+function TeamIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="9" cy="8" r="3.2" />
+      <path d="M3.5 19c.6-3 2.8-4.6 5.5-4.6s4.9 1.6 5.5 4.6" />
+      <circle cx="17" cy="9" r="2.4" />
+      <path d="M15.6 13.7c2.4.2 4.2 1.7 4.8 4.1" />
+    </svg>
+  );
 }
 
 function TemplateIcon({ size = 18 }: { size?: number }) {
@@ -1467,6 +1503,7 @@ const NAV_ITEMS: {
   Icon: (p: { size?: number }) => ReactElement;
 }[] = [
   { id: "bots", label: "Bots", Icon: BotIcon },
+  { id: "teams", label: "Teams", Icon: TeamIcon },
   { id: "roles", label: "Roles", Icon: RoleIcon },
   { id: "machines", label: "Machines", Icon: MachineIcon },
   { id: "integrations", label: "Integrations", Icon: PlugIcon },
@@ -2063,6 +2100,253 @@ export function ProviderFormModal({
   );
 }
 
+export function TeamsPanel() {
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [bots, setBots] = useState<{ id: string; name: string }[]>([]);
+  const [newName, setNewName] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    const [ts, bs] = await Promise.all([
+      api<Team[]>("/api/teams").catch(() => [] as Team[]),
+      api<Bot[]>("/api/bots").catch(() => [] as Bot[]),
+    ]);
+    setTeams(ts);
+    setBots(bs.map((b) => ({ id: b.id, name: b.name })));
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const mutate = (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    fn()
+      .then(load)
+      .catch((e) => alert(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <section>
+      <div className="viewhead">
+        <h2>Teams</h2>
+        <button
+          type="button"
+          disabled={busy || !newName.trim()}
+          onClick={() => {
+            mutate(() =>
+              api("/api/teams", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ name: newName.trim() }),
+              }),
+            );
+            setNewName("");
+          }}
+        >
+          Create team
+        </button>
+      </div>
+      <input
+        aria-label="New team name"
+        placeholder="team name"
+        value={newName}
+        onChange={(e) => setNewName(e.target.value)}
+      />
+      {teams.length === 0 && (
+        <p className="muted">
+          No teams yet — teammates DM each other in a team.
+        </p>
+      )}
+      <div className="teamlist">
+        {teams.map((team) => (
+          <TeamCard
+            key={team.id}
+            team={team}
+            bots={bots}
+            busy={busy}
+            mutate={mutate}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export function TeamCard({
+  team,
+  bots,
+  busy,
+  mutate,
+}: {
+  team: Team;
+  bots: { id: string; name: string }[];
+  busy: boolean;
+  mutate: (fn: () => Promise<unknown>) => void;
+}) {
+  const [name, setName] = useState(team.name);
+  const [addBotId, setAddBotId] = useState("");
+  const memberIds = new Set(team.members.map((m) => m.bot_id));
+  const candidates = bots.filter((b) => !memberIds.has(b.id));
+
+  return (
+    <div className="card teamcard">
+      <div className="actions">
+        <input
+          aria-label={`Team name ${team.name}`}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <button
+          type="button"
+          disabled={busy || !name.trim() || name.trim() === team.name}
+          onClick={() =>
+            mutate(() =>
+              api(`/api/teams/${team.id}`, {
+                method: "PATCH",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ name: name.trim() }),
+              }),
+            )
+          }
+        >
+          Rename
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            if (!window.confirm(`Delete team ${team.name}? The bots stay.`))
+              return;
+            mutate(() => api(`/api/teams/${team.id}`, { method: "DELETE" }));
+          }}
+        >
+          Delete
+        </button>
+      </div>
+      <ul className="teammembers">
+        {team.members.map((m) => (
+          <li key={m.bot_id}>
+            <span>{m.name}</span>
+            <label>
+              <input
+                type="checkbox"
+                checked={m.leader}
+                disabled={busy}
+                onChange={() =>
+                  mutate(() =>
+                    api(`/api/teams/${team.id}/members`, {
+                      method: "PUT",
+                      headers: { "content-type": "application/json" },
+                      body: JSON.stringify({
+                        bot_id: m.bot_id,
+                        leader: !m.leader,
+                      }),
+                    }),
+                  )
+                }
+              />
+              leader
+            </label>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                mutate(() =>
+                  api(`/api/teams/${team.id}/members/${m.bot_id}`, {
+                    method: "DELETE",
+                  }),
+                )
+              }
+            >
+              Remove
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div className="actions">
+        <select
+          aria-label={`Add bot to ${team.name}`}
+          value={addBotId}
+          onChange={(e) => setAddBotId(e.target.value)}
+        >
+          <option value="">add teammate…</option>
+          {candidates.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          disabled={busy || !addBotId}
+          onClick={() => {
+            mutate(() =>
+              api(`/api/teams/${team.id}/members`, {
+                method: "PUT",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ bot_id: addBotId }),
+              }),
+            );
+            setAddBotId("");
+          }}
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function BotTeams({ botId }: { botId: string }) {
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void api<Team[]>("/api/teams")
+      .then(setTeams)
+      .catch(() => setTeams([]));
+  }, []);
+
+  if (teams.length === 0) return null;
+
+  const toggle = (team: Team, member: boolean) => {
+    setBusy(true);
+    const req = member
+      ? api(`/api/teams/${team.id}/members/${botId}`, { method: "DELETE" })
+      : api(`/api/teams/${team.id}/members`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ bot_id: botId }),
+        });
+    req
+      .then(() => api<Team[]>("/api/teams"))
+      .then(setTeams)
+      .catch((e) => alert(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div className="botteams">
+      {teams.map((team) => {
+        const member = team.members.some((m) => m.bot_id === botId);
+        return (
+          <label key={team.id}>
+            <input
+              type="checkbox"
+              disabled={busy}
+              checked={member}
+              onChange={() => toggle(team, member)}
+            />
+            {team.name}
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
 export function RolesPanel() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [query, setQuery] = useState("");
@@ -2448,6 +2732,7 @@ export function BotGeneral({
         />{" "}
         {HEALTH_LABEL[bot.health]}
       </p>
+      <BotTeams botId={bot.id} />
       <div className="actions">
         <label className="switch">
           <input
