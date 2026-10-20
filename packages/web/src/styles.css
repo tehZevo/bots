@@ -1053,7 +1053,7 @@ textarea.code {
   white-space: pre;
 }
 
-/* ---- flat visual system (specs/web-ui/visual-style.md) ---- */
+/* ---- flat visual system (specs/ui/visual-style.md) ---- */
 
 :root {
   --radius-card: 12px;

@@ -4,7 +4,7 @@
 - Active: the bot's loop is currently running.
 - Idle: enabled, not running, and no Issues or Blocked condition holds — ready and waiting.
 - Issues: the agent's status line carries level `issue` while no Blocked condition holds — self-report can raise concern but never hide a real failure.
-- Blocked: latest completed run ended `error` (a newer run that finishes replaces that cue), the bot has no model configured (`llm/providers.md`), or the agent's status line carries level `blocked` (`bots/status-line.md`). Being switched off is not Blocked — it is Disabled.
+- Blocked: latest completed run ended `error` (a newer run that finishes replaces that cue), the bot has no model configured (`../llm/providers.md`), or the agent's status line carries level `blocked` (`status-line.md`). Being switched off is not Blocked — it is Disabled.
 - Disabled: the bot's enabled flag is off; gray outranks every other color.
 - The status bar counts show `N total · M running`, plus a blocked count when any bot is red.
 - A pulsing dot never moves or resizes itself: it keeps its size, position and full color. The motion is a separate small circle in the dot's status color that starts on the dot's edge, grows outward to roughly twice the dot's diameter while fading to fully transparent, then restarts. The halo is decoration — it never covers the dot's center, and cards do not reflow while it animates.
