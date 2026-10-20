@@ -2,7 +2,7 @@
 
 - The bot settings modal opens from the gear icon in the bot's chat sidebar (`../chat/sidebar.md`); the panel behind keeps showing the cards.
 - The modal has three tabs:
-  - `General` — labeled Name (required) and Instructions (optional textarea) fields, role, machine and Projects pickers, and team membership. A fixed action row pinned to the bottom of the tab holds Save, Restart machine, Clear memory, Delete and Cancel. Saving applies immediately to the cards behind; Cancel closes the modal discarding unsaved edits. The action row also offers “Save as template…” to create a reusable template from this bot (`templates.md`).
+  - `General` — labeled Name (required) and Instructions (optional textarea) fields, role, machine and Projects pickers, and team membership. A fixed action row pinned to the bottom of the tab holds Save, Restart machine, Clear memory, Delete and Cancel. Saving applies immediately to the cards behind; Cancel closes the modal discarding unsaved edits. The action row also offers “Save as template…” to create a reusable template from this bot (`../templates/manage.md`).
   - `Triggers` — master/detail editor for the bot's triggers (see `../triggers/editor.md`).
   - `Logs` — run history newest first: status, source (`schedule`/`manual`/`chat`) and error or output text (see `../runs/lifecycle.md`).
 - The modal's header bar carries the enable toggle switch (`Disabled` when off, `Enabled` when on; accessible checkbox-role slider with a sliding knob) and Stop while running, beside the close button.
