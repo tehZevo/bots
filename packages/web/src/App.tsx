@@ -2398,7 +2398,9 @@ export function ProjectsPanel() {
         </button>
       </div>
       {projects.length === 0 && (
-        <p className="muted">No projects yet — shared context attached to bots.</p>
+        <p className="muted">
+          No projects yet — shared context attached to bots.
+        </p>
       )}
       <div className="cards">
         {projects.map((project) => (
@@ -2480,7 +2482,11 @@ export function ProjectModal({
       >
         <label className="field">
           Name
-          <input value={name} onChange={(e) => setName(e.target.value)} required />
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
         </label>
         <label className="field">
           Description (optional, one line)
