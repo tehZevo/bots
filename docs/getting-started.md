@@ -8,7 +8,7 @@
 services:
   orchestrator:
     image: ghcr.io/tehzevo/bots:latest
-    ports: ["8787:8787"]
+    ports: ["8075:8075"]
     volumes:
       - ./data:/data            # database + bot workspaces — must be /data (DATA_DIR)
       - /var/run/docker.sock:/var/run/docker.sock   # to manage sandbox containers
@@ -22,7 +22,7 @@ The API and UI are login-protected. Sessions live in an HttpOnly cookie for 7 da
 
 ## The console
 
-Open the web UI (default `http://localhost:8787`). The status bar up top shows totals at a glance; the sidebar switches between **Bots**, **Roles**, **Machines**, **Skills**, **Integrations** and **Settings**. Each tab owns a URL (`/bots`, `/roles`, `/machines`, `/integrations`, `/skills`, `/templates`, `/settings`) — links open the tab directly, reloading keeps it, and Back/Forward walk between tabs.
+Open the web UI (default `http://localhost:8075`). The status bar up top shows totals at a glance; the sidebar switches between **Bots**, **Roles**, **Machines**, **Skills**, **Integrations** and **Settings**. Each tab owns a URL (`/bots`, `/roles`, `/machines`, `/integrations`, `/skills`, `/templates`, `/settings`) — links open the tab directly, reloading keeps it, and Back/Forward walk between tabs.
 
 1. **Configure a model first** — Settings → LLM providers: add an OpenAI-compatible provider (base URL + API key) and pick a default model. Bots without their own model use the default; with none configured they show **Blocked**.
 2. **Add a bot** — "Add bot" suggests a random name (↻ reshuffles it). Instructions and role are optional.

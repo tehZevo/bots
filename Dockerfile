@@ -19,9 +19,9 @@ COPY --from=build /deploy/server packages/server
 COPY --from=build /app/packages/web/dist packages/web/dist
 COPY --from=dockercli /usr/local/bin/docker /usr/local/bin/docker
 ENV NODE_ENV=production \
-  PORT=8787 \
+  PORT=8075 \
   DATA_DIR=/data
-EXPOSE 8787
+EXPOSE 8075
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
-  CMD node -e 'fetch("http://127.0.0.1:"+(process.env.PORT||8787)+"/api/health").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))'
+  CMD node -e 'fetch("http://127.0.0.1:"+(process.env.PORT||8075)+"/api/health").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))'
 CMD ["node", "packages/server/dist/index.js"]
