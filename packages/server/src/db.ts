@@ -54,7 +54,7 @@ export interface RunRow {
   id: string;
   bot_id: string;
   status: "running" | "ok" | "error";
-  trigger: "schedule" | "manual" | "chat" | "webhook";
+  trigger: "schedule" | "manual" | "chat" | "webhook" | "dm";
   started_at: number;
   finished_at: number | null;
   output: string | null;
@@ -182,6 +182,19 @@ db.exec(`
     name TEXT NOT NULL,
     instructions TEXT NOT NULL,
     created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS teams (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS team_members (
+    team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    leader INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (team_id, bot_id)
   );
 
   CREATE TABLE IF NOT EXISTS notifications (
@@ -521,6 +534,7 @@ export function deleteBot(id: string): void {
   db.prepare("DELETE FROM runs WHERE bot_id = ?").run(id);
   db.prepare("DELETE FROM messages WHERE bot_id = ?").run(id);
   db.prepare("DELETE FROM notifications WHERE bot_id = ?").run(id);
+  db.prepare("DELETE FROM team_members WHERE bot_id = ?").run(id);
   db.prepare("DELETE FROM bots WHERE id = ?").run(id);
 }
 
@@ -586,6 +600,129 @@ export function updateRole(id: string, patch: Partial<RoleRow>): void {
 export function deleteRole(id: string): void {
   db.prepare("UPDATE bots SET role_id = NULL WHERE role_id = ?").run(id);
   db.prepare("DELETE FROM roles WHERE id = ?").run(id);
+}
+
+export interface TeamRow {
+  id: string;
+  name: string;
+  created_at: number;
+}
+
+export interface TeamMemberRow {
+  bot_id: string;
+  name: string;
+  leader: boolean;
+}
+
+export interface Team extends TeamRow {
+  members: TeamMemberRow[];
+}
+
+export function listTeams(): Team[] {
+  const teams = db
+    .prepare("SELECT * FROM teams ORDER BY created_at")
+    .all() as TeamRow[];
+  const memberStmt = db.prepare(
+    `SELECT tm.bot_id, b.name, tm.leader FROM team_members tm
+     JOIN bots b ON b.id = tm.bot_id
+     WHERE tm.team_id = ? ORDER BY tm.leader DESC, b.name`,
+  );
+  return teams.map((t) => ({
+    ...t,
+    members: (
+      memberStmt.all(t.id) as { bot_id: string; name: string; leader: number }[]
+    ).map((m) => ({ bot_id: m.bot_id, name: m.name, leader: m.leader === 1 })),
+  }));
+}
+
+export function getTeam(id: string): Team | undefined {
+  const t = db.prepare("SELECT * FROM teams WHERE id = ?").get(id) as
+    | TeamRow
+    | undefined;
+  if (!t) return undefined;
+  return listTeams().find((x) => x.id === id);
+}
+
+export function insertTeam(team: TeamRow): void {
+  db.prepare(
+    "INSERT INTO teams (id, name, created_at) VALUES (@id, @name, @created_at)",
+  ).run(team);
+}
+
+export function renameTeam(id: string, name: string): void {
+  db.prepare("UPDATE teams SET name = ? WHERE id = ?").run(name, id);
+}
+
+export function deleteTeam(id: string): void {
+  db.prepare("DELETE FROM team_members WHERE team_id = ?").run(id);
+  db.prepare("DELETE FROM teams WHERE id = ?").run(id);
+}
+
+export function setTeamMember(
+  teamId: string,
+  botId: string,
+  leader: boolean,
+): void {
+  db.prepare(
+    `INSERT INTO team_members (team_id, bot_id, leader) VALUES (?, ?, ?)
+     ON CONFLICT (team_id, bot_id) DO UPDATE SET leader = excluded.leader`,
+  ).run(teamId, botId, leader ? 1 : 0);
+}
+
+export function removeTeamMember(teamId: string, botId: string): void {
+  db.prepare("DELETE FROM team_members WHERE team_id = ? AND bot_id = ?").run(
+    teamId,
+    botId,
+  );
+}
+
+export interface TeammateRow {
+  id: string;
+  name: string;
+  role_name: string | null;
+  leader_of: string[];
+}
+
+export function teammatesOf(botId: string): TeammateRow[] {
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT b.id, b.name, r.name AS role_name,
+              CASE WHEN tm.leader = 1 THEN t.name ELSE NULL END AS leader_team
+       FROM team_members mine
+       JOIN team_members tm ON tm.team_id = mine.team_id AND tm.bot_id != mine.bot_id
+       JOIN teams t ON t.id = tm.team_id
+       JOIN bots b ON b.id = tm.bot_id
+       LEFT JOIN roles r ON r.id = b.role_id
+       WHERE mine.bot_id = ?`,
+    )
+    .all(botId) as (TeammateRow & { leader_team: string | null })[];
+  const byId = new Map<string, TeammateRow>();
+  for (const row of rows) {
+    const entry = byId.get(row.id) ?? {
+      id: row.id,
+      name: row.name,
+      role_name: row.role_name,
+      leader_of: [],
+    };
+    if (row.leader_team && !entry.leader_of.includes(row.leader_team))
+      entry.leader_of.push(row.leader_team);
+    byId.set(row.id, entry);
+  }
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function sharesTeamWith(
+  senderBotId: string,
+  otherBotId: string,
+): boolean {
+  const row = db
+    .prepare(
+      `SELECT 1 AS hit FROM team_members a
+       JOIN team_members b ON a.team_id = b.team_id
+       WHERE a.bot_id = ? AND b.bot_id = ? LIMIT 1`,
+    )
+    .get(senderBotId, otherBotId) as { hit: number } | undefined;
+  return row !== undefined;
 }
 
 export function listTriggers(botId: string): TriggerRow[] {

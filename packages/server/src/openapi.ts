@@ -159,6 +159,29 @@ export function openApiDoc(): Json {
     body: ref("Role"),
   });
   add("/api/roles/{roleId}", "delete", "Delete a role", { params: ["roleId"] });
+  add("/api/teams", "get", "List teams with members", {
+    res: { type: "array", items: ref("Team") },
+  });
+  add("/api/teams", "post", "Create a team", { body: ref("Team") });
+  add("/api/teams/{teamId}", "patch", "Rename a team", {
+    params: ["teamId"],
+    body: ref("Team"),
+  });
+  add(
+    "/api/teams/{teamId}",
+    "delete",
+    "Delete a team (members keep existing)",
+    {
+      params: ["teamId"],
+    },
+  );
+  add("/api/teams/{teamId}/members", "put", "Add member or set leader flag", {
+    params: ["teamId"],
+  });
+  add("/api/teams/{teamId}/members/{botId}", "delete", "Remove member", {
+    params: ["teamId", "botId"],
+  });
+
   add("/api/skills", "get", "List skills");
   add("/api/skills", "post", "Create a skill", { body: ref("Skill") });
   add("/api/skills/{skillId}", "patch", "Update a skill", {
