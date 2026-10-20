@@ -1253,7 +1253,7 @@ export function AddBotModal({
         )}
         <div className="namerow">
           <input
-            ref={(el) => el?.focus()}
+            autoFocus
             placeholder="name"
             value={name}
             onChange={(e) => setName(e.target.value)}
