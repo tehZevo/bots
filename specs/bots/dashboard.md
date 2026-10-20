@@ -11,4 +11,4 @@ Single-page console for operating bots; any signed-in user may operate all bots 
 - Create a bot via the "Add bot" modal on the bots tab (`create.md`).
 - Detail modal contents and the logs view are specified in `detail.md`; all views refresh by polling the API.
 - Works on phones and desktops: single-column layout below tablet width — navigation moves behind a hamburger menu (see `../ui/navigation.md`), modals span the screen, and controls are touch-sized. No horizontal scrolling at 360px wide.
-- The server serves the built UI from its own origin; in dev Vite proxies `/api` → `:8787`.
+- The server serves the built UI from its own origin; in dev Vite proxies `/api` → `:8075`.

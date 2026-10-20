@@ -2,7 +2,7 @@
 
 The orchestrator ships as a single self-contained container image bundling the Hono server and the built Vite UI, runnable as one container.
 
-- The image exposes the API/UI on `PORT` (default `8787`) and is intended to be deployed via a single-service `docker compose` file with one mounted volume for the SQLite database (`data/bots.db`).
+- The image exposes the API/UI on `PORT` (default `8075`) and is intended to be deployed via a single-service `docker compose` file with one mounted volume for the SQLite database (`data/bots.db`).
 - Runtime configuration comes from environment variables: `PORT`, `DATA_DIR`/`DATABASE_PATH`, `SANDBOX_IMAGE` (defaults mirror `.env.example`). Model settings live in the provider registry, not env vars (see `../llm/providers.md`). Missing required values fail fast at startup.
 - `GET /api/health` returns `{ ok: true }` for container health checks.
 - The SQLite database persists across restarts via the mounted volume; the container recreates lazily and rebuilds its schema on boot.
