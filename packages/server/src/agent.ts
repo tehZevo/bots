@@ -21,6 +21,8 @@ import {
   insertRun,
   listMcpServers,
   loadMessages,
+  projectsForBot,
+  projectsInheritedByBot,
   replaceMessages,
   sharesTeamWith,
   supersedeInterruptedRuns,
@@ -50,6 +52,16 @@ function effectiveSystemPrompt(bot: BotRow): string {
         ),
       ].join("\n")
     : undefined;
+  const seenProjects = new Set<string>();
+  const projectParts: string[] = [];
+  for (const p of [
+    ...projectsInheritedByBot(bot.id),
+    ...projectsForBot(bot.id),
+  ]) {
+    if (seenProjects.has(p.id)) continue;
+    seenProjects.add(p.id);
+    projectParts.push(`## Project: ${p.name}\n${p.body.trim()}`);
+  }
   const parts = [
     DEFAULT_SYSTEM_PROMPT,
     `You are "${bot.name}".`,
@@ -57,6 +69,7 @@ function effectiveSystemPrompt(bot: BotRow): string {
     role?.instructions.trim(),
     ...skillTexts,
     teamSection,
+    ...projectParts,
   ].filter(Boolean);
   return parts.join("\n\n");
 }

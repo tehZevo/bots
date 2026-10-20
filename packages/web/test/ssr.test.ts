@@ -41,6 +41,9 @@ const {
   TeamsPanel,
   BotTeams,
   TeamCard,
+  ProjectsPanel,
+  ProjectModal,
+  BotProjects,
   MachinesPanel,
   SkillsPanel,
   IntegrationsPanel,
@@ -301,4 +304,26 @@ test("team card renders members, leader toggle and add controls", () => {
   assert.match(html, /leader/);
   assert.match(html, /Gamma/);
   assert.doesNotMatch(html, /<option[^>]*>Alpha</);
+});
+
+test("projects panel, modal and picker render", () => {
+  const html = renderToStaticMarkup(React.createElement(ProjectsPanel));
+  assert.match(html, /Add project/);
+  assert.match(html, /No projects yet/);
+
+  const modal = renderToStaticMarkup(
+    React.createElement(ProjectModal, {
+      project: { id: "p1", name: "ctx", description: "d", body: "# B", created_at: 0 },
+      onClose: () => undefined,
+      onSaved: () => undefined,
+    }),
+  );
+  assert.match(modal, /Edit project/);
+  assert.match(modal, /Markdown body/);
+  assert.match(modal, /Delete/);
+
+  assert.equal(
+    renderToStaticMarkup(React.createElement(BotProjects, { botId: "b1" })),
+    "",
+  );
 });

@@ -197,6 +197,26 @@ db.exec(`
     PRIMARY KEY (team_id, bot_id)
   );
 
+  CREATE TABLE IF NOT EXISTS projects (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    body TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS bot_projects (
+    bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    PRIMARY KEY (bot_id, project_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS team_projects (
+    team_id TEXT NOT NULL,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    PRIMARY KEY (team_id, project_id)
+  );
+
   CREATE TABLE IF NOT EXISTS notifications (
     id TEXT PRIMARY KEY,
     kind TEXT NOT NULL,
@@ -535,6 +555,7 @@ export function deleteBot(id: string): void {
   db.prepare("DELETE FROM messages WHERE bot_id = ?").run(id);
   db.prepare("DELETE FROM notifications WHERE bot_id = ?").run(id);
   db.prepare("DELETE FROM team_members WHERE bot_id = ?").run(id);
+  db.prepare("DELETE FROM bot_projects WHERE bot_id = ?").run(id);
   db.prepare("DELETE FROM bots WHERE id = ?").run(id);
 }
 
@@ -723,6 +744,106 @@ export function sharesTeamWith(
     )
     .get(senderBotId, otherBotId) as { hit: number } | undefined;
   return row !== undefined;
+}
+
+export interface ProjectRow {
+  id: string;
+  name: string;
+  description: string;
+  body: string;
+  created_at: number;
+}
+
+export function listProjects(): ProjectRow[] {
+  return db
+    .prepare("SELECT * FROM projects ORDER BY created_at")
+    .all() as ProjectRow[];
+}
+
+export function getProject(id: string): ProjectRow | undefined {
+  return db.prepare("SELECT * FROM projects WHERE id = ?").get(id) as
+    | ProjectRow
+    | undefined;
+}
+
+export function insertProject(project: ProjectRow): void {
+  db.prepare(
+    `INSERT INTO projects (id, name, description, body, created_at)
+     VALUES (@id, @name, @description, @body, @created_at)`,
+  ).run(project);
+}
+
+export function updateProject(
+  id: string,
+  patch: Partial<Omit<ProjectRow, "id" | "created_at">>,
+): void {
+  const keys = Object.keys(patch);
+  if (keys.length === 0) return;
+  const sets = keys.map((k) => `${k} = @${k}`).join(", ");
+  db.prepare(`UPDATE projects SET ${sets} WHERE id = @id`).run({
+    ...patch,
+    id,
+  });
+}
+
+export function deleteProject(id: string): void {
+  db.prepare("DELETE FROM bot_projects WHERE project_id = ?").run(id);
+  db.prepare("DELETE FROM team_projects WHERE project_id = ?").run(id);
+  db.prepare("DELETE FROM projects WHERE id = ?").run(id);
+}
+
+export function setBotProjects(botId: string, projectIds: string[]): void {
+  db.prepare("DELETE FROM bot_projects WHERE bot_id = ?").run(botId);
+  const ins = db.prepare(
+    "INSERT OR IGNORE INTO bot_projects (bot_id, project_id) VALUES (?, ?)",
+  );
+  for (const pid of new Set(projectIds)) {
+    if (!getProject(pid)) throw new Error(`unknown project: ${pid}`);
+    ins.run(botId, pid);
+  }
+}
+
+export function projectsForBot(botId: string): ProjectRow[] {
+  return db
+    .prepare(
+      `SELECT p.* FROM bot_projects bp JOIN projects p ON p.id = bp.project_id
+       WHERE bp.bot_id = ? ORDER BY p.created_at`,
+    )
+    .all(botId) as ProjectRow[];
+}
+
+export function projectIdsByBot(): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  for (const row of db
+    .prepare("SELECT bot_id, project_id FROM bot_projects ORDER BY project_id")
+    .all() as { bot_id: string; project_id: string }[]) {
+    const list = map.get(row.bot_id) ?? [];
+    list.push(row.project_id);
+    map.set(row.bot_id, list);
+  }
+  return map;
+}
+
+function hasTable(name: string): boolean {
+  return (
+    db
+      .prepare(
+        "SELECT 1 AS hit FROM sqlite_master WHERE type='table' AND name=?",
+      )
+      .get(name) !== undefined
+  );
+}
+
+export function projectsInheritedByBot(botId: string): ProjectRow[] {
+  if (!hasTable("team_members")) return [];
+  return db
+    .prepare(
+      `SELECT DISTINCT p.* FROM team_projects tp
+       JOIN team_members tm ON tm.team_id = tp.team_id
+       JOIN projects p ON p.id = tp.project_id
+       WHERE tm.bot_id = ? ORDER BY p.created_at`,
+    )
+    .all(botId) as ProjectRow[];
 }
 
 export function listTriggers(botId: string): TriggerRow[] {

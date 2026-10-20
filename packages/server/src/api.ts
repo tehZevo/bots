@@ -26,6 +26,7 @@ import {
   deleteBot,
   deleteMachine,
   deleteMcpServer,
+  deleteProject,
   deleteProvider,
   deleteRole,
   deleteSession,
@@ -40,6 +41,7 @@ import {
   getMachine,
   getMcpServer,
   getMcpServerByName,
+  getProject,
   getProvider,
   getRole,
   getSessionUser,
@@ -55,6 +57,7 @@ import {
   insertBot,
   insertMachine,
   insertMcpServer,
+  insertProject,
   insertProvider,
   insertRole,
   insertSkill,
@@ -68,6 +71,7 @@ import {
   listMachines,
   listMcpServers,
   listNotifications,
+  listProjects,
   listProviders,
   listRoles,
   listRuns,
@@ -81,6 +85,9 @@ import {
   type ProviderRow,
   removeTeamMember,
   renameTeam,
+  projectIdsByBot,
+  projectsForBot,
+  setBotProjects,
   setMachineBuild,
   setSetting,
   setTeamMember,
@@ -91,6 +98,7 @@ import {
   updateBot,
   updateMachine,
   updateMcpServer,
+  updateProject,
   updateProvider,
   updateRole,
   updateSkill,
@@ -660,6 +668,34 @@ export function createApp() {
       method: "GET",
       path: `/api/bots/${String(a.bot_id)}/runs`,
     }),
+    projects_list: () => ({ method: "GET", path: "/api/projects" }),
+    project_create: (a) => ({
+      method: "POST",
+      path: "/api/projects",
+      body: {
+        name: a.name,
+        description: a.description ?? "",
+        body: a.body,
+      },
+    }),
+    project_update: (a) => ({
+      method: "PATCH",
+      path: `/api/projects/${String(a.id)}`,
+      body: {
+        ...(a.name === undefined ? {} : { name: a.name }),
+        ...(a.description === undefined ? {} : { description: a.description }),
+        ...(a.body === undefined ? {} : { body: a.body }),
+      },
+    }),
+    project_delete: (a) => ({
+      method: "DELETE",
+      path: `/api/projects/${String(a.id)}`,
+    }),
+    bot_set_projects: (a) => ({
+      method: "PATCH",
+      path: `/api/bots/${String(a.id)}`,
+      body: { project_ids: a.project_ids ?? [] },
+    }),
   };
 
   const MCP_TOOL_DEFS = [
@@ -693,6 +729,27 @@ export function createApp() {
       name: "runs_tail",
       description: "Recent runs for a bot",
       inputSchema: { type: "object", required: ["bot_id"] },
+    },
+    { name: "projects_list", description: "List shared-context projects" },
+    {
+      name: "project_create",
+      description: "Create a project (name + markdown body)",
+      inputSchema: { type: "object", required: ["name", "body"] },
+    },
+    {
+      name: "project_update",
+      description: "Update a project's name, description or body",
+      inputSchema: { type: "object", required: ["id"] },
+    },
+    {
+      name: "project_delete",
+      description: "Delete a project and its attachments",
+      inputSchema: { type: "object", required: ["id"] },
+    },
+    {
+      name: "bot_set_projects",
+      description: "Replace the projects attached to a bot",
+      inputSchema: { type: "object", required: ["id", "project_ids"] },
     },
   ];
 
@@ -971,6 +1028,7 @@ export function createApp() {
     c.json(
       (() => {
         const errored = latestErrorBotIds();
+        const projMap = projectIdsByBot();
         const hasDefault = Boolean(
           getSetting("default_provider_id") && getSetting("default_model"),
         );
@@ -981,6 +1039,7 @@ export function createApp() {
           const red = errored.has(bot.id) || noModel || agentRed;
           return {
             ...bot,
+            project_ids: projMap.get(bot.id) ?? [],
             health: !bot.enabled
               ? ("gray" as const)
               : red
@@ -1018,6 +1077,65 @@ export function createApp() {
   });
 
   app.get("/api/roles", (c) => c.json(listRoles()));
+
+  app.get("/api/projects", (c) => c.json(listProjects()));
+
+  app.post("/api/projects", async (c) => {
+    const body = await c.req.json<{
+      name?: string;
+      description?: string;
+      body?: string;
+    }>();
+    const name = body.name?.trim();
+    const text = body.body?.trim();
+    if (!name || !text) return c.json({ error: "name and body required" }, 400);
+    const project = {
+      id: randomUUID(),
+      name,
+      description: body.description?.trim() ?? "",
+      body: body.body as string,
+      created_at: Date.now(),
+    };
+    insertProject(project);
+    return c.json(project, 201);
+  });
+
+  app.get("/api/projects/:projectId", (c) => {
+    const project = getProject(c.req.param("projectId"));
+    if (!project) return c.json({ error: "not found" }, 404);
+    return c.json(project);
+  });
+
+  app.patch("/api/projects/:projectId", async (c) => {
+    const project = getProject(c.req.param("projectId"));
+    if (!project) return c.json({ error: "not found" }, 404);
+    const body = await c.req.json<{
+      name?: string;
+      description?: string;
+      body?: string;
+    }>();
+    const patch: Record<string, string> = {};
+    if (body.name !== undefined) {
+      const name = body.name.trim();
+      if (!name) return c.json({ error: "name required" }, 400);
+      patch.name = name;
+    }
+    if (body.description !== undefined)
+      patch.description = body.description.trim();
+    if (body.body !== undefined) {
+      if (!body.body.trim()) return c.json({ error: "body required" }, 400);
+      patch.body = body.body;
+    }
+    updateProject(project.id, patch);
+    return c.json(getProject(project.id));
+  });
+
+  app.delete("/api/projects/:projectId", (c) => {
+    const project = getProject(c.req.param("projectId"));
+    if (!project) return c.json({ error: "not found" }, 404);
+    deleteProject(project.id);
+    return c.json({ ok: true });
+  });
 
   app.post("/api/roles", async (c) => {
     const payload = toRolePayload(
@@ -1222,16 +1340,38 @@ export function createApp() {
   app.get("/api/bots/:id", (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
-    return c.json(bot);
+    return c.json({
+      ...bot,
+      project_ids: projectsForBot(bot.id).map((p) => p.id),
+    });
   });
 
   app.patch("/api/bots/:id", async (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
-    const payload = toBotPayload({ ...bot, ...(await c.req.json<BotInput>()) });
+    const input = await c.req.json<BotInput & { project_ids?: unknown }>();
+    const payload = toBotPayload({ ...bot, ...input });
     if ("error" in payload) return c.json({ error: payload.error }, 400);
     updateBot(bot.id, payload);
-    return c.json(getBot(bot.id));
+    if (input.project_ids !== undefined) {
+      if (!Array.isArray(input.project_ids))
+        return c.json({ error: "project_ids must be an array" }, 400);
+      try {
+        setBotProjects(
+          bot.id,
+          input.project_ids.filter((x): x is string => typeof x === "string"),
+        );
+      } catch (err) {
+        return c.json(
+          { error: err instanceof Error ? err.message : String(err) },
+          400,
+        );
+      }
+    }
+    return c.json({
+      ...getBot(bot.id),
+      project_ids: projectsForBot(bot.id).map((p) => p.id),
+    });
   });
 
   app.delete("/api/bots/:id", (c) => {

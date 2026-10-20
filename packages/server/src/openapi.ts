@@ -182,6 +182,28 @@ export function openApiDoc(): Json {
     params: ["teamId", "botId"],
   });
 
+  add("/api/projects", "get", "List shared-context projects", {
+    res: { type: "array", items: ref("Project") },
+  });
+  add("/api/projects", "post", "Create a project (name + body required)", {
+    body: ref("Project"),
+  });
+  add("/api/projects/{projectId}", "get", "Read one project", {
+    params: ["projectId"],
+  });
+  add(
+    "/api/projects/{projectId}",
+    "patch",
+    "Update name, description or body",
+    {
+      params: ["projectId"],
+      body: ref("Project"),
+    },
+  );
+  add("/api/projects/{projectId}", "delete", "Delete a project", {
+    params: ["projectId"],
+  });
+
   add("/api/skills", "get", "List skills");
   add("/api/skills", "post", "Create a skill", { body: ref("Skill") });
   add("/api/skills/{skillId}", "patch", "Update a skill", {
@@ -285,6 +307,15 @@ export function openApiDoc(): Json {
             machine_id: strOrNone,
             sound: strOrNone,
             enabled: { type: "boolean" },
+          },
+        },
+        Project: {
+          type: "object",
+          properties: {
+            id: str,
+            name: str,
+            description: str,
+            body: str,
           },
         },
         Role: {
