@@ -10,3 +10,6 @@ Behaviors agreed on but not yet specced in detail. Each becomes its own spec dir
 - **External coding agents** — a bot can run a third-party headless CLI agent (opencode, Claude Code, …) inside its sandbox instead of the built-in pi loop: per-bot engine selection behind an adapter interface that spawns the CLI in print mode with JSON event streaming (`claude -p --output-format stream-json`, `opencode run --format json`) via container exec; role/system prompt bridged to the CLI's system-prompt flag, role MCP servers written as `.mcp.json`/config into `/workspace`; CLIs installed in the sandbox image with their provider keys injected as exec env.
 
 - **Panic button** — emergency stop/interrupt for all running bots.
+
+- **Installable skills — skills.sh** — discover and install skills from the skills.sh registry.
+- **Installable skills — git repo** — install a skill from a git repository URL.
