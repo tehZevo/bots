@@ -626,3 +626,42 @@ test("chat turns expose thinking and tool calls with results", async () => {
   assert.deepEqual(turns[1].tool_calls?.[0]?.input, { cmd: "ls" });
   assert.equal(turns[1].tool_calls?.[0]?.output, "files");
 });
+
+test("trigger-injected turns are flagged with their source", async () => {
+  const id = await makeBot("tickbot");
+  appendMessages(id, null, [
+    {
+      role: "user",
+      payload: { content: "[schedule 2026-10-19T00:00:00Z]\nrun the thing" },
+    },
+    {
+      role: "user",
+      payload: { content: "[manual 2026-10-19T00:01:00Z]\nby hand" },
+    },
+    {
+      role: "user",
+      payload: { content: "[webhook 2026-10-19T00:02:00Z]\nevent body" },
+    },
+    {
+      role: "user",
+      payload: { content: "[chat 2026-10-19T00:03:00Z]\nhello from chat" },
+    },
+  ]);
+  const res = await req("GET", `/api/bots/${id}/messages`);
+  assert.equal(res.status, 200);
+  const turns = res.json as {
+    role: string;
+    text: string;
+    injected?: boolean;
+    source?: string;
+  }[];
+  assert.deepEqual(
+    turns.map((t) => [t.text, t.injected ?? false, t.source ?? null]),
+    [
+      ["run the thing", true, "schedule"],
+      ["by hand", true, "manual"],
+      ["event body", true, "webhook"],
+      ["hello from chat", false, null],
+    ],
+  );
+});

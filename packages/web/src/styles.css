@@ -890,6 +890,35 @@ aside.rail .sidetabs button {
   background: var(--surface-2, rgba(127, 127, 127, 0.12));
   font-family: inherit;
 }
+.chat-bar {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 1px dashed var(--border, rgba(127, 127, 127, 0.4));
+  border-radius: 8px;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 6px,
+    rgba(127, 127, 127, 0.06) 6px,
+    rgba(127, 127, 127, 0.06) 12px
+  );
+}
+.chat-bar .who {
+  font-size: 11px;
+  opacity: 0.7;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.chat-bar pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 0.92em;
+}
 .chat-turn.user {
   align-self: flex-end;
   align-items: flex-end;
