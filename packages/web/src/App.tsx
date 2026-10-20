@@ -495,9 +495,10 @@ export function App() {
     return () => removeEventListener("popstate", onPop);
   }, []);
   const [openBot, setOpenBot] = useState<string | null>(null);
-  const [modalTab, setModalTab] = useState<
-    "general" | "triggers" | "chat" | "logs"
-  >("general");
+  const [chatBot, setChatBot] = useState<string | null>(null);
+  const [modalTab, setModalTab] = useState<"general" | "triggers" | "logs">(
+    "general",
+  );
   const [detailOpen, setDetailOpen] = useState(false);
   const [avatarMenu, setAvatarMenu] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -565,7 +566,20 @@ export function App() {
       setOpenBot(null);
       setDetailOpen(false);
     }
-  }, [bots, openBot]);
+    if (chatBot && !bots.some((b) => b.id === chatBot)) setChatBot(null);
+  }, [bots, openBot, chatBot]);
+
+  useEffect(() => {
+    if (!chatBot) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (!t || t.closest(".sidepanel") || t.closest(".modal")) return;
+      const card = t.closest("[data-bot-card]");
+      setChatBot(card ? card.getAttribute("data-bot-card") : null);
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [chatBot]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -573,10 +587,11 @@ export function App() {
       if (notificationPanelOpen) setNotificationPanelOpen(false);
       else if (addOpen) setAddOpen(false);
       else if (detailOpen) setDetailOpen(false);
+      else if (chatBot) setChatBot(null);
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [notificationPanelOpen, addOpen, detailOpen]);
+  }, [notificationPanelOpen, addOpen, detailOpen, chatBot]);
 
   const botFilter = botQuery.trim().toLowerCase();
   const visibleBots = bots.filter(
@@ -593,6 +608,7 @@ export function App() {
   }
 
   const openBotRow = bots.find((b) => b.id === openBot);
+  const chatBotRow = bots.find((b) => b.id === chatBot);
 
   async function markOneNotification(id: string): Promise<void> {
     try {
@@ -885,11 +901,9 @@ export function App() {
                     type="button"
                     key={bot.id}
                     className="card"
+                    data-bot-card={bot.id}
                     aria-label={`${bot.name} (${bot.status})`}
-                    onClick={() => {
-                      setOpenBot(bot.id);
-                      setDetailOpen(true);
-                    }}
+                    onClick={() => setChatBot(bot.id)}
                   >
                     <span className="cardhead">
                       <Avatar
@@ -950,6 +964,16 @@ export function App() {
           {tab === "projects" && <ProjectsPanel />}
           {tab === "settings" && <SettingsPanel />}
         </main>
+        {chatBotRow && (
+          <ChatSidebar
+            bot={chatBotRow}
+            onSettings={() => {
+              setOpenBot(chatBotRow.id);
+              setDetailOpen(true);
+            }}
+            onClose={() => setChatBot(null)}
+          />
+        )}
         {detailOpen && openBotRow && (
           <div className="modal">
             <button
@@ -1021,7 +1045,7 @@ export function App() {
                 </button>
               </div>
               <nav className="mtabs">
-                {(["general", "triggers", "chat", "logs"] as const).map((t) => (
+                {(["general", "triggers", "logs"] as const).map((t) => (
                   <button
                     key={t}
                     type="button"
@@ -1041,9 +1065,6 @@ export function App() {
                   />
                 )}
                 {modalTab === "triggers" && <Triggers botId={openBotRow.id} />}
-                {modalTab === "chat" && (
-                  <Chat botId={openBotRow.id} botName={openBotRow.name} />
-                )}
                 {modalTab === "logs" && (
                   <>
                     {runs.length === 0 && (
@@ -3554,6 +3575,48 @@ export function ChatTurnView({
         </>
       )}
     </div>
+  );
+}
+
+export function ChatSidebar({
+  bot,
+  onSettings,
+  onClose,
+}: {
+  bot: Bot | null;
+  onSettings: () => void;
+  onClose: () => void;
+}) {
+  if (!bot) return null;
+  return (
+    <aside className="sidepanel" role="dialog" aria-label={`${bot.name} chat`}>
+      <div className="viewhead">
+        <Avatar
+          name={bot.name}
+          id={bot.id}
+          shape={bot.avatar_shape}
+          color={bot.avatar_color}
+          health={bot.health}
+        />
+        <h2>{bot.name}</h2>
+        <button
+          type="button"
+          aria-label={`${bot.name} settings`}
+          onClick={onSettings}
+        >
+          <GearIcon size={16} />
+        </button>
+        <button
+          type="button"
+          className="close"
+          aria-label="Close"
+          onClick={onClose}
+        >
+          ×
+        </button>
+      </div>
+      <Chat key={bot.id} botId={bot.id} botName={bot.name} />
+    </aside>
   );
 }
 
