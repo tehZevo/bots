@@ -177,11 +177,18 @@ test("send_message tool and Teams section only exist with teammates", () => {
     /## Teams/,
   );
 
-  const teamNames = buildTools("bot-a", () => "delivered").map((t) => t.name);
-  assert.ok(teamNames.includes("send_message"));
+  const teamTools = buildTools("bot-a", () => "delivered");
+  const sendMessage = teamTools.find((t) => t.name === "send_message");
+  assert.ok(sendMessage);
+  assert.match(
+    sendMessage.description ?? "",
+    /Do not send progress updates or recruit help/,
+  );
   const prompt = effectiveSystemPrompt(dbm.getBot("bot-a")!);
   assert.match(prompt, /## Teams/);
   assert.match(prompt, /\bB\b.*id: bot-b/s);
+  assert.match(prompt, /only when this assignment needs their input/);
+  assert.match(prompt, /do not send progress updates/);
 });
 
 test("teams attach projects via PATCH", async () => {
