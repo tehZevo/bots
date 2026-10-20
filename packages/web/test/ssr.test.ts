@@ -26,6 +26,7 @@ const {
   BOT_NAMES,
   relTime,
   fmt,
+  nextRunLabel,
   pickBotName,
   Avatar,
   StatusDot,
@@ -116,6 +117,22 @@ test("fmt renders timestamps or dash", () => {
   assert.equal(fmt(null), "—");
   assert.ok(fmt(1_700_000_000_000).length > 4);
 });
+
+test("nextRunLabel is hidden for paused schedule triggers", () => {
+  const base = {
+    id: "t1",
+    kind: "schedule" as const,
+    name: null,
+    message: "ping",
+    schedule: "@every 1h",
+    next_run_at: 1_700_000_000_000,
+    enabled: 1,
+  };
+  assert.match(nextRunLabel(base) ?? "", /^next: /);
+  assert.equal(nextRunLabel({ ...base, enabled: 0 }), null);
+  assert.equal(nextRunLabel({ ...base, kind: "webhook" }), null);
+});
+
 test("pickBotName returns an unused name from the pool", () => {
   const uniq = [...new Set(BOT_NAMES)];
   assert.ok(uniq.includes(pickBotName([])));
