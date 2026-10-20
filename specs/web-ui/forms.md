@@ -9,6 +9,6 @@
 
 # Dirty-state save buttons
 
-- The bot detail `General` tab's Save button is disabled until Name or Description (or the role picker) differs from the loaded values; reverting every field back disables it again. Saving an unchanged form is never possible.
+- The bot detail `General` tab's Save button is disabled until Name, Instructions, role, machine or Projects differs from the loaded values; reverting every field back disables it again. Saving an unchanged form is never possible.
 - Other edit forms keep plain always-enabled Save.
 

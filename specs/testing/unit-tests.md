@@ -5,6 +5,5 @@
 - Web tests live in `packages/web/test/*.test.ts`, named after the module under test, exercising pure helpers (formatting, rng, names) and rendering components via `react-dom/server` with stubbed globals; no real backend or network is required.
 - Every test gets an isolated temp `DATA_DIR`/`DATABASE_PATH`; the suite never touches `./data`, host Docker or real provider keys.
 - API-level tests drive the Hono app in-process (no listening socket) and assert on status codes and JSON bodies as specced.
-- CI gates every pull request — typecheck, tests and per-package coverage floors run as separate status checks (`testing/ci.md`). Both packages floor at 70% line coverage.
-
+- CI gates every pull request — typecheck, tests and per-package coverage floors run as separate status checks (`testing/ci.md`).
 - The suite must pass locally before an implementation PR merges too; a failing test is fixed by changing code or the spec, never by deleting the assertion without a spec change.
