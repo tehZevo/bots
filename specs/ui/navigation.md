@@ -7,4 +7,5 @@
 - The sidebar collapses via a toggle control: collapsed, it is a slim rail showing only each tab’s icon — no text other than tooltips — with the active one marked, and tapping any icon selects the tab or expands the labels; expanded, it shows full tab names beside their icons. The choice persists across sessions.
 - Below tablet width the sidebar is replaced by a hamburger button in the top bar; tapping it opens an overlay drawer holding the same tabs, which closes on selecting a tab or tapping outside it.
 - The active tab is visually marked.
+- Selecting a different tab while a saveable form is dirty asks to discard first (`unsaved-changes.md`); Keep editing leaves the current tab selected.
 - Each tab owns a URL path — `/bots`, `/teams`, `/roles`, `/machines`, `/integrations`, `/skills`, `/templates`, `/projects`, `/settings`. Selecting a tab updates the browser history so back/forward walk between tabs; opening or reloading one of these paths lands directly on that tab, with `/` showing Bots. The server answers unknown non-API paths with the app shell so deep links survive reload.
