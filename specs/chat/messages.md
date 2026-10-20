@@ -8,6 +8,7 @@
 - Assistant message text renders as GitHub-flavored markdown (headings, lists, code blocks, links) with HTML sanitized; user turns stay plain text.
 - Each assistant turn labels itself with the bot's name instead of a generic "BOT" marker.
 - Tool calls and thinking attach to their assistant turn as separate collapsible sections, collapsed by default: one section for thinking, one per tool call showing tool name plus input and output; expanded content scrolls within bounds.
+- Additional messages sent while the bot is busy are queued and each steers the bot via the same path; the chat shows all queued messages.
 - Send is unavailable while the bot is disabled; API errors surface inline in the sidebar without closing it.
 - Chat turns are ordinary context: they appear in Logs and participate in compaction like any message.
 - Trigger-injected messages render in the chat as a full-width bar spanning the conversation, visually distinct from user and bot turns.
