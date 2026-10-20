@@ -1984,3 +1984,15 @@ button.danger.ghost {
     border-left: none;
   }
 }
+.unsavednote {
+  color: var(--muted);
+  font-style: italic;
+}
+.confirm > .dialog {
+  margin: auto;
+}
+@media (max-width: 720px) {
+  .confirm > .dialog.narrow {
+    width: calc(100vw - 2rem);
+  }
+}

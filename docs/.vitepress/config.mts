@@ -29,6 +29,7 @@ export default defineConfig({
           { text: "Triggers & scheduling", link: "/triggers-scheduling" },
           { text: "Projects", link: "/projects" },
           { text: "Notifications", link: "/notifications" },
+          { text: "Editors & unsaved changes", link: "/editors" },
         ],
       },
     ],
