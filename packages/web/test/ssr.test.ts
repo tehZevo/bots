@@ -57,6 +57,7 @@ const {
   ChatSidebar,
   Chat,
   ChatTurnView,
+  ChatBar,
   Triggers,
   AddBotModal,
   TemplateEditorModal,
@@ -262,6 +263,22 @@ test("chat turns render bot name, markdown and collapsibles", () => {
   assert.match(html, /tool: shell/);
   assert.match(html, /files/);
   assert.match(html, /thinking/);
+});
+
+test("trigger-injected turns render as full-width bars", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(ChatBar, {
+      turn: {
+        role: "user",
+        text: "run the thing",
+        injected: true,
+        source: "schedule",
+      },
+    }),
+  );
+  assert.match(html, /class="chat-bar schedule"/);
+  assert.match(html, /<span class="who">schedule<\/span>/);
+  assert.match(html, /run the thing/);
 });
 
 const { AuthScreen, AccountSection } = await import("../src/auth.tsx");

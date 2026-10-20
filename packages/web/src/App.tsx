@@ -3975,7 +3975,26 @@ type ChatTurn = {
   text: string;
   thinking?: string;
   tool_calls?: ToolCallTurn[];
+  injected?: boolean;
+  source?: string;
 };
+
+const INJECT_LABELS: Record<string, string> = {
+  schedule: "schedule",
+  manual: "manual run",
+  webhook: "webhook",
+};
+
+export function ChatBar({ turn }: { turn: ChatTurn }) {
+  return (
+    <div className={`chat-bar ${turn.source ?? "trigger"}`}>
+      <span className="who">
+        {INJECT_LABELS[turn.source ?? ""] ?? turn.source ?? "trigger"}
+      </span>
+      <pre>{turn.text}</pre>
+    </div>
+  );
+}
 
 export function ChatTurnView({
   turn,
@@ -4137,9 +4156,13 @@ export function Chat({ botId, botName }: { botId: string; botName: string }) {
     <section className="chat">
       <div className="chat-log">
         {turns.length === 0 && <p>No conversation yet. Say something below.</p>}
-        {turns.map((t, i) => (
-          <ChatTurnView key={i} turn={t} botName={botName} />
-        ))}
+        {turns.map((t, i) =>
+          t.injected ? (
+            <ChatBar key={i} turn={t} />
+          ) : (
+            <ChatTurnView key={i} turn={t} botName={botName} />
+          ),
+        )}
         {typing && (
           <div className="chat-turn typing" aria-label="bot is replying">
             <span className="who">{botName}</span>

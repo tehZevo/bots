@@ -1418,6 +1418,8 @@ export function createApp() {
       text: string;
       thinking?: string;
       tool_calls?: ToolCallTurn[];
+      injected?: boolean;
+      source?: string;
     };
     const turns: ChatTurn[] = [];
     const callsById = new Map<string, ToolCallTurn>();
@@ -1462,12 +1464,21 @@ export function createApp() {
         }
         if (turn.text.trim() || turn.tool_calls) turns.push(turn);
       } else {
-        const text = blocks
+        const raw = blocks
           .filter((b) => b?.type === "text")
           .map((b) => String(b.text ?? ""))
-          .join("")
-          .replace(/^\[(schedule|manual|chat|webhook) [^\]]*\]\n/, "");
-        if (text.trim()) turns.push({ role: "user", text });
+          .join("");
+        const inj = /^\[(schedule|manual|webhook) [^\]]*\]\n/.exec(raw);
+        const text = raw.replace(
+          /^\[(schedule|manual|chat|webhook) [^\]]*\]\n/,
+          "",
+        );
+        if (text.trim())
+          turns.push(
+            inj
+              ? { role: "user", text, injected: true, source: inj[1] }
+              : { role: "user", text },
+          );
       }
     }
     return c.json(turns);
