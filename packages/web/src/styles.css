@@ -1905,6 +1905,7 @@ button.danger.ghost {
   font-size: 0.85em;
 }
 .multiselect {
+  position: relative;
   flex: 1;
   min-width: 220px;
 }
@@ -1914,16 +1915,27 @@ button.danger.ghost {
   font-size: 0.85em;
 }
 .msopts {
+  display: none;
   list-style: none;
-  display: flex;
   flex-wrap: wrap;
   gap: 0.35rem 0.75rem;
-  max-height: 140px;
-  margin: 0.35rem 0 0;
-  padding: 0.4rem 0.6rem;
+  max-height: 160px;
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 0.5rem 0.7rem;
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 25%);
+}
+.multiselect:focus-within .msopts,
+.multiselect.open .msopts {
+  display: flex;
 }
 .msopts label {
   display: inline-flex;
