@@ -2,11 +2,16 @@
 
 A bot is a persistent agent loop: instructions + model + tools + memory. Cards show a one-line name (long names truncate with an ellipsis, full text on hover), generated avatar (deterministic from the bot id — it blinks on a seeded cadence and floats/tilts per health level; disabled bots sit perfectly still), current task and health dot; filters match those health words exactly. A visible gap separates the search/filter bar from the content below it on every main screen. A single control bar above the cards holds the name search with two labeled dropdown multiselects beside it — `Status:` (`Active`/`Idle`/`Issues`/`Blocked`/`Disabled`) and a searchable `Role:` list including `(no role)`; both show `All` when nothing is selected, selections inside one dropdown OR together and across dropdowns AND.
 
+## Chat sidebar
+
+Clicking a bot card opens that bot's chat in a closeable sidebar pinned to the right edge — the cards stay visible behind it. Your message appears instantly and a typing indicator shows until the reply lands; chat turns enter the same persistent context as everything else. Close it with its × button, Escape, or clicking outside; nothing about the bot changes. The gear icon in the sidebar header opens that bot's settings modal. Only one sidebar is open at a time — tapping another card switches it in place. On phones it spans the full screen.
+
 ## Detail tabs
+
+The settings modal (opened from the chat sidebar's gear) holds:
 
 - **General** — name and instructions editing, role and machine pickers, with Save disabled until one of them changes; enable toggle switch, Stop while running, Restart machine, Clear memory, Delete.
 - **Triggers** — schedule and webhook triggers, each with its own pause switch ([details](/triggers-scheduling)).
-- **Chat** — talk to the bot directly; your message appears instantly and a typing indicator shows until the reply lands. Chat turns enter the same persistent context as everything else.
 - **Logs** — run history: trigger source, status (ok/error), output, errors.
 
 ## Lifecycle

@@ -48,6 +48,7 @@ const {
   SkillsPanel,
   IntegrationsPanel,
   BotGeneral,
+  ChatSidebar,
   Chat,
   ChatTurnView,
   Triggers,
@@ -274,7 +275,10 @@ test("teams panel and bot team picker render", () => {
   const html = renderToStaticMarkup(React.createElement(TeamsPanel));
   assert.match(html, /Create team/);
   assert.match(html, /No teams yet/);
-  assert.equal(renderToStaticMarkup(React.createElement(BotTeams, { botId: "b1" })), "");
+  assert.equal(
+    renderToStaticMarkup(React.createElement(BotTeams, { botId: "b1" })),
+    "",
+  );
 });
 
 test("team card renders members, leader toggle and add controls", () => {
@@ -313,7 +317,13 @@ test("projects panel, modal and picker render", () => {
 
   const modal = renderToStaticMarkup(
     React.createElement(ProjectModal, {
-      project: { id: "p1", name: "ctx", description: "d", body: "# B", created_at: 0 },
+      project: {
+        id: "p1",
+        name: "ctx",
+        description: "d",
+        body: "# B",
+        created_at: 0,
+      },
       onClose: () => undefined,
       onSaved: () => undefined,
     }),
@@ -326,4 +336,36 @@ test("projects panel, modal and picker render", () => {
     renderToStaticMarkup(React.createElement(BotProjects, { botId: "b1" })),
     "",
   );
+});
+
+test("chat sidebar renders header, gear and close", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(ChatSidebar, {
+      bot: {
+        id: "b1",
+        name: "Alpha",
+        instructions: "",
+        model_id: null,
+        role_id: null,
+        machine_id: null,
+        avatar_shape: null,
+        avatar_color: null,
+        sound: null,
+        enabled: 1,
+        created_at: 0,
+        run_state: "enabled",
+        health: "green",
+        status: null,
+        status_level: null,
+        current_task: null,
+        current_task_updated_at: null,
+      },
+      onSettings: () => undefined,
+      onClose: () => undefined,
+    }),
+  );
+  assert.match(html, /class="sidepanel"/);
+  assert.match(html, /Alpha chat/);
+  assert.match(html, /Alpha settings/);
+  assert.match(html, /aria-label="Close"/);
 });
