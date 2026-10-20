@@ -1,7 +1,7 @@
 # Chat messages
 
-- The bot's chat opens in the right sidebar (see `chat-sidebar.md`): conversation history (user and assistant turns) plus a text input with Send.
-- Sending posts `/api/bots/:id/messages`: the text enters persistent context as a user turn via the same steering path triggers use; an active loop is steered, otherwise a run starts (`runs/lifecycle.md`) with source `chat`.
+- The bot's chat opens in the right sidebar (see `sidebar.md`): conversation history (user and assistant turns) plus a text input with Send.
+- Sending posts `/api/bots/:id/messages`: the text enters persistent context as a user turn via the same steering path triggers use; an active loop is steered, otherwise a run starts (`../runs/lifecycle.md`) with source `chat`.
 - On send, your message renders immediately in the log (optimistic) even before the server confirms it; a typing indicator sits below the last turn until the first non-empty assistant reply arrives. Failed sends remove the optimistic turn and surface the error inline.
 - The assistant's replies stream into the sidebar; history reloads complete on reopen.
 - Assistant message text renders as GitHub-flavored markdown (headings, lists, code blocks, links) with HTML sanitized; user turns stay plain text.
