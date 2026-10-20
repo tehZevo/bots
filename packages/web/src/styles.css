@@ -1350,23 +1350,35 @@ button.danger.ghost {
 [data-theme="light"] .dot.gray {
   background: #9ca3af;
 }
-.chat-turn.typing .dots {
+.chat-working {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 2px 4px;
+}
+.chat-working .who {
+  font-size: 11px;
+  opacity: 0.6;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.chat-working .dots {
   display: inline-flex;
   gap: 4px;
   align-items: center;
   height: 20px;
 }
-.chat-turn.typing .dots i {
+.chat-working .dots i {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--muted);
   animation: typedot 1.2s infinite ease-in-out;
 }
-.chat-turn.typing .dots i:nth-child(2) {
+.chat-working .dots i:nth-child(2) {
   animation-delay: 0.15s;
 }
-.chat-turn.typing .dots i:nth-child(3) {
+.chat-working .dots i:nth-child(3) {
   animation-delay: 0.3s;
 }
 @keyframes typedot {
@@ -1387,7 +1399,7 @@ button.danger.ghost {
     opacity: 1;
     transform: none;
   }
-  .chat-turn.typing .dots i {
+  .chat-working .dots i {
     animation: none;
     opacity: 0.7;
   }
