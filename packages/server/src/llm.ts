@@ -29,7 +29,7 @@ function toModel(
     api: "openai-completions",
     provider: "bots",
     baseUrl: provider.base_url,
-    reasoning: false,
+    reasoning: true,
     input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: Number(process.env.LLM_CONTEXT_WINDOW ?? 64000),
