@@ -2,7 +2,7 @@ services:
   orchestrator:
     build: .
     ports:
-      - "8787:8787"
+      - "8075:8075"
     env_file: .env
     volumes:
       - bots-data:/data

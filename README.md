@@ -19,12 +19,12 @@ Self-hosted autonomous bots that run against any OpenAI-compatible LLM endpoint 
 ```bash
 pnpm install
 cp .env.example .env   # optional server settings
-pnpm dev               # server on :8787, web UI on :5173 (pulls the sandbox image automatically)
+pnpm dev               # server on :8075, web UI on :5173 (pulls the sandbox image automatically)
 ```
 
-`.env` values — LLM providers are configured in the UI (Settings → Providers), not env. Optional: `PORT` (default `8787`), `DATA_DIR` (default repo `data/`), `DATABASE_PATH`, `SANDBOX_IMAGE` (default `ghcr.io/tehzevo/bots-sandbox:latest`, pulled automatically).
+`.env` values — LLM providers are configured in the UI (Settings → Providers), not env. Optional: `PORT` (default `8075`), `DATA_DIR` (default repo `data/`), `DATABASE_PATH`, `SANDBOX_IMAGE` (default `ghcr.io/tehzevo/bots-sandbox:latest`, pulled automatically).
 
-Production — serves the built UI and API together on `:8787`:
+Production — serves the built UI and API together on `:8075`:
 
 ```bash
 pnpm build && pnpm start
@@ -42,7 +42,7 @@ docker pull ghcr.io/tehzevo/bots:latest
 services:
   orchestrator:
     image: ghcr.io/tehzevo/bots:latest
-    ports: ["8787:8787"]
+    ports: ["8075:8075"]
     volumes:
       - ./data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock
