@@ -2,9 +2,11 @@
 
 A **team** is a named grouping of bots on the sidebar's Teams tab. Bots can belong to any number of teams; deleting a team removes only the grouping, never the bots. Roles, providers and MCP servers stay global.
 
-## Members and leaders
+## Team cards and configuration
 
-Each team card lists its members. Use the select under the list to add a bot, **Remove** to drop one — membership is also editable from a bot's General tab, which shows a checkbox per team. The **leader** checkbox designates a member as leader of that team; leaders are listed first and badged in the prompt section other bots see. What leaders may direct is defined by later specs.
+The Teams tab lists teams as cards. Each card shows a status icon computed across its members (blocked if any member is blocked, else issues, else active, else idle; disabled when every member is disabled) plus the member count in italics (e.g. *9 bots*). Filter the list by team name or with the bots multiselect (autocomplete) to see only teams containing the picked bots.
+
+Clicking a card opens the **team config modal**: rename the team, add or remove members via an autocomplete multiselect, toggle who is a **leader**, attach **Projects** (every member inherits them), or delete the team — deleting removes only the grouping, never the bots. Membership is also editable from a bot's General tab, which offers the same teams multiselect; leaders are badged and listed first in the prompt section other bots see. What leaders may direct is defined by later specs.
 
 ## Team messaging (DMs)
 

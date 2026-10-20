@@ -1871,9 +1871,14 @@ button.danger.ghost {
 }
 
 .teamcard {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
+  flex-direction: row;
+  align-items: center;
+  cursor: pointer;
+  text-align: left;
+}
+.teamcard strong {
+  flex: 1;
+  overflow-wrap: anywhere;
 }
 .teammembers {
   list-style: none;
@@ -1899,13 +1904,28 @@ button.danger.ghost {
   color: var(--muted, #888);
   font-size: 0.85em;
 }
-.botteams {
+.multiselect {
+  flex: 1;
+  min-width: 220px;
+}
+.mschosen {
+  margin-left: 0.4rem;
+  color: var(--muted);
+  font-size: 0.85em;
+}
+.msopts {
+  list-style: none;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
-  margin: 0.4rem 0;
+  gap: 0.35rem 0.75rem;
+  max-height: 140px;
+  margin: 0.35rem 0 0;
+  padding: 0.4rem 0.6rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
-.botteams label {
+.msopts label {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;

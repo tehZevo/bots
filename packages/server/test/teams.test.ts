@@ -183,3 +183,58 @@ test("send_message tool and Teams section only exist with teammates", () => {
   assert.match(prompt, /## Teams/);
   assert.match(prompt, /\bB\b.*id: bot-b/s);
 });
+
+test("teams attach projects via PATCH", async () => {
+  const team = (await (
+    await authedRequest("/api/teams", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "proj-team" }),
+    })
+  ).json()) as { id: string; project_ids: string[] };
+  assert.deepEqual(team.project_ids, []);
+
+  const project = (await (
+    await authedRequest("/api/projects", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "site", body: "# Site" }),
+    })
+  ).json()) as { id: string };
+
+  const attached = await authedRequest(`/api/teams/${team.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ project_ids: [project.id] }),
+  });
+  assert.equal(attached.status, 200);
+  assert.deepEqual(
+    ((await attached.json()) as { project_ids: string[] }).project_ids,
+    [project.id],
+  );
+
+  const unknown = await authedRequest(`/api/teams/${team.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ project_ids: ["nope"] }),
+  });
+  assert.equal(unknown.status, 400);
+
+  const notArray = await authedRequest(`/api/teams/${team.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ project_ids: "nope" }),
+  });
+  assert.equal(notArray.status, 400);
+
+  const cleared = (await (
+    await authedRequest(`/api/teams/${team.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ project_ids: [] }),
+    })
+  ).json()) as { project_ids: string[] };
+  assert.deepEqual(cleared.project_ids, []);
+
+  await authedRequest(`/api/teams/${team.id}`, { method: "DELETE" });
+});
