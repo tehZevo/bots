@@ -3958,6 +3958,11 @@ export function Triggers({ botId }: { botId: string }) {
     </section>
   );
 }
+export function nextRunLabel(trigger: Trigger): string | null {
+  if (trigger.kind !== "schedule" || trigger.enabled !== 1) return null;
+  return `next: ${fmt(trigger.next_run_at)}`;
+}
+
 function TriggerEditor({
   trigger,
   onPatch,
@@ -3985,6 +3990,7 @@ function TriggerEditor({
       : `this ${trigger.kind} trigger`,
     dirty,
   );
+  const nextRun = nextRunLabel(trigger);
   return (
     <>
       <div className="tedithead">
@@ -4004,9 +4010,9 @@ function TriggerEditor({
         </label>
         {trigger.kind === "webhook" ? (
           <code>{`POST /api/webhooks/${trigger.id}`}</code>
-        ) : (
-          <span className="muted">next: {fmt(trigger.next_run_at)}</span>
-        )}
+        ) : nextRun ? (
+          <span className="muted">{nextRun}</span>
+        ) : null}
       </div>
       <label className="field">
         Name (optional)
