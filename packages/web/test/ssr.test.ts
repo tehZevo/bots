@@ -44,6 +44,7 @@ const {
   TeamsPanel,
   BotTeams,
   TeamConfigModal,
+  TeamCreateModal,
   Multiselect,
   teamHealth,
   ProjectsPanel,
@@ -289,7 +290,7 @@ test("teams panel and bot team picker render", () => {
   );
 });
 
-test("team config modal renders members, leader toggles and projects", () => {
+test("team config modal renders dual multiselects with leaders pre-checked", () => {
   const botRow = (id: string, name: string, health: string) =>
     ({
       id,
@@ -331,12 +332,32 @@ test("team config modal renders members, leader toggles and projects", () => {
     }),
   );
   assert.match(html, /Configure team ops/);
+  assert.match(html, /Members of ops/);
+  assert.match(html, /Leaders of ops/);
   assert.match(html, /Alpha/);
   assert.match(html, /checked=""/);
-  assert.match(html, /leader/);
+  assert.doesNotMatch(html, /teammembers/);
   assert.match(html, /Gamma/);
   assert.match(html, /website/);
   assert.match(html, /Delete/);
+});
+
+test("team create modal renders name and dual multiselects", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(TeamCreateModal, {
+      bots: [
+        { id: "b1", name: "Alpha" },
+        { id: "b2", name: "Beta" },
+      ] as never,
+      busy: false,
+      onClose: () => undefined,
+      mutate: () => undefined,
+    }),
+  );
+  assert.match(html, /Create team/);
+  assert.match(html, /Members of new team/);
+  assert.match(html, /Leaders of new team/);
+  assert.match(html, /Alpha/);
 });
 
 test("multiselect filters options by typed query", () => {

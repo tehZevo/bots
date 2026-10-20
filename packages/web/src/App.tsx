@@ -2312,11 +2312,106 @@ export function teamHealth(members: TeamMember[], bots: Bot[]): Bot["health"] {
   return "gray";
 }
 
+export function TeamCreateModal({
+  bots,
+  busy,
+  onClose,
+  mutate,
+}: {
+  bots: Bot[];
+  busy: boolean;
+  onClose: () => void;
+  mutate: (fn: () => Promise<unknown>) => void;
+}) {
+  const [name, setName] = useState("");
+  const [memberSel, setMemberSel] = useState<string[]>([]);
+  const [leaderSel, setLeaderSel] = useState<string[]>([]);
+  const dirty = name !== "" || memberSel.length > 0 || leaderSel.length > 0;
+  const attemptClose = useDiscardGuard("this new team", dirty, onClose);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") attemptClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  });
+
+  return (
+    <div className="modal">
+      <button
+        type="button"
+        className="mscrim"
+        aria-label="Cancel"
+        onClick={attemptClose}
+      />
+      <form
+        className="dialog narrow"
+        role="dialog"
+        aria-label="Create team"
+        onSubmit={(e) => {
+          e.preventDefault();
+          mutate(async () => {
+            const created = await api<Team>("/api/teams", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ name: name.trim() }),
+            });
+            for (const id of new Set([...memberSel, ...leaderSel]))
+              await api(`/api/teams/${created.id}/members`, {
+                method: "PUT",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ bot_id: id, leader: leaderSel.includes(id) }),
+              });
+            onClose();
+          });
+        }}
+      >
+        <label className="field">
+          Name
+          <input value={name} onChange={(e) => setName(e.target.value)} required />
+        </label>
+        <div className="field">
+          Members
+          <Multiselect
+            label={`Members of new team`}
+            options={bots.map((b) => ({ id: b.id, name: b.name }))}
+            selected={memberSel}
+            onChange={setMemberSel}
+            busy={busy}
+            placeholder="Add teammates…"
+          />
+        </div>
+        <div className="field">
+          Leaders (also added as members)
+          <Multiselect
+            label={`Leaders of new team`}
+            options={bots.map((b) => ({ id: b.id, name: b.name }))}
+            selected={leaderSel}
+            onChange={setLeaderSel}
+            busy={busy}
+            placeholder="Pick leaders…"
+          />
+        </div>
+        <div className="actions">
+          <button type="submit" disabled={busy || !name.trim()}>
+            Create team
+          </button>
+          <UnsavedNote dirty={dirty} />
+          <button type="button" onClick={attemptClose}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 export function TeamsPanel() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [bots, setBots] = useState<Bot[]>([]);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
-  const [newName, setNewName] = useState("");
+  const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
   const [nameQ, setNameQ] = useState("");
   const [botSel, setBotSel] = useState<string[]>([]);
@@ -2357,29 +2452,10 @@ export function TeamsPanel() {
     <section>
       <div className="viewhead">
         <h2>Teams</h2>
-        <button
-          type="button"
-          disabled={busy || !newName.trim()}
-          onClick={() => {
-            mutate(() =>
-              api("/api/teams", {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ name: newName.trim() }),
-              }),
-            );
-            setNewName("");
-          }}
-        >
+        <button type="button" onClick={() => setCreating(true)}>
           Create team
         </button>
       </div>
-      <input
-        aria-label="New team name"
-        placeholder="team name"
-        value={newName}
-        onChange={(e) => setNewName(e.target.value)}
-      />
       <div className="filterrow">
         <input
           aria-label="Filter teams by name"
@@ -2425,6 +2501,14 @@ export function TeamsPanel() {
           );
         })}
       </div>
+      {creating && (
+        <TeamCreateModal
+          bots={bots}
+          busy={busy}
+          onClose={() => setCreating(false)}
+          mutate={mutate}
+        />
+      )}
       {selTeam && (
         <TeamConfigModal
           team={selTeam}
@@ -2455,28 +2539,50 @@ export function TeamConfigModal({
   mutate: (fn: () => Promise<unknown>) => void;
 }) {
   const [name, setName] = useState(team.name);
+  const [memberSel, setMemberSel] = useState<string[]>(
+    team.members.map((m) => m.bot_id),
+  );
+  const [leaderSel, setLeaderSel] = useState<string[]>(
+    team.members.filter((m) => m.leader).map((m) => m.bot_id),
+  );
   const [attached, setAttached] = useState<string[]>(team.project_ids ?? []);
   const [confirmDel, setConfirmDel] = useState(false);
 
-  const setMembers = (nextIds: string[]) => {
-    const current = team.members.map((m) => m.bot_id);
-    const added = nextIds.filter((id) => !current.includes(id));
-    const removed = current.filter((id) => !nextIds.includes(id));
-    mutate(async () => {
-      for (const id of added)
-        await api(`/api/teams/${team.id}/members`, {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ bot_id: id }),
-        });
-      for (const id of removed)
-        await api(`/api/teams/${team.id}/members/${id}`, { method: "DELETE" });
-    });
-  };
-
+  const memberIds = Array.from(new Set([...memberSel, ...leaderSel]));
+  const curLeaderIds = team.members.filter((m) => m.leader).map((m) => m.bot_id);
   const dirty =
     name.trim() !== team.name ||
-    attached.join(",") !== (team.project_ids ?? []).join(",");
+    attached.join(",") !== (team.project_ids ?? []).join(",") ||
+    [...memberIds].sort().join(",") !==
+      team.members.map((m) => m.bot_id).sort().join(",") ||
+    leaderSel.filter((id) => memberIds.includes(id)).sort().join(",") !==
+      [...curLeaderIds].sort().join(",");
+
+  const save = () => {
+    const cur = new Map(team.members.map((m) => [m.bot_id, m.leader]));
+    mutate(async () => {
+      await api(`/api/teams/${team.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), project_ids: attached }),
+      });
+      for (const id of memberIds) {
+        const leader = leaderSel.includes(id);
+        if (!cur.has(id) || cur.get(id) !== leader)
+          await api(`/api/teams/${team.id}/members`, {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ bot_id: id, leader }),
+          });
+      }
+      for (const m of team.members)
+        if (!memberIds.includes(m.bot_id))
+          await api(`/api/teams/${team.id}/members/${m.bot_id}`, {
+            method: "DELETE",
+          });
+      onClose();
+    });
+  };
   const attemptClose = useDiscardGuard(`team ${team.name}`, dirty, onClose);
 
   return (
@@ -2493,16 +2599,7 @@ export function TeamConfigModal({
         aria-label={`Configure team ${team.name}`}
         onSubmit={(e) => {
           e.preventDefault();
-          mutate(() =>
-            api(`/api/teams/${team.id}`, {
-              method: "PATCH",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                name: name.trim(),
-                project_ids: attached,
-              }),
-            }).then(onClose),
-          );
+          save();
         }}
       >
         <label className="field">
@@ -2518,41 +2615,23 @@ export function TeamConfigModal({
           <Multiselect
             label={`Members of ${team.name}`}
             options={bots.map((b) => ({ id: b.id, name: b.name }))}
-            selected={team.members.map((m) => m.bot_id)}
-            onChange={setMembers}
+            selected={memberSel}
+            onChange={setMemberSel}
             busy={busy}
             placeholder="Add teammates…"
           />
         </div>
-        {team.members.length > 0 && (
-          <ul className="teammembers">
-            {team.members.map((m) => (
-              <li key={m.bot_id}>
-                <span>{m.name}</span>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={m.leader}
-                    disabled={busy}
-                    onChange={() =>
-                      mutate(() =>
-                        api(`/api/teams/${team.id}/members`, {
-                          method: "PUT",
-                          headers: { "content-type": "application/json" },
-                          body: JSON.stringify({
-                            bot_id: m.bot_id,
-                            leader: !m.leader,
-                          }),
-                        }),
-                      )
-                    }
-                  />
-                  leader
-                </label>
-              </li>
-            ))}
-          </ul>
-        )}
+        <div className="field">
+          Leaders (also added as members)
+          <Multiselect
+            label={`Leaders of ${team.name}`}
+            options={bots.map((b) => ({ id: b.id, name: b.name }))}
+            selected={leaderSel}
+            onChange={setLeaderSel}
+            busy={busy}
+            placeholder="Pick leaders…"
+          />
+        </div>
         <div className="field">
           Projects (inherited by all members)
           <Multiselect

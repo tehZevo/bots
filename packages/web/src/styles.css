@@ -1880,30 +1880,6 @@ button.danger.ghost {
   flex: 1;
   overflow-wrap: anywhere;
 }
-.teammembers {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-.teammembers li {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-.teammembers li span {
-  flex: 1;
-  font-weight: 600;
-}
-.teammembers label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  color: var(--muted, #888);
-  font-size: 0.85em;
-}
 .multiselect {
   position: relative;
   flex: 1;
