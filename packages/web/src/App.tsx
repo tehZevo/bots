@@ -76,6 +76,7 @@ interface Team {
   name: string;
   created_at: number;
   members: TeamMember[];
+  project_ids: string[];
 }
 
 interface Project {
@@ -2150,19 +2151,90 @@ export function ProviderFormModal({
   );
 }
 
+export function Multiselect({
+  label,
+  options,
+  selected,
+  onChange,
+  busy,
+  placeholder,
+}: {
+  label: string;
+  options: { id: string; name: string }[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+  busy?: boolean;
+  placeholder?: string;
+}) {
+  const [query, setQuery] = useState("");
+  const sel = new Set(selected);
+  const q = query.trim().toLowerCase();
+  return (
+    <div className="multiselect">
+      <input
+        aria-label={label}
+        placeholder={placeholder ?? "Search…"}
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+      />
+      {selected.length > 0 && (
+        <span className="mschosen">{`${selected.length} selected`}</span>
+      )}
+      <ul className="msopts">
+        {options
+          .filter((o) => !q || o.name.toLowerCase().includes(q))
+          .map((o) => (
+            <li key={o.id}>
+              <label>
+                <input
+                  type="checkbox"
+                  disabled={busy}
+                  checked={sel.has(o.id)}
+                  onChange={() =>
+                    onChange(
+                      sel.has(o.id)
+                        ? selected.filter((x) => x !== o.id)
+                        : [...selected, o.id],
+                    )
+                  }
+                />
+                {o.name}
+              </label>
+            </li>
+          ))}
+      </ul>
+    </div>
+  );
+}
+
+export function teamHealth(members: TeamMember[], bots: Bot[]): Bot["health"] {
+  const hs = members
+    .map((m) => bots.find((b) => b.id === m.bot_id)?.health)
+    .filter(Boolean) as Bot["health"][];
+  for (const h of ["red", "yellow", "green", "blue"] as const)
+    if (hs.includes(h)) return h;
+  return "gray";
+}
+
 export function TeamsPanel() {
   const [teams, setTeams] = useState<Team[]>([]);
-  const [bots, setBots] = useState<{ id: string; name: string }[]>([]);
+  const [bots, setBots] = useState<Bot[]>([]);
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [nameQ, setNameQ] = useState("");
+  const [botSel, setBotSel] = useState<string[]>([]);
+  const [selTeamId, setSelTeamId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [ts, bs] = await Promise.all([
+    const [ts, bs, ps] = await Promise.all([
       api<Team[]>("/api/teams").catch(() => [] as Team[]),
       api<Bot[]>("/api/bots").catch(() => [] as Bot[]),
+      api<Project[]>("/api/projects").catch(() => [] as Project[]),
     ]);
     setTeams(ts);
-    setBots(bs.map((b) => ({ id: b.id, name: b.name })));
+    setBots(bs);
+    setProjects(ps.map((p) => ({ id: p.id, name: p.name })));
   }, []);
 
   useEffect(() => {
@@ -2176,6 +2248,14 @@ export function TeamsPanel() {
       .catch((e) => alert(e instanceof Error ? e.message : String(e)))
       .finally(() => setBusy(false));
   };
+
+  const nq = nameQ.trim().toLowerCase();
+  const visible = teams.filter(
+    (t) =>
+      (!nq || t.name.toLowerCase().includes(nq)) &&
+      (botSel.length === 0 || t.members.some((m) => botSel.includes(m.bot_id))),
+  );
+  const selTeam = teams.find((t) => t.id === selTeamId);
 
   return (
     <section>
@@ -2204,147 +2284,218 @@ export function TeamsPanel() {
         value={newName}
         onChange={(e) => setNewName(e.target.value)}
       />
+      <div className="filterrow">
+        <input
+          aria-label="Filter teams by name"
+          placeholder="Search teams by name"
+          value={nameQ}
+          onChange={(e) => setNameQ(e.target.value)}
+        />
+        <Multiselect
+          label="Filter teams by bots"
+          options={bots.map((b) => ({ id: b.id, name: b.name }))}
+          selected={botSel}
+          onChange={setBotSel}
+          placeholder="Filter by bots…"
+        />
+      </div>
       {teams.length === 0 && (
         <p className="muted">
           No teams yet — teammates DM each other in a team.
         </p>
       )}
-      <div className="teamlist">
-        {teams.map((team) => (
-          <TeamCard
-            key={team.id}
-            team={team}
-            bots={bots}
-            busy={busy}
-            mutate={mutate}
-          />
-        ))}
+      <div className="cards">
+        {visible.map((team) => {
+          const health = teamHealth(team.members, bots);
+          return (
+            <button
+              type="button"
+              key={team.id}
+              className="card teamcard"
+              aria-label={`Configure ${team.name}`}
+              onClick={() => setSelTeamId(team.id)}
+            >
+              <StatusDot
+                id={team.id}
+                health={health}
+                active={health === "green"}
+              />
+              <strong>{team.name}</strong>
+              <em className="muted">
+                {team.members.length}{" "}
+                {team.members.length === 1 ? "bot" : "bots"}
+              </em>
+            </button>
+          );
+        })}
       </div>
+      {selTeam && (
+        <TeamConfigModal
+          team={selTeam}
+          bots={bots}
+          projects={projects}
+          busy={busy}
+          onClose={() => setSelTeamId(null)}
+          mutate={mutate}
+        />
+      )}
     </section>
   );
 }
 
-export function TeamCard({
+export function TeamConfigModal({
   team,
   bots,
+  projects,
   busy,
+  onClose,
   mutate,
 }: {
   team: Team;
-  bots: { id: string; name: string }[];
+  bots: Bot[];
+  projects: { id: string; name: string }[];
   busy: boolean;
+  onClose: () => void;
   mutate: (fn: () => Promise<unknown>) => void;
 }) {
   const [name, setName] = useState(team.name);
-  const [addBotId, setAddBotId] = useState("");
-  const memberIds = new Set(team.members.map((m) => m.bot_id));
-  const candidates = bots.filter((b) => !memberIds.has(b.id));
+  const [attached, setAttached] = useState<string[]>(team.project_ids ?? []);
+  const [confirmDel, setConfirmDel] = useState(false);
+
+  const setMembers = (nextIds: string[]) => {
+    const current = team.members.map((m) => m.bot_id);
+    const added = nextIds.filter((id) => !current.includes(id));
+    const removed = current.filter((id) => !nextIds.includes(id));
+    mutate(async () => {
+      for (const id of added)
+        await api(`/api/teams/${team.id}/members`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ bot_id: id }),
+        });
+      for (const id of removed)
+        await api(`/api/teams/${team.id}/members/${id}`, { method: "DELETE" });
+    });
+  };
+
+  const dirty =
+    name.trim() !== team.name ||
+    attached.join(",") !== (team.project_ids ?? []).join(",");
 
   return (
-    <div className="card teamcard">
-      <div className="actions">
-        <input
-          aria-label={`Team name ${team.name}`}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <button
-          type="button"
-          disabled={busy || !name.trim() || name.trim() === team.name}
-          onClick={() =>
-            mutate(() =>
-              api(`/api/teams/${team.id}`, {
-                method: "PATCH",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ name: name.trim() }),
+    <div className="modal">
+      <button
+        type="button"
+        className="mscrim"
+        aria-label="Cancel"
+        onClick={onClose}
+      />
+      <form
+        className="dialog narrow"
+        role="dialog"
+        aria-label={`Configure team ${team.name}`}
+        onSubmit={(e) => {
+          e.preventDefault();
+          mutate(() =>
+            api(`/api/teams/${team.id}`, {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                name: name.trim(),
+                project_ids: attached,
               }),
-            )
-          }
-        >
-          Rename
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => {
-            if (!window.confirm(`Delete team ${team.name}? The bots stay.`))
-              return;
-            mutate(() => api(`/api/teams/${team.id}`, { method: "DELETE" }));
-          }}
-        >
-          Delete
-        </button>
-      </div>
-      <ul className="teammembers">
-        {team.members.map((m) => (
-          <li key={m.bot_id}>
-            <span>{m.name}</span>
-            <label>
-              <input
-                type="checkbox"
-                checked={m.leader}
-                disabled={busy}
-                onChange={() =>
-                  mutate(() =>
-                    api(`/api/teams/${team.id}/members`, {
-                      method: "PUT",
-                      headers: { "content-type": "application/json" },
-                      body: JSON.stringify({
-                        bot_id: m.bot_id,
-                        leader: !m.leader,
-                      }),
-                    }),
-                  )
-                }
-              />
-              leader
-            </label>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                mutate(() =>
-                  api(`/api/teams/${team.id}/members/${m.bot_id}`, {
-                    method: "DELETE",
-                  }),
-                )
-              }
-            >
-              Remove
-            </button>
-          </li>
-        ))}
-      </ul>
-      <div className="actions">
-        <select
-          aria-label={`Add bot to ${team.name}`}
-          value={addBotId}
-          onChange={(e) => setAddBotId(e.target.value)}
-        >
-          <option value="">add teammate…</option>
-          {candidates.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.name}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          disabled={busy || !addBotId}
-          onClick={() => {
+            }).then(onClose),
+          );
+        }}
+      >
+        <label className="field">
+          Name
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
+        </label>
+        <div className="field">
+          Members
+          <Multiselect
+            label={`Members of ${team.name}`}
+            options={bots.map((b) => ({ id: b.id, name: b.name }))}
+            selected={team.members.map((m) => m.bot_id)}
+            onChange={setMembers}
+            busy={busy}
+            placeholder="Add teammates…"
+          />
+        </div>
+        {team.members.length > 0 && (
+          <ul className="teammembers">
+            {team.members.map((m) => (
+              <li key={m.bot_id}>
+                <span>{m.name}</span>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={m.leader}
+                    disabled={busy}
+                    onChange={() =>
+                      mutate(() =>
+                        api(`/api/teams/${team.id}/members`, {
+                          method: "PUT",
+                          headers: { "content-type": "application/json" },
+                          body: JSON.stringify({
+                            bot_id: m.bot_id,
+                            leader: !m.leader,
+                          }),
+                        }),
+                      )
+                    }
+                  />
+                  leader
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="field">
+          Projects (inherited by all members)
+          <Multiselect
+            label={`Projects for ${team.name}`}
+            options={projects}
+            selected={attached}
+            onChange={setAttached}
+            busy={busy}
+            placeholder="Attach projects…"
+          />
+        </div>
+        <div className="actions">
+          <button type="submit" disabled={busy || !name.trim() || !dirty}>
+            Save
+          </button>
+          <button
+            type="button"
+            className="danger"
+            disabled={busy}
+            onClick={() => setConfirmDel(true)}
+          >
+            Delete
+          </button>
+          <button type="button" onClick={onClose}>
+            Cancel
+          </button>
+        </div>
+      </form>
+      {confirmDel && (
+        <ConfirmDialog
+          text={`Delete team ${team.name}? The bots stay.`}
+          confirmLabel="Delete team"
+          onCancel={() => setConfirmDel(false)}
+          onConfirm={() => {
             mutate(() =>
-              api(`/api/teams/${team.id}/members`, {
-                method: "PUT",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ bot_id: addBotId }),
-              }),
+              api(`/api/teams/${team.id}`, { method: "DELETE" }).then(onClose),
             );
-            setAddBotId("");
           }}
-        >
-          Add
-        </button>
-      </div>
+        />
+      )}
     </div>
   );
 }
@@ -2361,16 +2512,26 @@ export function BotTeams({ botId }: { botId: string }) {
 
   if (teams.length === 0) return null;
 
-  const toggle = (team: Team, member: boolean) => {
+  const selected = teams
+    .filter((t) => t.members.some((m) => m.bot_id === botId))
+    .map((t) => t.id);
+
+  const change = (nextIds: string[]) => {
     setBusy(true);
-    const req = member
-      ? api(`/api/teams/${team.id}/members/${botId}`, { method: "DELETE" })
-      : api(`/api/teams/${team.id}/members`, {
+    const added = nextIds.filter((id) => !selected.includes(id));
+    const removed = selected.filter((id) => !nextIds.includes(id));
+    void Promise.all([
+      ...added.map((id) =>
+        api(`/api/teams/${id}/members`, {
           method: "PUT",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ bot_id: botId }),
-        });
-    req
+        }),
+      ),
+      ...removed.map((id) =>
+        api(`/api/teams/${id}/members/${botId}`, { method: "DELETE" }),
+      ),
+    ])
       .then(() => api<Team[]>("/api/teams"))
       .then(setTeams)
       .catch((e) => alert(e instanceof Error ? e.message : String(e)))
@@ -2378,22 +2539,14 @@ export function BotTeams({ botId }: { botId: string }) {
   };
 
   return (
-    <div className="botteams">
-      {teams.map((team) => {
-        const member = team.members.some((m) => m.bot_id === botId);
-        return (
-          <label key={team.id}>
-            <input
-              type="checkbox"
-              disabled={busy}
-              checked={member}
-              onChange={() => toggle(team, member)}
-            />
-            {team.name}
-          </label>
-        );
-      })}
-    </div>
+    <Multiselect
+      label="Teams"
+      options={teams.map((t) => ({ id: t.id, name: t.name }))}
+      selected={selected}
+      onChange={change}
+      busy={busy}
+      placeholder="Join a team…"
+    />
   );
 }
 

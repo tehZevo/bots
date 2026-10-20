@@ -40,7 +40,9 @@ const {
   RolesPanel,
   TeamsPanel,
   BotTeams,
-  TeamCard,
+  TeamConfigModal,
+  Multiselect,
+  teamHealth,
   ProjectsPanel,
   ProjectModal,
   BotProjects,
@@ -281,33 +283,107 @@ test("teams panel and bot team picker render", () => {
   );
 });
 
-test("team card renders members, leader toggle and add controls", () => {
+test("team config modal renders members, leader toggles and projects", () => {
+  const botRow = (id: string, name: string, health: string) =>
+    ({
+      id,
+      name,
+      instructions: "",
+      model_id: null,
+      role_id: null,
+      machine_id: null,
+      enabled: 1,
+      created_at: 0,
+      run_state: "enabled",
+      health,
+      status: null,
+      status_level: null,
+      current_task: null,
+      current_task_updated_at: null,
+    }) as never;
   const html = renderToStaticMarkup(
-    React.createElement(TeamCard, {
+    React.createElement(TeamConfigModal, {
       team: {
         id: "t1",
         name: "ops",
         created_at: 0,
+        project_ids: ["p1"],
         members: [
           { bot_id: "b1", name: "Alpha", leader: true },
           { bot_id: "b2", name: "Beta", leader: false },
         ],
       },
       bots: [
-        { id: "b1", name: "Alpha" },
-        { id: "b2", name: "Beta" },
-        { id: "b3", name: "Gamma" },
-      ],
+        botRow("b1", "Alpha", "green"),
+        botRow("b2", "Beta", "red"),
+        botRow("b3", "Gamma", "blue"),
+      ] as never,
+      projects: [{ id: "p1", name: "website" }],
       busy: false,
+      onClose: () => undefined,
       mutate: () => undefined,
     }),
   );
-  assert.match(html, /ops/);
+  assert.match(html, /Configure team ops/);
   assert.match(html, /Alpha/);
   assert.match(html, /checked=""/);
   assert.match(html, /leader/);
   assert.match(html, /Gamma/);
-  assert.doesNotMatch(html, /<option[^>]*>Alpha</);
+  assert.match(html, /website/);
+  assert.match(html, /Delete/);
+});
+
+test("multiselect filters options by typed query", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(Multiselect, {
+      label: "Filter teams by bots",
+      options: [
+        { id: "b1", name: "Alpha" },
+        { id: "b2", name: "Beta" },
+      ],
+      selected: ["b1"],
+      onChange: () => undefined,
+    }),
+  );
+  assert.match(html, /Filter teams by bots/);
+  assert.match(html, /1 selected/);
+  assert.match(html, /Alpha/);
+  assert.match(html, /Beta/);
+});
+
+test("teamHealth ranks worst member health", () => {
+  const botRow = (id: string, health: string) =>
+    ({ id, name: id, health }) as never;
+  const bots = [
+    botRow("b1", "green"),
+    botRow("b2", "red"),
+    botRow("b3", "blue"),
+  ];
+  assert.equal(teamHealth([], bots), "gray");
+  assert.equal(
+    teamHealth([{ bot_id: "b1", name: "b1", leader: false }], bots),
+    "green",
+  );
+  assert.equal(
+    teamHealth(
+      [
+        { bot_id: "b1", name: "b1", leader: false },
+        { bot_id: "b3", name: "b3", leader: true },
+      ],
+      bots,
+    ),
+    "green",
+  );
+  assert.equal(
+    teamHealth(
+      [
+        { bot_id: "b2", name: "b2", leader: false },
+        { bot_id: "b1", name: "b1", leader: true },
+      ],
+      bots,
+    ),
+    "red",
+  );
 });
 
 test("projects panel, modal and picker render", () => {
