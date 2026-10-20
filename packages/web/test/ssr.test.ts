@@ -490,6 +490,18 @@ test("chat sidebar renders header, gear and close", () => {
   assert.match(html, /aria-label="Close"/);
 });
 
+test("chat shows a working indicator bottom-left while the bot runs", () => {
+  const on = renderToStaticMarkup(
+    React.createElement(Chat, { botId: "b1", botName: "Alpha", working: true }),
+  );
+  assert.match(on, /aria-label="bot is working"/);
+  assert.match(on, /class="chat-working"/);
+  const off = renderToStaticMarkup(
+    React.createElement(Chat, { botId: "b1", botName: "Alpha" }),
+  );
+  assert.doesNotMatch(off, /chat-working/);
+});
+
 test("formDirty compares saveable values against a snapshot", () => {
   const snap = { name: "a", instructions: "", role_id: "" };
   assert.equal(formDirty(snap, { ...snap }), false);

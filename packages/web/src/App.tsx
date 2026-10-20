@@ -4072,19 +4072,30 @@ export function ChatSidebar({
           ×
         </button>
       </div>
-      <Chat key={bot.id} botId={bot.id} botName={bot.name} />
+      <Chat
+        key={bot.id}
+        botId={bot.id}
+        botName={bot.name}
+        working={bot.run_state === "running"}
+      />
     </aside>
   );
 }
 
-export function Chat({ botId, botName }: { botId: string; botName: string }) {
+export function Chat({
+  botId,
+  botName,
+  working = false,
+}: {
+  botId: string;
+  botName: string;
+  working?: boolean;
+}) {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const pendingRef = useRef<string | null>(null);
-  const replyBaseRef = useRef(0);
-  const [typing, setTyping] = useState(false);
 
   const loadChat = useCallback(async () => {
     try {
@@ -4094,10 +4105,6 @@ export function Chat({ botId, botName }: { botId: string; botName: string }) {
         fresh.some((t) => t.role === "user" && t.text === pendingRef.current)
       )
         pendingRef.current = null;
-      const replies = fresh.filter(
-        (t) => t.role === "assistant" && t.text.trim(),
-      ).length;
-      if (typing && replies > replyBaseRef.current) setTyping(false);
       setTurns(() => {
         const base = [...fresh];
         if (
@@ -4110,13 +4117,13 @@ export function Chat({ botId, botName }: { botId: string; botName: string }) {
     } catch {
       /* keep last */
     }
-  }, [botId, typing]);
+  }, [botId]);
 
   useEffect(() => {
     void loadChat();
-    const t = setInterval(loadChat, 3000);
+    const t = setInterval(loadChat, working ? 800 : 3000);
     return () => clearInterval(t);
-  }, [loadChat]);
+  }, [loadChat, working]);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -4129,10 +4136,6 @@ export function Chat({ botId, botName }: { botId: string; botName: string }) {
     setSending(true);
     setErr(null);
     pendingRef.current = text;
-    replyBaseRef.current = turns.filter(
-      (t) => t.role === "assistant" && t.text.trim(),
-    ).length;
-    setTyping(true);
     setTurns((prev) => [...prev, { role: "user", text }]);
     setDraft("");
     try {
@@ -4144,7 +4147,6 @@ export function Chat({ botId, botName }: { botId: string; botName: string }) {
       await loadChat();
     } catch (e) {
       pendingRef.current = null;
-      setTyping(false);
       setTurns((prev) => prev.filter((t) => t.text !== text));
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -4163,18 +4165,18 @@ export function Chat({ botId, botName }: { botId: string; botName: string }) {
             <ChatTurnView key={i} turn={t} botName={botName} />
           ),
         )}
-        {typing && (
-          <div className="chat-turn typing" aria-label="bot is replying">
-            <span className="who">{botName}</span>
-            <span className="dots">
-              <i />
-              <i />
-              <i />
-            </span>
-          </div>
-        )}
         <div ref={bottomRef} />
       </div>
+      {working && (
+        <div className="chat-working" aria-label="bot is working">
+          <span className="who">{botName}</span>
+          <span className="dots">
+            <i />
+            <i />
+            <i />
+          </span>
+        </div>
+      )}
       {err && <p className="error">{err}</p>}
       <form
         onSubmit={(e) => {
