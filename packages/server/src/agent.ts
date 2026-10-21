@@ -439,7 +439,7 @@ export function isLoopActive(botId: string): boolean {
 export function injectMessage(
   bot: BotRow,
   text: string,
-  kind: "schedule" | "manual" | "chat" | "webhook" | "dm",
+  kind: "schedule" | "manual" | "chat" | "webhook" | "dm" | "continuous",
 ): InjectResult {
   supersedeInterruptedRuns(bot.id);
   const message = {

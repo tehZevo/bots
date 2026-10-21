@@ -93,7 +93,7 @@ interface Project {
 interface Run {
   id: string;
   status: "running" | "ok" | "error";
-  trigger: "schedule" | "manual" | "chat";
+  trigger: "schedule" | "manual" | "chat" | "webhook" | "dm" | "continuous";
   started_at: number;
   finished_at: number | null;
   output: string | null;
@@ -117,7 +117,7 @@ interface NotificationsResponse {
 
 interface Trigger {
   id: string;
-  kind: "schedule" | "webhook";
+  kind: "schedule" | "webhook" | "continuous";
   name: string | null;
   message: string;
   schedule: string;
@@ -3736,7 +3736,9 @@ export function Triggers({ botId }: { botId: string }) {
   const [message, setMessage] = useState("");
   const [name, setName] = useState("");
   const [schedule, setSchedule] = useState("0 * * * *");
-  const [kind, setKind] = useState<"schedule" | "webhook">("schedule");
+  const [kind, setKind] = useState<"schedule" | "webhook" | "continuous">(
+    "schedule",
+  );
   const [created, setCreated] = useState<{ id: string; secret: string } | null>(
     null,
   );
@@ -3804,7 +3806,11 @@ export function Triggers({ botId }: { botId: string }) {
                     : t.schedule)}
               </span>
               <span className="trowsub">
-                {t.kind === "webhook" ? "Webhook" : "Schedule"}
+                {t.kind === "webhook"
+                  ? "Webhook"
+                  : t.kind === "continuous"
+                    ? "Continuous"
+                    : "Schedule"}
                 {t.enabled ? "" : " (paused)"}
               </span>
             </button>
@@ -3887,17 +3893,29 @@ export function Triggers({ botId }: { botId: string }) {
                 Type
                 <select
                   value={kind}
-                  onChange={(e) =>
-                    setKind(e.target.value as "schedule" | "webhook")
-                  }
+                  onChange={(e) => {
+                    const k = e.target.value as
+                      | "schedule"
+                      | "webhook"
+                      | "continuous";
+                    setKind(k);
+                    if (k === "continuous") setSchedule("@every 30m");
+                    else if (k !== "webhook" && schedule.startsWith("@"))
+                      setSchedule("0 * * * *");
+                  }}
                 >
                   <option value="schedule">Schedule</option>
                   <option value="webhook">Webhook</option>
+                  <option value="continuous">Continuous</option>
                 </select>
               </label>
-              {kind === "schedule" && (
+              {kind !== "webhook" && (
                 <input
-                  placeholder="cron or @every 30m"
+                  placeholder={
+                    kind === "continuous"
+                      ? "@every 30m (min 1m)"
+                      : "cron or @every 30m"
+                  }
                   value={schedule}
                   onChange={(e) => setSchedule(e.target.value)}
                   required
@@ -4033,9 +4051,13 @@ function TriggerEditor({
           onChange={(e) => setMessage(e.target.value)}
         />
       </label>
-      {trigger.kind === "schedule" && (
+      {(trigger.kind === "schedule" || trigger.kind === "continuous") && (
         <input
-          placeholder="cron or @every 30m"
+          placeholder={
+            trigger.kind === "continuous"
+              ? "@every 30m (min 1m)"
+              : "cron or @every 30m"
+          }
           value={schedule}
           onChange={(e) => setSchedule(e.target.value)}
         />
@@ -4049,7 +4071,7 @@ function TriggerEditor({
             void onPatch(trigger.id, {
               name: name.trim() || null,
               message,
-              ...(trigger.kind === "schedule" ? { schedule } : {}),
+              ...(trigger.kind === "webhook" ? {} : { schedule }),
             }).finally(() => setBusy(false));
           }}
         >

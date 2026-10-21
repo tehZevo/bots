@@ -1,6 +1,6 @@
 import { CronExpressionParser } from "cron-parser";
 import { injectMessage } from "./agent.ts";
-import { dueTriggers, getBot, updateTrigger } from "./db.ts";
+import { dueTriggers, getBot, latestErrorBotIds, updateTrigger } from "./db.ts";
 
 export function nextRunAt(
   schedule: string,
@@ -33,18 +33,45 @@ function parseDuration(spec: string): number | null {
 }
 
 let timer: NodeJS.Timeout | null = null;
+let inject = injectMessage;
 
-export function startScheduler(tickMs = 15_000): void {
-  const tick = () => {
-    for (const trigger of dueTriggers(Date.now())) {
+export function setSchedulerInject(f: typeof injectMessage | null): void {
+  inject = f ?? injectMessage;
+}
+
+function isBlocked(botId: string, errers: Set<string>): boolean {
+  const bot = getBot(botId);
+  return (
+    !bot ||
+    bot.model_id === null ||
+    bot.status_level === "blocked" ||
+    errers.has(botId)
+  );
+}
+
+export function runTick(): void {
+  let errers: Set<string> | null = null;
+  for (const trigger of dueTriggers(Date.now())) {
+    if (trigger.kind === "continuous") {
+      // One-shot: re-armed by finishRun, never by the clock.
+      updateTrigger(trigger.id, { next_run_at: null });
+      const bot = getBot(trigger.bot_id);
+      if (!bot?.enabled) continue;
+      errers ??= latestErrorBotIds();
+      if (isBlocked(trigger.bot_id, errers)) continue;
+      inject(bot, trigger.message, "continuous");
+    } else {
       updateTrigger(trigger.id, { next_run_at: nextRunAt(trigger.schedule) });
       const bot = getBot(trigger.bot_id);
       if (!bot?.enabled) continue;
-      injectMessage(bot, trigger.message, "schedule");
+      inject(bot, trigger.message, "schedule");
     }
-  };
-  timer = setInterval(tick, tickMs);
-  tick();
+  }
+}
+
+export function startScheduler(tickMs = 15_000): void {
+  timer = setInterval(runTick, tickMs);
+  runTick();
 }
 
 export function stopScheduler(): void {

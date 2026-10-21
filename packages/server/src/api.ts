@@ -20,6 +20,7 @@ import { repoRoot } from "./config.ts";
 import {
   botsUsingMachine,
   clearMessages,
+  continuousIntervalMs,
   countUsers,
   createSession,
   deleteApiKey,
@@ -263,7 +264,7 @@ interface TriggerInput {
   enabled?: unknown;
 }
 
-const TRIGGER_KINDS = ["schedule", "webhook"] as const;
+const TRIGGER_KINDS = ["schedule", "webhook", "continuous"] as const;
 
 function toTriggerPayload(input: TriggerInput) {
   const kind = input.kind === undefined ? "schedule" : input.kind;
@@ -290,6 +291,21 @@ function toTriggerPayload(input: TriggerInput) {
       message: input.message,
       schedule: "",
     };
+  if (kind === "continuous") {
+    const ms = continuousIntervalMs(schedule);
+    if (ms === null)
+      return {
+        error: `invalid interval: ${schedule || "(empty)"} — use @every 30m`,
+      };
+    if (ms < 60_000)
+      return { error: "continuous interval must be at least 1 minute" };
+    return {
+      kind: kind as (typeof TRIGGER_KINDS)[number],
+      name,
+      message: input.message,
+      schedule,
+    };
+  }
   if (!schedule)
     return { error: "schedule is required (cron expression or @every 30m)" };
   if (nextRunAt(schedule) === null)
@@ -1619,7 +1635,9 @@ export function createApp() {
       ...payload,
       enabled: 1 as number,
       next_run_at:
-        payload.kind === "webhook" ? null : nextRunAt(payload.schedule),
+        payload.kind === "webhook" || payload.kind === "continuous"
+          ? null
+          : nextRunAt(payload.schedule),
       secret,
       created_at: Date.now(),
     };
@@ -1638,15 +1656,25 @@ export function createApp() {
     const enabled =
       typeof input.enabled === "boolean" ? (input.enabled ? 1 : 0) : undefined;
     const resuming = enabled === 1 && trigger.enabled === 0;
+    let nextRunAtPatch: number | null;
+    if (payload.kind === "continuous") {
+      // one-shot timers belong to finishRun, not the clock or the editor
+      nextRunAtPatch =
+        trigger.kind !== "continuous" || enabled === 0
+          ? null
+          : trigger.next_run_at;
+    } else if (payload.kind === "webhook") {
+      nextRunAtPatch = trigger.next_run_at;
+    } else {
+      nextRunAtPatch =
+        resuming || payload.schedule !== trigger.schedule
+          ? nextRunAt(payload.schedule)
+          : trigger.next_run_at;
+    }
     updateTrigger(trigger.id, {
       ...payload,
       ...(enabled === undefined ? {} : { enabled }),
-      next_run_at:
-        payload.kind === "webhook"
-          ? trigger.next_run_at
-          : resuming || payload.schedule !== trigger.schedule
-            ? nextRunAt(payload.schedule)
-            : trigger.next_run_at,
+      next_run_at: nextRunAtPatch,
     });
     const fresh = getTrigger(trigger.id);
     if (!fresh) return c.json({ error: "not found" }, 404);

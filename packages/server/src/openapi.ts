@@ -403,7 +403,7 @@ export function openApiDoc(): Json {
         TriggerInput: {
           type: "object",
           properties: {
-            kind: { enum: ["schedule", "webhook"] },
+            kind: { enum: ["schedule", "webhook", "continuous"] },
             message: str,
             schedule: str,
             enabled: { type: "boolean" },
