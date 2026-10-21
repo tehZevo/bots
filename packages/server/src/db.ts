@@ -972,6 +972,16 @@ export function finishRun(
   tx();
 }
 
+// A crash leaves runs stuck in `running`; lifecycle requires every run to end
+// in ok/error, so on boot they are finalized as interrupted.
+export function sweepInterruptedRuns(): number {
+  const stale = db
+    .prepare("SELECT id FROM runs WHERE status = 'running'")
+    .all() as { id: string }[];
+  for (const run of stale) finishRun(run.id, "error", null, "interrupted");
+  return stale.length;
+}
+
 export function listNotifications(limit = 100): NotificationRow[] {
   return db
     .prepare(
