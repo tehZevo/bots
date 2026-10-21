@@ -1,6 +1,8 @@
 import {
+  createContext,
   type ReactElement,
   useCallback,
+  useContext,
   useEffect,
   useRef,
   useState,
@@ -76,6 +78,7 @@ interface Team {
   name: string;
   created_at: number;
   members: TeamMember[];
+  project_ids: string[];
 }
 
 interface Project {
@@ -479,23 +482,157 @@ function playSound(id: string): void {
   void a.play().catch(() => undefined);
 }
 
+export function BotCard({
+  bot,
+  poking,
+  onOpen,
+  onRun,
+}: {
+  bot: Bot;
+  poking: boolean;
+  onOpen: () => void;
+  onRun: () => void;
+}) {
+  return (
+    <div className="cardwrap">
+      <button
+        type="button"
+        className="card"
+        data-bot-card={bot.id}
+        aria-label={`${bot.name} (${bot.status})`}
+        onClick={() => onOpen()}
+      >
+        <span className="cardhead">
+          <Avatar
+            name={bot.name}
+            id={bot.id}
+            shape={bot.avatar_shape}
+            color={bot.avatar_color}
+            health={bot.health}
+          />
+          <span className="cardtext">
+            <strong title={bot.name}>{bot.name}</strong>
+            <StatusDot
+              id={bot.id}
+              health={bot.health}
+              label={HEALTH_LABEL[bot.health]}
+              active={bot.run_state === "running"}
+            />
+          </span>
+        </span>
+        {bot.current_task && !bot.status && (
+          <span className="taskline" title={bot.current_task}>
+            {bot.current_task}
+            {bot.current_task_updated_at && (
+              <em> · {relTime(bot.current_task_updated_at)}</em>
+            )}
+          </span>
+        )}
+        {bot.status ? (
+          <>
+            {bot.current_task && (
+              <span className="taskline" title={bot.current_task}>
+                {bot.current_task}
+              </span>
+            )}
+            <span className="statline" title={bot.status}>
+              {bot.status}
+              {bot.current_task_updated_at && (
+                <em> · {relTime(bot.current_task_updated_at)}</em>
+              )}
+            </span>
+          </>
+        ) : null}
+      </button>
+      <button
+        type="button"
+        className={`runcard${poking ? " poking" : ""}`}
+        aria-label={poking ? `${bot.name} is starting` : `Run ${bot.name} now`}
+        title="Run now"
+        disabled={!bot.enabled || !!poking}
+        onClick={() => onRun()}
+      >
+        {poking ? <SpinnerIcon size={14} /> : <PlayIcon size={14} />}
+      </button>
+    </div>
+  );
+}
+
+async function waitFirstAction(botId: string, runId: string): Promise<void> {
+  const countReplies = () =>
+    api<{ role: string }[]>(`/api/bots/${botId}/messages`)
+      .then((t) => t.filter((x) => x.role === "assistant").length)
+      .catch(() => null);
+  const base = await countReplies();
+  const started = Date.now();
+  while (Date.now() - started < 120_000) {
+    await new Promise((r) => setTimeout(r, 800));
+    const runs = await api<Run[]>(`/api/bots/${botId}/runs`).catch(() => []);
+    const run = runs.find((r) => r.id === runId);
+    if (run && run.status !== "running") return;
+    const now = await countReplies();
+    if (base !== null && now !== null && now > base) return;
+  }
+}
+
 export function App() {
   const [bots, setBots] = useState<Bot[]>([]);
   const [tab, setTabRaw] = useState<Tab>(() =>
     typeof location === "undefined" ? "bots" : tabFromPath(location.pathname),
   );
+  const [pendingDiscard, setPendingDiscard] = useState<null | {
+    label: string;
+    fn: () => void;
+  }>(null);
+  const discardGuard = useCallback((fn: () => void) => {
+    const label = anyDirtyLabel();
+    if (label) setPendingDiscard({ label, fn });
+    else fn();
+  }, []);
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+  useEffect(() => {
+    const h = (e: BeforeUnloadEvent) => {
+      if (anyDirtyLabel()) e.preventDefault();
+    };
+    addEventListener("beforeunload", h);
+    return () => removeEventListener("beforeunload", h);
+  }, []);
   const setTab = (t: Tab) => {
-    setTabRaw(t);
-    if (typeof history !== "undefined") history.pushState({}, "", TAB_PATHS[t]);
+    discardGuard(() => {
+      setTabRaw(t);
+      if (typeof history !== "undefined")
+        history.pushState({}, "", TAB_PATHS[t]);
+    });
   };
   useEffect(() => {
     if (typeof addEventListener === "undefined") return;
-    const onPop = () => setTabRaw(tabFromPath(location.pathname));
+    const onPop = () => {
+      const target = tabFromPath(location.pathname);
+      const label = anyDirtyLabel();
+      if (!label) {
+        setTabRaw(target);
+        return;
+      }
+      history.pushState({}, "", TAB_PATHS[tabRef.current]);
+      setPendingDiscard({ label, fn: () => setTabRaw(target) });
+    };
     addEventListener("popstate", onPop);
     return () => removeEventListener("popstate", onPop);
   }, []);
   const [openBot, setOpenBot] = useState<string | null>(null);
   const [chatBot, setChatBot] = useState<string | null>(null);
+  const [poking, setPoking] = useState<Record<string, boolean>>({});
+
+  const poke = (bot: Bot) => {
+    if (!bot.enabled || poking[bot.id]) return;
+    setPoking((p) => ({ ...p, [bot.id]: true }));
+    void api<{ runId: string }>(`/api/bots/${bot.id}/run`, { method: "POST" })
+      .then((r) => waitFirstAction(bot.id, r.runId))
+      .catch(() => undefined)
+      .finally(() => setPoking((p) => ({ ...p, [bot.id]: false })));
+  };
+
   const [modalTab, setModalTab] = useState<"general" | "triggers" | "logs">(
     "general",
   );
@@ -585,8 +722,7 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (notificationPanelOpen) setNotificationPanelOpen(false);
-      else if (addOpen) setAddOpen(false);
-      else if (detailOpen) setDetailOpen(false);
+      else if (detailOpen) discardGuard(() => setDetailOpen(false));
       else if (chatBot) setChatBot(null);
     };
     document.addEventListener("keydown", onKey);
@@ -657,182 +793,186 @@ export function App() {
 
   const redCount = bots.filter((b) => b.health === "red").length;
   return (
-    <div className="app">
-      <header className="statusbar">
-        <button
-          type="button"
-          className="railtoggle"
-          aria-label={rail ? "Expand sidebar" : "Collapse sidebar"}
-          onClick={toggleRail}
-        >
-          {rail ? "›" : "‹"}
-        </button>
-        <span className="counts">
-          {bots.length} total ·{" "}
-          {bots.filter((b) => b.run_state === "running").length} running
-          {redCount > 0 && (
-            <>
-              {" "}
-              · <span className="redcount">{redCount} blocked</span>
-            </>
-          )}
-        </span>
-        <div className="notifwrap">
+    <NavGuardContext.Provider value={discardGuard}>
+      <div className="app">
+        <header className="statusbar">
           <button
             type="button"
-            aria-label={`Notifications${unreadNotifications > 0 ? `, ${unreadNotifications} unread` : ""}`}
-            aria-expanded={notificationPanelOpen}
-            onClick={() => setNotificationPanelOpen((open) => !open)}
+            className="railtoggle"
+            aria-label={rail ? "Expand sidebar" : "Collapse sidebar"}
+            onClick={toggleRail}
           >
-            🔔
-            {unreadNotifications > 0 && (
-              <span className="notifbadge">
-                {unreadNotifications > 99 ? "99+" : unreadNotifications}
-              </span>
+            {rail ? "›" : "‹"}
+          </button>
+          <span className="counts">
+            {bots.length} total ·{" "}
+            {bots.filter((b) => b.run_state === "running").length} running
+            {redCount > 0 && (
+              <>
+                {" "}
+                · <span className="redcount">{redCount} blocked</span>
+              </>
             )}
-          </button>
-          {notificationPanelOpen && (
-            <>
-              <button
-                type="button"
-                className="notifscrim"
-                aria-label="Close notifications"
-                onClick={() => setNotificationPanelOpen(false)}
-              />
-              <section className="notifpanel" aria-label="Notifications">
-                <div className="notifhdr">
-                  <strong>Notifications</strong>
-                  <div>
-                    <button
-                      type="button"
-                      disabled={unreadNotifications === 0}
-                      onClick={() => void markAllRead()}
-                    >
-                      Mark all read
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Close notifications"
-                      onClick={() => setNotificationPanelOpen(false)}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-                {notifications.length === 0 ? (
-                  <p className="notifempty">No notifications.</p>
-                ) : (
-                  <ul className="notiflist">
-                    {notifications.map((notification) => (
-                      <li
-                        key={notification.id}
-                        className={notification.read ? "" : "unread"}
-                      >
-                        <button
-                          type="button"
-                          className="notifbody"
-                          disabled={notification.read === 0}
-                          title={notification.read ? undefined : "Mark as read"}
-                          onClick={() =>
-                            void markOneNotification(notification.id)
-                          }
-                        >
-                          <strong>{notification.title}</strong>
-                          <time
-                            dateTime={new Date(
-                              notification.created_at,
-                            ).toISOString()}
-                          >
-                            {fmt(notification.created_at)}
-                          </time>
-                          <p>{notification.body}</p>
-                        </button>
-                        {!notification.read && (
-                          <div className="notifactions">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void markOneNotification(notification.id)
-                              }
-                            >
-                              Mark read
-                            </button>
-                          </div>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
-            </>
-          )}
-        </div>
-      </header>
-      <div className="layout">
-        <aside className={rail ? "rail" : ""}>
-          {error && <p className="error">{error}</p>}
-          {renderNav(rail)}
-        </aside>
-        <div className="topbar">
-          <button
-            type="button"
-            className="hamburger"
-            aria-label="Menu"
-            onClick={() => setNavOpen(true)}
-          >
-            ☰
-          </button>
-        </div>
-        {navOpen && (
-          <div className="drawer">
+          </span>
+          <div className="notifwrap">
             <button
               type="button"
-              className="scrim"
-              aria-label="Close menu"
-              onClick={() => setNavOpen(false)}
-            />
-            <div className="panel">
-              <div className="hdr">
-                <h1>Bots</h1>
-              </div>
-              {error && <p className="error">{error}</p>}
-              {renderNav(false)}
-            </div>
-          </div>
-        )}
-        <main>
-          {tab === "bots" && (
-            <>
-              <div className="mainhead">
-                <h2>Bots</h2>
-                <button type="button" onClick={() => setAddOpen(true)}>
-                  Add bot
-                </button>
-              </div>
-              <div className="filterrow">
-                <input
-                  placeholder="Search bots by name"
-                  value={botQuery}
-                  onChange={(e) => setBotQuery(e.target.value)}
+              aria-label={`Notifications${unreadNotifications > 0 ? `, ${unreadNotifications} unread` : ""}`}
+              aria-expanded={notificationPanelOpen}
+              onClick={() => setNotificationPanelOpen((open) => !open)}
+            >
+              🔔
+              {unreadNotifications > 0 && (
+                <span className="notifbadge">
+                  {unreadNotifications > 99 ? "99+" : unreadNotifications}
+                </span>
+              )}
+            </button>
+            {notificationPanelOpen && (
+              <>
+                <button
+                  type="button"
+                  className="notifscrim"
+                  aria-label="Close notifications"
+                  onClick={() => setNotificationPanelOpen(false)}
                 />
-                <details className="filterdd">
-                  <summary
-                    aria-label={`Status filter: ${statusSel.length === 0 ? "All" : `${statusSel.length} selected`}`}
-                  >
-                    Status:{" "}
-                    {statusSel.length === 0
-                      ? "All"
-                      : statusSel
-                          .map(
-                            (s) =>
-                              HEALTH_LABEL[s][0].toUpperCase() +
-                              HEALTH_LABEL[s].slice(1),
-                          )
-                          .join(", ")}
-                  </summary>
-                  <div className="filterpanel">
-                    {(["green", "blue", "yellow", "red", "gray"] as const).map(
-                      (s) => (
+                <section className="notifpanel" aria-label="Notifications">
+                  <div className="notifhdr">
+                    <strong>Notifications</strong>
+                    <div>
+                      <button
+                        type="button"
+                        disabled={unreadNotifications === 0}
+                        onClick={() => void markAllRead()}
+                      >
+                        Mark all read
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Close notifications"
+                        onClick={() => setNotificationPanelOpen(false)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                  {notifications.length === 0 ? (
+                    <p className="notifempty">No notifications.</p>
+                  ) : (
+                    <ul className="notiflist">
+                      {notifications.map((notification) => (
+                        <li
+                          key={notification.id}
+                          className={notification.read ? "" : "unread"}
+                        >
+                          <button
+                            type="button"
+                            className="notifbody"
+                            disabled={notification.read === 0}
+                            title={
+                              notification.read ? undefined : "Mark as read"
+                            }
+                            onClick={() =>
+                              void markOneNotification(notification.id)
+                            }
+                          >
+                            <strong>{notification.title}</strong>
+                            <time
+                              dateTime={new Date(
+                                notification.created_at,
+                              ).toISOString()}
+                            >
+                              {fmt(notification.created_at)}
+                            </time>
+                            <p>{notification.body}</p>
+                          </button>
+                          {!notification.read && (
+                            <div className="notifactions">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void markOneNotification(notification.id)
+                                }
+                              >
+                                Mark read
+                              </button>
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              </>
+            )}
+          </div>
+        </header>
+        <div className="layout">
+          <aside className={rail ? "rail" : ""}>
+            {error && <p className="error">{error}</p>}
+            {renderNav(rail)}
+          </aside>
+          <div className="topbar">
+            <button
+              type="button"
+              className="hamburger"
+              aria-label="Menu"
+              onClick={() => setNavOpen(true)}
+            >
+              ☰
+            </button>
+          </div>
+          {navOpen && (
+            <div className="drawer">
+              <button
+                type="button"
+                className="scrim"
+                aria-label="Close menu"
+                onClick={() => setNavOpen(false)}
+              />
+              <div className="panel">
+                <div className="hdr">
+                  <h1>Bots</h1>
+                </div>
+                {error && <p className="error">{error}</p>}
+                {renderNav(false)}
+              </div>
+            </div>
+          )}
+          <main>
+            {tab === "bots" && (
+              <>
+                <div className="mainhead">
+                  <h2>Bots</h2>
+                  <button type="button" onClick={() => setAddOpen(true)}>
+                    Add bot
+                  </button>
+                </div>
+                <div className="filterrow">
+                  <input
+                    placeholder="Search bots by name"
+                    value={botQuery}
+                    onChange={(e) => setBotQuery(e.target.value)}
+                  />
+                  <details className="filterdd">
+                    <summary
+                      aria-label={`Status filter: ${statusSel.length === 0 ? "All" : `${statusSel.length} selected`}`}
+                    >
+                      Status:{" "}
+                      {statusSel.length === 0
+                        ? "All"
+                        : statusSel
+                            .map(
+                              (s) =>
+                                HEALTH_LABEL[s][0].toUpperCase() +
+                                HEALTH_LABEL[s].slice(1),
+                            )
+                            .join(", ")}
+                    </summary>
+                    <div className="filterpanel">
+                      {(
+                        ["green", "blue", "yellow", "red", "gray"] as const
+                      ).map((s) => (
                         <label key={s}>
                           <input
                             type="checkbox"
@@ -842,268 +982,253 @@ export function App() {
                           {HEALTH_LABEL[s][0].toUpperCase() +
                             HEALTH_LABEL[s].slice(1)}
                         </label>
-                      ),
-                    )}
-                  </div>
-                </details>
-                <details className="filterdd">
-                  <summary
-                    aria-label={`Role filter: ${roleSel.length === 0 ? "All" : `${roleSel.length} selected`}`}
-                  >
-                    Role:{" "}
-                    {roleSel.length === 0
-                      ? "All"
-                      : roleSel
-                          .map(
-                            (id) =>
-                              roles.find((r) => r.id === id)?.name ??
-                              "(no role)",
-                          )
-                          .join(", ")}
-                  </summary>
-                  <div className="filterpanel">
-                    <input
-                      placeholder="Search roles"
-                      onChange={(e) => {
-                        const q = e.target.value.trim().toLowerCase();
-                        for (const el of e.currentTarget.parentElement
-                          ?.children ?? [])
-                          if (el instanceof HTMLElement && el.dataset.name)
-                            el.hidden =
-                              q !== "" &&
-                              !el.dataset.name.toLowerCase().includes(q);
-                      }}
-                    />
-                    <label data-name="(no role)">
+                      ))}
+                    </div>
+                  </details>
+                  <details className="filterdd">
+                    <summary
+                      aria-label={`Role filter: ${roleSel.length === 0 ? "All" : `${roleSel.length} selected`}`}
+                    >
+                      Role:{" "}
+                      {roleSel.length === 0
+                        ? "All"
+                        : roleSel
+                            .map(
+                              (id) =>
+                                roles.find((r) => r.id === id)?.name ??
+                                "(no role)",
+                            )
+                            .join(", ")}
+                    </summary>
+                    <div className="filterpanel">
                       <input
-                        type="checkbox"
-                        checked={roleSel.includes("")}
-                        onChange={() => setRoleSel((v) => toggleIn(v, ""))}
-                      />{" "}
-                      (no role)
-                    </label>
-                    {roles.map((r) => (
-                      <label key={r.id} data-name={r.name}>
+                        placeholder="Search roles"
+                        onChange={(e) => {
+                          const q = e.target.value.trim().toLowerCase();
+                          for (const el of e.currentTarget.parentElement
+                            ?.children ?? [])
+                            if (el instanceof HTMLElement && el.dataset.name)
+                              el.hidden =
+                                q !== "" &&
+                                !el.dataset.name.toLowerCase().includes(q);
+                        }}
+                      />
+                      <label data-name="(no role)">
                         <input
                           type="checkbox"
-                          checked={roleSel.includes(r.id)}
-                          onChange={() => setRoleSel((v) => toggleIn(v, r.id))}
+                          checked={roleSel.includes("")}
+                          onChange={() => setRoleSel((v) => toggleIn(v, ""))}
                         />{" "}
-                        {r.name}
+                        (no role)
                       </label>
-                    ))}
-                  </div>
-                </details>
-              </div>
-              <div className="cards">
-                {visibleBots.map((bot) => (
-                  <button
-                    type="button"
-                    key={bot.id}
-                    className="card"
-                    data-bot-card={bot.id}
-                    aria-label={`${bot.name} (${bot.status})`}
-                    onClick={() => setChatBot(bot.id)}
-                  >
-                    <span className="cardhead">
-                      <Avatar
-                        name={bot.name}
-                        id={bot.id}
-                        shape={bot.avatar_shape}
-                        color={bot.avatar_color}
-                        health={bot.health}
-                      />
-                      <span className="cardtext">
-                        <strong title={bot.name}>{bot.name}</strong>
-                        <StatusDot
-                          id={bot.id}
-                          health={bot.health}
-                          label={HEALTH_LABEL[bot.health]}
-                          active={bot.run_state === "running"}
-                        />
-                      </span>
-                    </span>
-                    {bot.current_task && !bot.status && (
-                      <span className="taskline" title={bot.current_task}>
-                        {bot.current_task}
-                        {bot.current_task_updated_at && (
-                          <em> · {relTime(bot.current_task_updated_at)}</em>
-                        )}
-                      </span>
-                    )}
-                    {bot.status ? (
-                      <>
-                        {bot.current_task && (
-                          <span className="taskline" title={bot.current_task}>
-                            {bot.current_task}
-                          </span>
-                        )}
-                        <span className="statline" title={bot.status}>
-                          {bot.status}
-                          {bot.current_task_updated_at && (
-                            <em> · {relTime(bot.current_task_updated_at)}</em>
-                          )}
-                        </span>
-                      </>
-                    ) : null}
-                  </button>
-                ))}
-              </div>
-              {bots.length === 0 && <p>No bots yet — press "Add bot".</p>}
-              {bots.length > 0 && visibleBots.length === 0 && (
-                <p className="muted">No bots match the current filters.</p>
-              )}
-            </>
-          )}
-          {tab === "roles" && <RolesPanel />}
-          {tab === "teams" && <TeamsPanel />}
-          {tab === "machines" && <MachinesPanel />}
-          {tab === "integrations" && <IntegrationsPanel />}
-          {tab === "skills" && <SkillsPanel />}
-          {tab === "templates" && <TemplatesPanel />}
-          {tab === "projects" && <ProjectsPanel />}
-          {tab === "settings" && <SettingsPanel />}
-        </main>
-        {chatBotRow && (
-          <ChatSidebar
-            bot={chatBotRow}
-            onSettings={() => {
-              setOpenBot(chatBotRow.id);
-              setDetailOpen(true);
-            }}
-            onClose={() => setChatBot(null)}
-          />
-        )}
-        {detailOpen && openBotRow && (
-          <div className="modal">
-            <button
-              type="button"
-              className="mscrim"
-              aria-label="Close details"
-              onClick={() => setDetailOpen(false)}
+                      {roles.map((r) => (
+                        <label key={r.id} data-name={r.name}>
+                          <input
+                            type="checkbox"
+                            checked={roleSel.includes(r.id)}
+                            onChange={() =>
+                              setRoleSel((v) => toggleIn(v, r.id))
+                            }
+                          />{" "}
+                          {r.name}
+                        </label>
+                      ))}
+                    </div>
+                  </details>
+                </div>
+                <div className="cards">
+                  {visibleBots.map((bot) => (
+                    <BotCard
+                      key={bot.id}
+                      bot={bot}
+                      poking={!!poking[bot.id]}
+                      onOpen={() => setChatBot(bot.id)}
+                      onRun={() => poke(bot)}
+                    />
+                  ))}
+                </div>
+                {bots.length === 0 && <p>No bots yet — press "Add bot".</p>}
+                {bots.length > 0 && visibleBots.length === 0 && (
+                  <p className="muted">No bots match the current filters.</p>
+                )}
+              </>
+            )}
+            {tab === "roles" && <RolesPanel />}
+            {tab === "teams" && <TeamsPanel />}
+            {tab === "machines" && <MachinesPanel />}
+            {tab === "integrations" && <IntegrationsPanel />}
+            {tab === "skills" && <SkillsPanel />}
+            {tab === "templates" && <TemplatesPanel />}
+            {tab === "projects" && <ProjectsPanel />}
+            {tab === "settings" && <SettingsPanel />}
+          </main>
+          {chatBotRow && (
+            <ChatSidebar
+              bot={chatBotRow}
+              onSettings={() => {
+                setOpenBot(chatBotRow.id);
+                setDetailOpen(true);
+              }}
+              onClose={() => setChatBot(null)}
             />
-            <div
-              className="dialog tabs"
-              role="dialog"
-              aria-label={`${openBotRow.name} details`}
-            >
-              <div className="viewhead">
-                <button
-                  type="button"
-                  className="avatarpick"
-                  aria-label="Change avatar"
-                  onClick={() => setAvatarMenu((v) => !v)}
-                >
-                  <Avatar
-                    name={openBotRow.name}
-                    id={openBotRow.id}
-                    shape={openBotRow.avatar_shape}
-                    color={openBotRow.avatar_color}
-                    health={openBotRow.health}
-                  />
-                </button>
-                {detailOpen && avatarMenu && (
-                  <AvatarPicker
-                    bot={openBotRow}
-                    onClose={() => setAvatarMenu(false)}
-                    onPick={(body) =>
-                      api(`/api/bots/${openBotRow.id}`, {
-                        method: "PATCH",
-                        headers: { "content-type": "application/json" },
-                        body: JSON.stringify(body),
-                      }).then(load)
-                    }
-                  />
-                )}
-                <h2>{openBotRow.name}</h2>
-                {openBotRow.current_task && !openBotRow.status && (
-                  <p className="taskline">
-                    {openBotRow.current_task}
-                    {openBotRow.current_task_updated_at && (
-                      <em> · {relTime(openBotRow.current_task_updated_at)}</em>
-                    )}
-                  </p>
-                )}
-                {openBotRow.current_task && openBotRow.status && (
-                  <p className="taskline">{openBotRow.current_task}</p>
-                )}
-                {openBotRow.status && (
-                  <p className="statline">
-                    {openBotRow.status}
-                    {openBotRow.current_task_updated_at && (
-                      <em> · {relTime(openBotRow.current_task_updated_at)}</em>
-                    )}
-                  </p>
-                )}
-                <button
-                  type="button"
-                  className="close"
-                  aria-label="Close"
-                  onClick={() => setDetailOpen(false)}
-                >
-                  ×
-                </button>
-              </div>
-              <nav className="mtabs">
-                {(["general", "triggers", "logs"] as const).map((t) => (
+          )}
+          {detailOpen && openBotRow && (
+            <div className="modal">
+              <button
+                type="button"
+                className="mscrim"
+                aria-label="Close details"
+                onClick={() => discardGuard(() => setDetailOpen(false))}
+              />
+              <div
+                className="dialog tabs"
+                role="dialog"
+                aria-label={`${openBotRow.name} details`}
+              >
+                <div className="viewhead">
                   <button
-                    key={t}
                     type="button"
-                    className={modalTab === t ? "sel" : ""}
-                    onClick={() => setModalTab(t)}
+                    className="avatarpick"
+                    aria-label="Change avatar"
+                    onClick={() => setAvatarMenu((v) => !v)}
                   >
-                    {t[0].toUpperCase() + t.slice(1)}
+                    <Avatar
+                      name={openBotRow.name}
+                      id={openBotRow.id}
+                      shape={openBotRow.avatar_shape}
+                      color={openBotRow.avatar_color}
+                      health={openBotRow.health}
+                    />
                   </button>
-                ))}
-              </nav>
-              <div className="tabbody">
-                {modalTab === "general" && (
-                  <BotGeneral
-                    key={openBotRow.id}
-                    bot={openBotRow}
-                    onChanged={load}
-                  />
-                )}
-                {modalTab === "triggers" && <Triggers botId={openBotRow.id} />}
-                {modalTab === "logs" && (
-                  <>
-                    {runs.length === 0 && (
-                      <p>No runs yet. Press "Run now" or wait for a trigger.</p>
-                    )}
-                    {runs.map((run) => (
-                      <article key={run.id}>
-                        <header>
-                          <span className={`status ${run.status}`}>
-                            {run.status}
-                          </span>
-                          <span>{run.trigger}</span>
-                          <span>{fmt(run.started_at)}</span>
-                          {run.finished_at && (
-                            <span>→ {fmt(run.finished_at)}</span>
+                  {detailOpen && avatarMenu && (
+                    <AvatarPicker
+                      bot={openBotRow}
+                      onClose={() => setAvatarMenu(false)}
+                      onPick={(body) =>
+                        api(`/api/bots/${openBotRow.id}`, {
+                          method: "PATCH",
+                          headers: { "content-type": "application/json" },
+                          body: JSON.stringify(body),
+                        }).then(load)
+                      }
+                    />
+                  )}
+                  <h2>{openBotRow.name}</h2>
+                  {openBotRow.current_task && !openBotRow.status && (
+                    <p className="taskline">
+                      {openBotRow.current_task}
+                      {openBotRow.current_task_updated_at && (
+                        <em>
+                          {" "}
+                          · {relTime(openBotRow.current_task_updated_at)}
+                        </em>
+                      )}
+                    </p>
+                  )}
+                  {openBotRow.current_task && openBotRow.status && (
+                    <p className="taskline">{openBotRow.current_task}</p>
+                  )}
+                  {openBotRow.status && (
+                    <p className="statline">
+                      {openBotRow.status}
+                      {openBotRow.current_task_updated_at && (
+                        <em>
+                          {" "}
+                          · {relTime(openBotRow.current_task_updated_at)}
+                        </em>
+                      )}
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    className="close"
+                    aria-label="Close"
+                    onClick={() => discardGuard(() => setDetailOpen(false))}
+                  >
+                    ×
+                  </button>
+                </div>
+                <nav className="mtabs">
+                  {(["general", "triggers", "logs"] as const).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      className={modalTab === t ? "sel" : ""}
+                      onClick={() => discardGuard(() => setModalTab(t))}
+                    >
+                      {t[0].toUpperCase() + t.slice(1)}
+                    </button>
+                  ))}
+                </nav>
+                <div className="tabbody">
+                  {modalTab === "general" && (
+                    <BotGeneral
+                      key={openBotRow.id}
+                      bot={openBotRow}
+                      onChanged={load}
+                    />
+                  )}
+                  {modalTab === "triggers" && (
+                    <Triggers botId={openBotRow.id} />
+                  )}
+                  {modalTab === "logs" && (
+                    <>
+                      {runs.length === 0 && (
+                        <p>
+                          No runs yet. Press "Run now" or wait for a trigger.
+                        </p>
+                      )}
+                      {runs.map((run) => (
+                        <article key={run.id}>
+                          <header>
+                            <span className={`status ${run.status}`}>
+                              {run.status}
+                            </span>
+                            <span>{run.trigger}</span>
+                            <span>{fmt(run.started_at)}</span>
+                            {run.finished_at && (
+                              <span>→ {fmt(run.finished_at)}</span>
+                            )}
+                          </header>
+                          {run.output && <pre>{run.output}</pre>}
+                          {run.error && (
+                            <pre className="error">{run.error}</pre>
                           )}
-                        </header>
-                        {run.output && <pre>{run.output}</pre>}
-                        {run.error && <pre className="error">{run.error}</pre>}
-                      </article>
-                    ))}
-                  </>
-                )}
+                        </article>
+                      ))}
+                    </>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        )}
-        {addOpen && (
-          <AddBotModal
-            usedNames={bots.map((b) => b.name)}
-            onClose={() => setAddOpen(false)}
-            onCreated={() => {
-              setAddOpen(false);
-              void load();
+          )}
+          {addOpen && (
+            <AddBotModal
+              usedNames={bots.map((b) => b.name)}
+              onClose={() => setAddOpen(false)}
+              onCreated={() => {
+                setAddOpen(false);
+                void load();
+              }}
+            />
+          )}
+        </div>
+        {pendingDiscard && (
+          <ConfirmDialog
+            text={`Discard unsaved changes to ${pendingDiscard.label}?`}
+            confirmLabel="Discard changes"
+            cancelLabel="Keep editing"
+            onCancel={() => setPendingDiscard(null)}
+            onConfirm={() => {
+              const p = pendingDiscard;
+              setPendingDiscard(null);
+              clearAllDirty();
+              p.fn();
             }}
           />
         )}
       </div>
-    </div>
+    </NavGuardContext.Provider>
   );
 }
 
@@ -1156,7 +1281,7 @@ export function AddBotModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const initialName = pickBotName(usedNames);
+  const initialName = useRef(pickBotName(usedNames)).current;
   const [name, setName] = useState(initialName);
   const [suggestion, setSuggestion] = useState(initialName);
 
@@ -1196,6 +1321,19 @@ export function AddBotModal({
     setRoleId(t.role_id ?? "");
     setMachineId(t.machine_id ?? "");
   };
+  const dirty =
+    name !== initialName ||
+    instructions !== "" ||
+    roleId !== "" ||
+    machineId !== "";
+  const attemptClose = useDiscardGuard("this new bot", dirty, onClose);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") attemptClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [attemptClose]);
 
   return (
     <div className="modal">
@@ -1203,7 +1341,7 @@ export function AddBotModal({
         type="button"
         className="mscrim"
         aria-label="Cancel"
-        onClick={onClose}
+        onClick={attemptClose}
       />
       <form
         className="dialog narrow"
@@ -1248,7 +1386,7 @@ export function AddBotModal({
             type="button"
             className="close"
             aria-label="Cancel"
-            onClick={onClose}
+            onClick={attemptClose}
           >
             ×
           </button>
@@ -1327,7 +1465,8 @@ export function AddBotModal({
           <button type="submit" disabled={busy}>
             Create
           </button>
-          <button type="button" onClick={onClose}>
+          <UnsavedNote dirty={dirty} />
+          <button type="button" onClick={attemptClose}>
             Cancel
           </button>
         </div>
@@ -1395,6 +1534,31 @@ export function BookIcon({ size = 18 }: { size?: number }) {
     >
       <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5v13z" />
       <path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5" />
+    </svg>
+  );
+}
+
+export function PlayIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8 5.5v13l11-6.5z" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function SpinnerIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      className="spin"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="3"
+      aria-hidden="true"
+    >
+      <path d="M12 3a9 9 0 1 0 9 9" strokeLinecap="round" />
     </svg>
   );
 }
@@ -1608,6 +1772,7 @@ interface Provider {
 export function SettingsPanel() {
   const [theme, setTheme] = useState<Theme>(currentTheme);
   const [idle, setIdle] = useState(5);
+  const [savedIdle, setSavedIdle] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [defaultProviderId, setDefaultProviderId] = useState<string | null>(
@@ -1711,9 +1876,15 @@ export function SettingsPanel() {
 
   useEffect(() => {
     void api<{ sandbox_idle_minutes: number }>("/api/settings")
-      .then((s) => setIdle(s.sandbox_idle_minutes))
+      .then((s) => {
+        setIdle(s.sandbox_idle_minutes);
+        setSavedIdle(s.sandbox_idle_minutes);
+      })
       .catch(() => {});
   }, []);
+
+  const idleDirty = savedIdle !== null && idle !== savedIdle;
+  useDirtyGuard("the sandbox idle timeout", idleDirty);
 
   const saveIdle = async () => {
     setSaving(true);
@@ -1723,6 +1894,7 @@ export function SettingsPanel() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ sandbox_idle_minutes: idle }),
       });
+      setSavedIdle(idle);
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1772,6 +1944,7 @@ export function SettingsPanel() {
         <button type="button" disabled={saving} onClick={() => void saveIdle()}>
           Save
         </button>
+        <UnsavedNote dirty={idleDirty} />
       </div>
       <p className="muted">Notification sounds</p>
       <div className="actions">
@@ -1984,6 +2157,16 @@ export function ProviderFormModal({
   const [manual, setManual] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dirty =
+    name !== (provider?.name ?? "") ||
+    baseUrl !== (provider?.base_url ?? "") ||
+    apiKey !== "" ||
+    models.join(",") !== (provider?.models ?? []).join(",");
+  const attemptClose = useDiscardGuard(
+    provider ? `provider ${provider.name}` : "this new provider",
+    dirty,
+    onClose,
+  );
 
   const toggleModel = (id: string) => {
     setModels((ms) =>
@@ -2044,7 +2227,7 @@ export function ProviderFormModal({
         type="button"
         className="mscrim"
         aria-label="Cancel"
-        onClick={onClose}
+        onClick={attemptClose}
       />
       <div className="dialog">
         <div className="viewhead">
@@ -2053,7 +2236,7 @@ export function ProviderFormModal({
             type="button"
             className="close"
             aria-label="Cancel"
-            onClick={onClose}
+            onClick={attemptClose}
           >
             ×
           </button>
@@ -2150,19 +2333,192 @@ export function ProviderFormModal({
   );
 }
 
+export function Multiselect({
+  label,
+  options,
+  selected,
+  onChange,
+  busy,
+  placeholder,
+}: {
+  label: string;
+  options: { id: string; name: string }[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+  busy?: boolean;
+  placeholder?: string;
+}) {
+  const [query, setQuery] = useState("");
+  const sel = new Set(selected);
+  const q = query.trim().toLowerCase();
+  return (
+    <div className="multiselect">
+      <input
+        aria-label={label}
+        placeholder={placeholder ?? "Search…"}
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+      />
+      {selected.length > 0 && (
+        <span className="mschosen">{`${selected.length} selected`}</span>
+      )}
+      <ul className="msopts">
+        {options
+          .filter((o) => !q || o.name.toLowerCase().includes(q))
+          .map((o) => (
+            <li key={o.id}>
+              <label>
+                <input
+                  type="checkbox"
+                  disabled={busy}
+                  checked={sel.has(o.id)}
+                  onChange={() =>
+                    onChange(
+                      sel.has(o.id)
+                        ? selected.filter((x) => x !== o.id)
+                        : [...selected, o.id],
+                    )
+                  }
+                />
+                {o.name}
+              </label>
+            </li>
+          ))}
+      </ul>
+    </div>
+  );
+}
+
+export function teamHealth(members: TeamMember[], bots: Bot[]): Bot["health"] {
+  const hs = members
+    .map((m) => bots.find((b) => b.id === m.bot_id)?.health)
+    .filter(Boolean) as Bot["health"][];
+  for (const h of ["red", "yellow", "green", "blue"] as const)
+    if (hs.includes(h)) return h;
+  return "gray";
+}
+
+export function TeamCreateModal({
+  bots,
+  busy,
+  onClose,
+  mutate,
+}: {
+  bots: Bot[];
+  busy: boolean;
+  onClose: () => void;
+  mutate: (fn: () => Promise<unknown>) => void;
+}) {
+  const [name, setName] = useState("");
+  const [memberSel, setMemberSel] = useState<string[]>([]);
+  const [leaderSel, setLeaderSel] = useState<string[]>([]);
+  const dirty = name !== "" || memberSel.length > 0 || leaderSel.length > 0;
+  const attemptClose = useDiscardGuard("this new team", dirty, onClose);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") attemptClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  });
+
+  return (
+    <div className="modal">
+      <button
+        type="button"
+        className="mscrim"
+        aria-label="Cancel"
+        onClick={attemptClose}
+      />
+      <form
+        className="dialog narrow"
+        role="dialog"
+        aria-label="Create team"
+        onSubmit={(e) => {
+          e.preventDefault();
+          mutate(async () => {
+            const created = await api<Team>("/api/teams", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ name: name.trim() }),
+            });
+            for (const id of new Set([...memberSel, ...leaderSel]))
+              await api(`/api/teams/${created.id}/members`, {
+                method: "PUT",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  bot_id: id,
+                  leader: leaderSel.includes(id),
+                }),
+              });
+            onClose();
+          });
+        }}
+      >
+        <label className="field">
+          Name
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
+        </label>
+        <div className="field">
+          Members
+          <Multiselect
+            label={`Members of new team`}
+            options={bots.map((b) => ({ id: b.id, name: b.name }))}
+            selected={memberSel}
+            onChange={setMemberSel}
+            busy={busy}
+            placeholder="Add teammates…"
+          />
+        </div>
+        <div className="field">
+          Leaders (also added as members)
+          <Multiselect
+            label={`Leaders of new team`}
+            options={bots.map((b) => ({ id: b.id, name: b.name }))}
+            selected={leaderSel}
+            onChange={setLeaderSel}
+            busy={busy}
+            placeholder="Pick leaders…"
+          />
+        </div>
+        <div className="actions">
+          <button type="submit" disabled={busy || !name.trim()}>
+            Create team
+          </button>
+          <UnsavedNote dirty={dirty} />
+          <button type="button" onClick={attemptClose}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 export function TeamsPanel() {
   const [teams, setTeams] = useState<Team[]>([]);
-  const [bots, setBots] = useState<{ id: string; name: string }[]>([]);
-  const [newName, setNewName] = useState("");
+  const [bots, setBots] = useState<Bot[]>([]);
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
+  const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [nameQ, setNameQ] = useState("");
+  const [botSel, setBotSel] = useState<string[]>([]);
+  const [selTeamId, setSelTeamId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [ts, bs] = await Promise.all([
+    const [ts, bs, ps] = await Promise.all([
       api<Team[]>("/api/teams").catch(() => [] as Team[]),
       api<Bot[]>("/api/bots").catch(() => [] as Bot[]),
+      api<Project[]>("/api/projects").catch(() => [] as Project[]),
     ]);
     setTeams(ts);
-    setBots(bs.map((b) => ({ id: b.id, name: b.name })));
+    setBots(bs);
+    setProjects(ps.map((p) => ({ id: p.id, name: p.name })));
   }, []);
 
   useEffect(() => {
@@ -2177,174 +2533,246 @@ export function TeamsPanel() {
       .finally(() => setBusy(false));
   };
 
+  const nq = nameQ.trim().toLowerCase();
+  const visible = teams.filter(
+    (t) =>
+      (!nq || t.name.toLowerCase().includes(nq)) &&
+      (botSel.length === 0 || t.members.some((m) => botSel.includes(m.bot_id))),
+  );
+  const selTeam = teams.find((t) => t.id === selTeamId);
+
   return (
     <section>
       <div className="viewhead">
         <h2>Teams</h2>
-        <button
-          type="button"
-          disabled={busy || !newName.trim()}
-          onClick={() => {
-            mutate(() =>
-              api("/api/teams", {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ name: newName.trim() }),
-              }),
-            );
-            setNewName("");
-          }}
-        >
+        <button type="button" onClick={() => setCreating(true)}>
           Create team
         </button>
       </div>
-      <input
-        aria-label="New team name"
-        placeholder="team name"
-        value={newName}
-        onChange={(e) => setNewName(e.target.value)}
-      />
+      <div className="filterrow">
+        <input
+          aria-label="Filter teams by name"
+          placeholder="Search teams by name"
+          value={nameQ}
+          onChange={(e) => setNameQ(e.target.value)}
+        />
+        <Multiselect
+          label="Filter teams by bots"
+          options={bots.map((b) => ({ id: b.id, name: b.name }))}
+          selected={botSel}
+          onChange={setBotSel}
+          placeholder="Filter by bots…"
+        />
+      </div>
       {teams.length === 0 && (
         <p className="muted">
           No teams yet — teammates DM each other in a team.
         </p>
       )}
-      <div className="teamlist">
-        {teams.map((team) => (
-          <TeamCard
-            key={team.id}
-            team={team}
-            bots={bots}
-            busy={busy}
-            mutate={mutate}
-          />
-        ))}
+      <div className="cards">
+        {visible.map((team) => {
+          const health = teamHealth(team.members, bots);
+          return (
+            <button
+              type="button"
+              key={team.id}
+              className="card teamcard"
+              aria-label={`Configure ${team.name}`}
+              onClick={() => setSelTeamId(team.id)}
+            >
+              <StatusDot
+                id={team.id}
+                health={health}
+                active={health === "green"}
+              />
+              <strong>{team.name}</strong>
+              <em className="muted">
+                {team.members.length}{" "}
+                {team.members.length === 1 ? "bot" : "bots"}
+              </em>
+            </button>
+          );
+        })}
       </div>
+      {creating && (
+        <TeamCreateModal
+          bots={bots}
+          busy={busy}
+          onClose={() => setCreating(false)}
+          mutate={mutate}
+        />
+      )}
+      {selTeam && (
+        <TeamConfigModal
+          team={selTeam}
+          bots={bots}
+          projects={projects}
+          busy={busy}
+          onClose={() => setSelTeamId(null)}
+          mutate={mutate}
+        />
+      )}
     </section>
   );
 }
 
-export function TeamCard({
+export function TeamConfigModal({
   team,
   bots,
+  projects,
   busy,
+  onClose,
   mutate,
 }: {
   team: Team;
-  bots: { id: string; name: string }[];
+  bots: Bot[];
+  projects: { id: string; name: string }[];
   busy: boolean;
+  onClose: () => void;
   mutate: (fn: () => Promise<unknown>) => void;
 }) {
   const [name, setName] = useState(team.name);
-  const [addBotId, setAddBotId] = useState("");
-  const memberIds = new Set(team.members.map((m) => m.bot_id));
-  const candidates = bots.filter((b) => !memberIds.has(b.id));
+  const [memberSel, setMemberSel] = useState<string[]>(
+    team.members.map((m) => m.bot_id),
+  );
+  const [leaderSel, setLeaderSel] = useState<string[]>(
+    team.members.filter((m) => m.leader).map((m) => m.bot_id),
+  );
+  const [attached, setAttached] = useState<string[]>(team.project_ids ?? []);
+  const [confirmDel, setConfirmDel] = useState(false);
+
+  const memberIds = Array.from(new Set([...memberSel, ...leaderSel]));
+  const curLeaderIds = team.members
+    .filter((m) => m.leader)
+    .map((m) => m.bot_id);
+  const dirty =
+    name.trim() !== team.name ||
+    attached.join(",") !== (team.project_ids ?? []).join(",") ||
+    [...memberIds].sort().join(",") !==
+      team.members
+        .map((m) => m.bot_id)
+        .sort()
+        .join(",") ||
+    leaderSel
+      .filter((id) => memberIds.includes(id))
+      .sort()
+      .join(",") !== [...curLeaderIds].sort().join(",");
+
+  const save = () => {
+    const cur = new Map(team.members.map((m) => [m.bot_id, m.leader]));
+    mutate(async () => {
+      await api(`/api/teams/${team.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), project_ids: attached }),
+      });
+      for (const id of memberIds) {
+        const leader = leaderSel.includes(id);
+        if (!cur.has(id) || cur.get(id) !== leader)
+          await api(`/api/teams/${team.id}/members`, {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ bot_id: id, leader }),
+          });
+      }
+      for (const m of team.members)
+        if (!memberIds.includes(m.bot_id))
+          await api(`/api/teams/${team.id}/members/${m.bot_id}`, {
+            method: "DELETE",
+          });
+      onClose();
+    });
+  };
+  const attemptClose = useDiscardGuard(`team ${team.name}`, dirty, onClose);
 
   return (
-    <div className="card teamcard">
-      <div className="actions">
-        <input
-          aria-label={`Team name ${team.name}`}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <button
-          type="button"
-          disabled={busy || !name.trim() || name.trim() === team.name}
-          onClick={() =>
+    <div className="modal">
+      <button
+        type="button"
+        className="mscrim"
+        aria-label="Cancel"
+        onClick={attemptClose}
+      />
+      <form
+        className="dialog narrow"
+        role="dialog"
+        aria-label={`Configure team ${team.name}`}
+        onSubmit={(e) => {
+          e.preventDefault();
+          save();
+        }}
+      >
+        <label className="field">
+          Name
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
+        </label>
+        <div className="field">
+          Members
+          <Multiselect
+            label={`Members of ${team.name}`}
+            options={bots.map((b) => ({ id: b.id, name: b.name }))}
+            selected={memberSel}
+            onChange={setMemberSel}
+            busy={busy}
+            placeholder="Add teammates…"
+          />
+        </div>
+        <div className="field">
+          Leaders (also added as members)
+          <Multiselect
+            label={`Leaders of ${team.name}`}
+            options={bots.map((b) => ({ id: b.id, name: b.name }))}
+            selected={leaderSel}
+            onChange={setLeaderSel}
+            busy={busy}
+            placeholder="Pick leaders…"
+          />
+        </div>
+        <div className="field">
+          Projects (inherited by all members)
+          <Multiselect
+            label={`Projects for ${team.name}`}
+            options={projects}
+            selected={attached}
+            onChange={setAttached}
+            busy={busy}
+            placeholder="Attach projects…"
+          />
+        </div>
+        <div className="actions">
+          <button type="submit" disabled={busy || !name.trim() || !dirty}>
+            Save
+          </button>
+          <UnsavedNote dirty={dirty} />
+          <button
+            type="button"
+            className="danger"
+            disabled={busy}
+            onClick={() => setConfirmDel(true)}
+          >
+            Delete
+          </button>
+          <button type="button" onClick={attemptClose}>
+            Cancel
+          </button>
+        </div>
+      </form>
+      {confirmDel && (
+        <ConfirmDialog
+          text={`Delete team ${team.name}? The bots stay.`}
+          confirmLabel="Delete team"
+          onCancel={() => setConfirmDel(false)}
+          onConfirm={() => {
             mutate(() =>
-              api(`/api/teams/${team.id}`, {
-                method: "PATCH",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ name: name.trim() }),
-              }),
-            )
-          }
-        >
-          Rename
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => {
-            if (!window.confirm(`Delete team ${team.name}? The bots stay.`))
-              return;
-            mutate(() => api(`/api/teams/${team.id}`, { method: "DELETE" }));
-          }}
-        >
-          Delete
-        </button>
-      </div>
-      <ul className="teammembers">
-        {team.members.map((m) => (
-          <li key={m.bot_id}>
-            <span>{m.name}</span>
-            <label>
-              <input
-                type="checkbox"
-                checked={m.leader}
-                disabled={busy}
-                onChange={() =>
-                  mutate(() =>
-                    api(`/api/teams/${team.id}/members`, {
-                      method: "PUT",
-                      headers: { "content-type": "application/json" },
-                      body: JSON.stringify({
-                        bot_id: m.bot_id,
-                        leader: !m.leader,
-                      }),
-                    }),
-                  )
-                }
-              />
-              leader
-            </label>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                mutate(() =>
-                  api(`/api/teams/${team.id}/members/${m.bot_id}`, {
-                    method: "DELETE",
-                  }),
-                )
-              }
-            >
-              Remove
-            </button>
-          </li>
-        ))}
-      </ul>
-      <div className="actions">
-        <select
-          aria-label={`Add bot to ${team.name}`}
-          value={addBotId}
-          onChange={(e) => setAddBotId(e.target.value)}
-        >
-          <option value="">add teammate…</option>
-          {candidates.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.name}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          disabled={busy || !addBotId}
-          onClick={() => {
-            mutate(() =>
-              api(`/api/teams/${team.id}/members`, {
-                method: "PUT",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ bot_id: addBotId }),
-              }),
+              api(`/api/teams/${team.id}`, { method: "DELETE" }).then(onClose),
             );
-            setAddBotId("");
           }}
-        >
-          Add
-        </button>
-      </div>
+        />
+      )}
     </div>
   );
 }
@@ -2361,16 +2789,26 @@ export function BotTeams({ botId }: { botId: string }) {
 
   if (teams.length === 0) return null;
 
-  const toggle = (team: Team, member: boolean) => {
+  const selected = teams
+    .filter((t) => t.members.some((m) => m.bot_id === botId))
+    .map((t) => t.id);
+
+  const change = (nextIds: string[]) => {
     setBusy(true);
-    const req = member
-      ? api(`/api/teams/${team.id}/members/${botId}`, { method: "DELETE" })
-      : api(`/api/teams/${team.id}/members`, {
+    const added = nextIds.filter((id) => !selected.includes(id));
+    const removed = selected.filter((id) => !nextIds.includes(id));
+    void Promise.all([
+      ...added.map((id) =>
+        api(`/api/teams/${id}/members`, {
           method: "PUT",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ bot_id: botId }),
-        });
-    req
+        }),
+      ),
+      ...removed.map((id) =>
+        api(`/api/teams/${id}/members/${botId}`, { method: "DELETE" }),
+      ),
+    ])
       .then(() => api<Team[]>("/api/teams"))
       .then(setTeams)
       .catch((e) => alert(e instanceof Error ? e.message : String(e)))
@@ -2378,27 +2816,20 @@ export function BotTeams({ botId }: { botId: string }) {
   };
 
   return (
-    <div className="botteams">
-      {teams.map((team) => {
-        const member = team.members.some((m) => m.bot_id === botId);
-        return (
-          <label key={team.id}>
-            <input
-              type="checkbox"
-              disabled={busy}
-              checked={member}
-              onChange={() => toggle(team, member)}
-            />
-            {team.name}
-          </label>
-        );
-      })}
-    </div>
+    <Multiselect
+      label="Teams"
+      options={teams.map((t) => ({ id: t.id, name: t.name }))}
+      selected={selected}
+      onChange={change}
+      busy={busy}
+      placeholder="Join a team…"
+    />
   );
 }
 
 export function ProjectsPanel() {
   const [projects, setProjects] = useState<Project[]>([]);
+  const navGuard = useNavGuard();
   const [creating, setCreating] = useState(false);
   const [selProject, setSelProject] = useState<Project | null>(null);
 
@@ -2429,7 +2860,7 @@ export function ProjectsPanel() {
             type="button"
             key={project.id}
             className="card"
-            onClick={() => setSelProject(project)}
+            onClick={() => navGuard(() => setSelProject(project))}
           >
             <strong>{project.name}</strong>
             <span className="preview">{project.description}</span>
@@ -2468,6 +2899,15 @@ export function ProjectModal({
   const [body, setBody] = useState(project?.body ?? "");
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
+  const dirty =
+    name !== (project?.name ?? "") ||
+    description !== (project?.description ?? "") ||
+    body !== (project?.body ?? "");
+  const attemptClose = useDiscardGuard(
+    project ? `project ${project.name}` : "this new project",
+    dirty,
+    onClose,
+  );
 
   const save = async () => {
     setBusy(true);
@@ -2490,7 +2930,7 @@ export function ProjectModal({
         type="button"
         className="mscrim"
         aria-label="Cancel"
-        onClick={onClose}
+        onClick={attemptClose}
       />
       <form
         className="dialog narrow"
@@ -2537,6 +2977,7 @@ export function ProjectModal({
           <button type="submit" disabled={busy || !name.trim() || !body.trim()}>
             Save
           </button>
+          <UnsavedNote dirty={dirty} />
           {project && (
             <button
               type="button"
@@ -2615,6 +3056,7 @@ export function BotProjects({ botId }: { botId: string }) {
 
 export function RolesPanel() {
   const [roles, setRoles] = useState<Role[]>([]);
+  const navGuard = useNavGuard();
   const [query, setQuery] = useState("");
   const [formRole, setFormRole] = useState<Role | null>(null);
   const [creating, setCreating] = useState(false);
@@ -2660,7 +3102,7 @@ export function RolesPanel() {
             type="button"
             key={role.id}
             className="card"
-            onClick={() => setFormRole(role)}
+            onClick={() => navGuard(() => setFormRole(role))}
           >
             <strong>{role.name}</strong>
             <span className="preview">{role.instructions}</span>
@@ -2703,6 +3145,16 @@ export function RoleFormModal({
   const [skillOptions, setSkillOptions] = useState<GrantOption[]>([]);
   const [mcpIds, setMcpIds] = useState<string[]>(role?.mcp_server_ids ?? []);
   const [skillIds, setSkillIds] = useState<string[]>(role?.skill_ids ?? []);
+  const dirty =
+    name !== (role?.name ?? "") ||
+    instructions !== (role?.instructions ?? "") ||
+    mcpIds.join(",") !== (role?.mcp_server_ids ?? []).join(",") ||
+    skillIds.join(",") !== (role?.skill_ids ?? []).join(",");
+  const attemptClose = useDiscardGuard(
+    role ? `role ${role.name}` : "this new role",
+    dirty,
+    onClose,
+  );
 
   useEffect(() => {
     void api<GrantOption[]>("/api/mcp-servers")
@@ -2729,7 +3181,7 @@ export function RoleFormModal({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !confirmDel) onClose();
+      if (e.key === "Escape" && !confirmDel) attemptClose();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -2741,7 +3193,7 @@ export function RoleFormModal({
         type="button"
         className="mscrim"
         aria-label="Cancel"
-        onClick={onClose}
+        onClick={attemptClose}
       />
       <form
         className="dialog narrow"
@@ -2784,7 +3236,7 @@ export function RoleFormModal({
             type="button"
             className="close"
             aria-label="Cancel"
-            onClick={onClose}
+            onClick={attemptClose}
           >
             ×
           </button>
@@ -2855,6 +3307,7 @@ export function RoleFormModal({
           <button type="submit" disabled={busy}>
             {role ? "Save role" : "Create role"}
           </button>
+          <UnsavedNote dirty={dirty} />
           {role && (
             <button
               type="button"
@@ -2865,7 +3318,7 @@ export function RoleFormModal({
               Delete role
             </button>
           )}
-          <button type="button" onClick={onClose}>
+          <button type="button" onClick={attemptClose}>
             Cancel
           </button>
         </div>
@@ -2940,12 +3393,15 @@ export function BotGeneral({
       .catch(() => setMachines([]));
   }, []);
 
-  if (!bot) return null;
   const dirty =
-    name.trim() !== bot.name ||
-    instructions !== bot.instructions ||
-    roleId !== (bot.role_id ?? "") ||
-    machineId !== (bot.machine_id ?? "");
+    !!bot &&
+    (name.trim() !== bot.name ||
+      instructions !== bot.instructions ||
+      roleId !== (bot.role_id ?? "") ||
+      machineId !== (bot.machine_id ?? ""));
+  useDirtyGuard(bot ? `the bot ${bot.name}` : "this bot", dirty);
+
+  if (!bot) return null;
   const patchBot = (body: Record<string, unknown>) =>
     api(`/api/bots/${bot.id}`, {
       method: "PATCH",
@@ -2987,6 +3443,7 @@ export function BotGeneral({
           >
             Save
           </button>
+          <UnsavedNote dirty={dirty} />
         </div>
       </div>
       <p className="statusline">
@@ -3155,14 +3612,88 @@ export function BotGeneral({
   );
 }
 
+const dirtyEditors = new Map<string, string>();
+const dirtyListeners = new Set<() => void>();
+
+function bumpDirty(): void {
+  for (const l of dirtyListeners) l();
+}
+
+export function anyDirtyLabel(): string | null {
+  for (const label of dirtyEditors.values()) return label;
+  return null;
+}
+
+export function clearAllDirty(): void {
+  dirtyEditors.clear();
+  bumpDirty();
+}
+
+function subscribeDirty(l: () => void): () => void {
+  dirtyListeners.add(l);
+  return () => {
+    dirtyListeners.delete(l);
+  };
+}
+
+export function formDirty(
+  snapshot: Record<string, unknown>,
+  current: Record<string, unknown>,
+): boolean {
+  for (const key of Object.keys(snapshot))
+    if (snapshot[key] !== current[key]) return true;
+  return false;
+}
+
+export const NavGuardContext = createContext<(fn: () => void) => void>((fn) =>
+  fn(),
+);
+
+export function useNavGuard(): (fn: () => void) => void {
+  return useContext(NavGuardContext);
+}
+
+export function UnsavedNote({ dirty }: { dirty: boolean }) {
+  if (!dirty) return null;
+  return (
+    <span className="unsavednote" role="status">
+      Unsaved changes
+    </span>
+  );
+}
+
+export function useDirtyGuard(label: string, dirty: boolean): void {
+  useEffect(() => {
+    if (dirty) dirtyEditors.set(label, label);
+    else dirtyEditors.delete(label);
+    bumpDirty();
+    return () => {
+      dirtyEditors.delete(label);
+      bumpDirty();
+    };
+  }, [label, dirty]);
+}
+
+export function useDiscardGuard(
+  label: string,
+  dirty: boolean,
+  close: () => void,
+): () => void {
+  const guard = useNavGuard();
+  useDirtyGuard(label, dirty);
+  return () => guard(close);
+}
+
 export function ConfirmDialog({
   text,
   confirmLabel,
+  cancelLabel = "Cancel",
   onCancel,
   onConfirm,
 }: {
   text: string;
   confirmLabel: string;
+  cancelLabel?: string;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -3189,7 +3720,7 @@ export function ConfirmDialog({
             {confirmLabel}
           </button>
           <button type="button" onClick={onCancel}>
-            Cancel
+            {cancelLabel}
           </button>
         </div>
       </div>
@@ -3427,6 +3958,11 @@ export function Triggers({ botId }: { botId: string }) {
     </section>
   );
 }
+export function nextRunLabel(trigger: Trigger): string | null {
+  if (trigger.kind !== "schedule" || trigger.enabled !== 1) return null;
+  return `next: ${fmt(trigger.next_run_at)}`;
+}
+
 function TriggerEditor({
   trigger,
   onPatch,
@@ -3448,6 +3984,13 @@ function TriggerEditor({
     name !== (trigger.name ?? "") ||
     message !== trigger.message ||
     (trigger.kind === "schedule" && schedule !== trigger.schedule);
+  useDirtyGuard(
+    trigger.name?.trim()
+      ? `the trigger ${trigger.name}`
+      : `this ${trigger.kind} trigger`,
+    dirty,
+  );
+  const nextRun = nextRunLabel(trigger);
   return (
     <>
       <div className="tedithead">
@@ -3467,9 +4010,9 @@ function TriggerEditor({
         </label>
         {trigger.kind === "webhook" ? (
           <code>{`POST /api/webhooks/${trigger.id}`}</code>
-        ) : (
-          <span className="muted">next: {fmt(trigger.next_run_at)}</span>
-        )}
+        ) : nextRun ? (
+          <span className="muted">{nextRun}</span>
+        ) : null}
       </div>
       <label className="field">
         Name (optional)
@@ -3510,6 +4053,7 @@ function TriggerEditor({
         >
           Save
         </button>
+        <UnsavedNote dirty={dirty} />
         {trigger.kind === "webhook" && (
           <button type="button" onClick={onRotate}>
             Rotate secret
@@ -3537,7 +4081,26 @@ type ChatTurn = {
   text: string;
   thinking?: string;
   tool_calls?: ToolCallTurn[];
+  injected?: boolean;
+  source?: string;
 };
+
+const INJECT_LABELS: Record<string, string> = {
+  schedule: "schedule",
+  manual: "manual run",
+  webhook: "webhook",
+};
+
+export function ChatBar({ turn }: { turn: ChatTurn }) {
+  return (
+    <div className={`chat-bar ${turn.source ?? "trigger"}`}>
+      <span className="who">
+        {INJECT_LABELS[turn.source ?? ""] ?? turn.source ?? "trigger"}
+      </span>
+      <pre>{turn.text}</pre>
+    </div>
+  );
+}
 
 export function ChatTurnView({
   turn,
@@ -3615,19 +4178,30 @@ export function ChatSidebar({
           ×
         </button>
       </div>
-      <Chat key={bot.id} botId={bot.id} botName={bot.name} />
+      <Chat
+        key={bot.id}
+        botId={bot.id}
+        botName={bot.name}
+        working={bot.run_state === "running"}
+      />
     </aside>
   );
 }
 
-export function Chat({ botId, botName }: { botId: string; botName: string }) {
+export function Chat({
+  botId,
+  botName,
+  working = false,
+}: {
+  botId: string;
+  botName: string;
+  working?: boolean;
+}) {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const pendingRef = useRef<string | null>(null);
-  const replyBaseRef = useRef(0);
-  const [typing, setTyping] = useState(false);
 
   const loadChat = useCallback(async () => {
     try {
@@ -3637,10 +4211,6 @@ export function Chat({ botId, botName }: { botId: string; botName: string }) {
         fresh.some((t) => t.role === "user" && t.text === pendingRef.current)
       )
         pendingRef.current = null;
-      const replies = fresh.filter(
-        (t) => t.role === "assistant" && t.text.trim(),
-      ).length;
-      if (typing && replies > replyBaseRef.current) setTyping(false);
       setTurns(() => {
         const base = [...fresh];
         if (
@@ -3653,13 +4223,13 @@ export function Chat({ botId, botName }: { botId: string; botName: string }) {
     } catch {
       /* keep last */
     }
-  }, [botId, typing]);
+  }, [botId]);
 
   useEffect(() => {
     void loadChat();
-    const t = setInterval(loadChat, 3000);
+    const t = setInterval(loadChat, working ? 800 : 3000);
     return () => clearInterval(t);
-  }, [loadChat]);
+  }, [loadChat, working]);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -3672,10 +4242,6 @@ export function Chat({ botId, botName }: { botId: string; botName: string }) {
     setSending(true);
     setErr(null);
     pendingRef.current = text;
-    replyBaseRef.current = turns.filter(
-      (t) => t.role === "assistant" && t.text.trim(),
-    ).length;
-    setTyping(true);
     setTurns((prev) => [...prev, { role: "user", text }]);
     setDraft("");
     try {
@@ -3687,7 +4253,6 @@ export function Chat({ botId, botName }: { botId: string; botName: string }) {
       await loadChat();
     } catch (e) {
       pendingRef.current = null;
-      setTyping(false);
       setTurns((prev) => prev.filter((t) => t.text !== text));
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -3699,21 +4264,25 @@ export function Chat({ botId, botName }: { botId: string; botName: string }) {
     <section className="chat">
       <div className="chat-log">
         {turns.length === 0 && <p>No conversation yet. Say something below.</p>}
-        {turns.map((t, i) => (
-          <ChatTurnView key={i} turn={t} botName={botName} />
-        ))}
-        {typing && (
-          <div className="chat-turn typing" aria-label="bot is replying">
-            <span className="who">{botName}</span>
-            <span className="dots">
-              <i />
-              <i />
-              <i />
-            </span>
-          </div>
+        {turns.map((t, i) =>
+          t.injected ? (
+            <ChatBar key={i} turn={t} />
+          ) : (
+            <ChatTurnView key={i} turn={t} botName={botName} />
+          ),
         )}
         <div ref={bottomRef} />
       </div>
+      {working && (
+        <div className="chat-working" aria-label="bot is working">
+          <span className="who">{botName}</span>
+          <span className="dots">
+            <i />
+            <i />
+            <i />
+          </span>
+        </div>
+      )}
       {err && <p className="error">{err}</p>}
       <form
         onSubmit={(e) => {
@@ -3958,6 +4527,15 @@ export function SkillModal({
   const [instructions, setInstructions] = useState(skill?.instructions ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const dirty =
+    name !== (skill?.name ?? "") ||
+    description !== (skill?.description ?? "") ||
+    instructions !== (skill?.instructions ?? "");
+  const attemptClose = useDiscardGuard(
+    skill ? `skill ${skill.name}` : "this new skill",
+    dirty,
+    onClose,
+  );
 
   return (
     <div className="modal">
@@ -3965,7 +4543,7 @@ export function SkillModal({
         type="button"
         className="mscrim"
         aria-label="Close"
-        onClick={onClose}
+        onClick={attemptClose}
       />
       <div className="dialog" role="dialog" aria-label="Skill">
         <h2>{skill ? "Edit skill" : "Add skill"}</h2>
@@ -4018,7 +4596,8 @@ export function SkillModal({
             <button type="submit" disabled={busy}>
               {busy ? "Saving…" : skill ? "Save" : "Create"}
             </button>
-            <button type="button" onClick={onClose}>
+            <UnsavedNote dirty={dirty} />
+            <button type="button" onClick={attemptClose}>
               Cancel
             </button>
           </div>
@@ -4047,6 +4626,24 @@ export function McpServerModal({
   const [enabled, setEnabled] = useState(server ? server.enabled === 1 : true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const snap = useRef({
+    name: server?.name ?? "",
+    command: server?.command ?? "",
+    args: (server?.args ?? []).join("\n"),
+    env: JSON.stringify(envRows),
+    enabled: server ? server.enabled === 1 : true,
+  }).current;
+  const dirty =
+    name !== snap.name ||
+    command !== snap.command ||
+    args !== snap.args ||
+    JSON.stringify(envRows) !== snap.env ||
+    enabled !== snap.enabled;
+  const attemptClose = useDiscardGuard(
+    server ? `MCP server ${server.name}` : "this new MCP server",
+    dirty,
+    onClose,
+  );
 
   return (
     <div className="modal">
@@ -4054,7 +4651,7 @@ export function McpServerModal({
         type="button"
         className="mscrim"
         aria-label="Close"
-        onClick={onClose}
+        onClick={attemptClose}
       />
       <div className="dialog" role="dialog" aria-label="MCP server">
         <h2>{server ? "Edit MCP server" : "Add MCP server"}</h2>
@@ -4175,12 +4772,13 @@ export function McpServerModal({
           </label>
           {error && <p className="error">{error}</p>}
           <div className="actions">
-            <button type="button" onClick={onClose}>
+            <button type="button" onClick={attemptClose}>
               Cancel
             </button>
             <button type="submit" disabled={busy}>
               {busy ? "Saving…" : "Save"}
             </button>
+            <UnsavedNote dirty={dirty} />
           </div>
         </form>
       </div>
@@ -4310,6 +4908,15 @@ export function MachineModal({
   const [dockerfile, setDockerfile] = useState(machine?.dockerfile ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const dirty =
+    name !== (machine?.name ?? "") ||
+    description !== (machine?.description ?? "") ||
+    dockerfile !== (machine?.dockerfile ?? "");
+  const attemptClose = useDiscardGuard(
+    machine ? `machine ${machine.name}` : "this new machine",
+    dirty,
+    onClose,
+  );
 
   return (
     <div className="modal">
@@ -4317,7 +4924,7 @@ export function MachineModal({
         type="button"
         className="mscrim"
         aria-label="Close"
-        onClick={onClose}
+        onClick={attemptClose}
       />
       <div className="dialog" role="dialog" aria-label="Machine">
         <h2>{machine ? "Edit machine" : "Add machine"}</h2>
@@ -4377,7 +4984,8 @@ export function MachineModal({
             <button type="submit" disabled={busy}>
               {busy ? "Saving…" : machine ? "Save" : "Create"}
             </button>
-            <button type="button" onClick={onClose}>
+            <UnsavedNote dirty={dirty} />
+            <button type="button" onClick={attemptClose}>
               Cancel
             </button>
           </div>
@@ -4405,6 +5013,26 @@ export function TemplateEditorModal({
   const [machines, setMachines] = useState<Machine[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [busy, setBusy] = useState(false);
+  const snap = useRef({
+    name: initial.name,
+    description: initial.description,
+    instructions: initial.instructions,
+    machine_id: initial.machine_id ?? "",
+    role_id: initial.role_id ?? "",
+    triggers: JSON.stringify(initial.triggers),
+  }).current;
+  const dirty =
+    name !== snap.name ||
+    description !== snap.description ||
+    instructions !== snap.instructions ||
+    machineId !== snap.machine_id ||
+    roleId !== snap.role_id ||
+    JSON.stringify(triggers) !== snap.triggers;
+  const attemptClose = useDiscardGuard(
+    initial.id ? `template ${initial.name}` : "this new template",
+    dirty,
+    onClose,
+  );
 
   useEffect(() => {
     void api<Role[]>("/api/roles").then(setRoles, () => setRoles([]));
@@ -4424,7 +5052,7 @@ export function TemplateEditorModal({
         type="button"
         className="mscrim"
         aria-label="Cancel"
-        onClick={onClose}
+        onClick={attemptClose}
       />
       <form
         className="dialog narrow"
@@ -4463,7 +5091,7 @@ export function TemplateEditorModal({
             type="button"
             className="close"
             aria-label="Cancel"
-            onClick={onClose}
+            onClick={attemptClose}
           >
             ×
           </button>
@@ -4562,7 +5190,8 @@ export function TemplateEditorModal({
           <button type="submit" disabled={busy}>
             Save
           </button>
-          <button type="button" onClick={onClose}>
+          <UnsavedNote dirty={dirty} />
+          <button type="button" onClick={attemptClose}>
             Cancel
           </button>
         </div>

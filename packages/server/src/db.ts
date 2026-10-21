@@ -637,6 +637,7 @@ export interface TeamMemberRow {
 
 export interface Team extends TeamRow {
   members: TeamMemberRow[];
+  project_ids: string[];
 }
 
 export function listTeams(): Team[] {
@@ -648,12 +649,26 @@ export function listTeams(): Team[] {
      JOIN bots b ON b.id = tm.bot_id
      WHERE tm.team_id = ? ORDER BY tm.leader DESC, b.name`,
   );
+  const projectStmt = db.prepare(
+    "SELECT project_id FROM team_projects WHERE team_id = ?",
+  );
   return teams.map((t) => ({
     ...t,
     members: (
       memberStmt.all(t.id) as { bot_id: string; name: string; leader: number }[]
     ).map((m) => ({ bot_id: m.bot_id, name: m.name, leader: m.leader === 1 })),
+    project_ids: (projectStmt.all(t.id) as { project_id: string }[]).map(
+      (p) => p.project_id,
+    ),
   }));
+}
+
+export function setTeamProjects(teamId: string, projectIds: string[]): void {
+  db.prepare("DELETE FROM team_projects WHERE team_id = ?").run(teamId);
+  const ins = db.prepare(
+    "INSERT OR IGNORE INTO team_projects (team_id, project_id) VALUES (?, ?)",
+  );
+  for (const id of new Set(projectIds)) ins.run(teamId, id);
 }
 
 export function getTeam(id: string): Team | undefined {
@@ -676,6 +691,7 @@ export function renameTeam(id: string, name: string): void {
 
 export function deleteTeam(id: string): void {
   db.prepare("DELETE FROM team_members WHERE team_id = ?").run(id);
+  db.prepare("DELETE FROM team_projects WHERE team_id = ?").run(id);
   db.prepare("DELETE FROM teams WHERE id = ?").run(id);
 }
 

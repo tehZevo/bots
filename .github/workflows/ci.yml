@@ -86,27 +86,26 @@ jobs:
           node-version: 26
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Server floor 70% lines; spec target is 90 (specs/testing/unit-tests.md) —
-      # raise as agent/sandbox/mcp gain coverage. Measured % prints via --test-reporter output below.
+      # Server floor 80% lines (specs/testing/ci.md); measured % prints via the reporter below.
       - name: Tests with V8 coverage
         id: cov
         run: |
           node --import ./packages/server/node_modules/tsx/dist/loader.mjs \
             --experimental-test-coverage --test-coverage-include='packages/server/src/**' \
-            --test-coverage-lines=70 --test packages/server/test/*.test.ts 2>&1 | tee cov.log
+            --test-coverage-lines=80 --test packages/server/test/*.test.ts 2>&1 | tee cov.log
       - name: Report measured coverage
         if: always()
         run: |
           PCT=$(grep "all files" cov.log | grep -oE "[0-9]+\.[0-9]+" | head -1)
           echo "measured line coverage (server): ${PCT:-unknown}%" >> "$GITHUB_STEP_SUMMARY"
-      # Web floor 70% lines (specs/testing/unit-tests.md); run inside packages/web so tsx picks up its jsx config.
+      # Web floor 80% lines (specs/testing/ci.md); run inside packages/web so tsx picks up its jsx config.
       - name: Web tests with V8 coverage
         if: always()
         run: |
           cd packages/web
           node --import ../../packages/server/node_modules/tsx/dist/loader.mjs \
             --experimental-test-coverage --test-coverage-include='src/**' \
-            --test-coverage-lines=70 --test test/*.test.ts 2>&1 | tee "$GITHUB_WORKSPACE/cov-web.log"
+            --test-coverage-lines=80 --test test/*.test.ts 2>&1 | tee "$GITHUB_WORKSPACE/cov-web.log"
           PCT=$(grep "all files" "$GITHUB_WORKSPACE/cov-web.log" | grep -oE "[0-9]+\.[0-9]+" | head -1)
           echo "measured line coverage (web): ${PCT:-unknown}%" >> "$GITHUB_STEP_SUMMARY"
 

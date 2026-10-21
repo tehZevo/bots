@@ -538,6 +538,50 @@ article header {
   gap: 0.75rem;
 }
 
+.cardwrap {
+  position: relative;
+  display: flex;
+}
+.cardwrap .card {
+  flex: 1;
+}
+.runcard {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  z-index: 2;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  opacity: 0.75;
+  cursor: pointer;
+}
+.runcard:hover:not(:disabled),
+.runcard:focus-visible {
+  opacity: 1;
+  color: #3b82f6;
+}
+.runcard:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.spin {
+  animation: rotate 0.9s linear infinite;
+}
+@keyframes rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .card {
   position: relative;
   display: flex;
@@ -890,6 +934,37 @@ aside.rail .sidetabs button {
   background: var(--surface-2, rgba(127, 127, 127, 0.12));
   font-family: inherit;
 }
+.chat-bar {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 1px dashed var(--border, rgba(127, 127, 127, 0.4));
+  border-radius: 8px;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 6px,
+    rgba(127, 127, 127, 0.06) 6px,
+    rgba(127, 127, 127, 0.06) 12px
+  );
+}
+.chat-bar .who {
+  font-size: 11px;
+  opacity: 0.7;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.chat-bar pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 0.92em;
+  background: none;
+  padding: 0;
+}
 .chat-turn.user {
   align-self: flex-end;
   align-items: flex-end;
@@ -1121,7 +1196,7 @@ textarea.code {
 
 button:not(.sidetabs button):not(.mtabs button):not(.card):not(
   .avatarmenu button
-):not(.avatarpick):not(.pickscrim) {
+):not(.avatarpick):not(.runcard):not(.pickscrim) {
   min-height: var(--control-h);
   padding: 0 0.85rem;
   border-radius: var(--radius-control);
@@ -1319,23 +1394,35 @@ button.danger.ghost {
 [data-theme="light"] .dot.gray {
   background: #9ca3af;
 }
-.chat-turn.typing .dots {
+.chat-working {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 2px 4px;
+}
+.chat-working .who {
+  font-size: 11px;
+  opacity: 0.6;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.chat-working .dots {
   display: inline-flex;
   gap: 4px;
   align-items: center;
   height: 20px;
 }
-.chat-turn.typing .dots i {
+.chat-working .dots i {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--muted);
   animation: typedot 1.2s infinite ease-in-out;
 }
-.chat-turn.typing .dots i:nth-child(2) {
+.chat-working .dots i:nth-child(2) {
   animation-delay: 0.15s;
 }
-.chat-turn.typing .dots i:nth-child(3) {
+.chat-working .dots i:nth-child(3) {
   animation-delay: 0.3s;
 }
 @keyframes typedot {
@@ -1356,9 +1443,12 @@ button.danger.ghost {
     opacity: 1;
     transform: none;
   }
-  .chat-turn.typing .dots i {
+  .chat-working .dots i {
     animation: none;
     opacity: 0.7;
+  }
+  .spin {
+    animation-duration: 2.4s;
   }
 }
 
@@ -1871,41 +1961,49 @@ button.danger.ghost {
 }
 
 .teamcard {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-.teammembers {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-.teammembers li {
-  display: flex;
+  flex-direction: row;
   align-items: center;
-  gap: 0.6rem;
+  cursor: pointer;
+  text-align: left;
 }
-.teammembers li span {
+.teamcard strong {
   flex: 1;
-  font-weight: 600;
+  overflow-wrap: anywhere;
 }
-.teammembers label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  color: var(--muted, #888);
+.multiselect {
+  position: relative;
+  flex: 1;
+  min-width: 220px;
+}
+.mschosen {
+  margin-left: 0.4rem;
+  color: var(--muted);
   font-size: 0.85em;
 }
-.botteams {
-  display: flex;
+.msopts {
+  display: none;
+  list-style: none;
   flex-wrap: wrap;
-  gap: 0.75rem;
-  margin: 0.4rem 0;
+  gap: 0.35rem 0.75rem;
+  max-height: 160px;
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 0.5rem 0.7rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 25%);
 }
-.botteams label {
+.multiselect:focus-within .msopts,
+.multiselect.open .msopts {
+  display: flex;
+}
+.msopts label {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -1950,5 +2048,24 @@ button.danger.ghost {
   .sidepanel {
     width: 100vw;
     border-left: none;
+  }
+}
+.unsavednote {
+  color: var(--muted);
+  font-style: italic;
+}
+.confirm > .dialog {
+  margin: auto;
+}
+@media (max-width: 720px) {
+  .confirm > .dialog.narrow {
+    width: calc(100vw - 2rem);
+  }
+}
+@media (max-width: 720px) {
+  .runcard {
+    width: 34px;
+    height: 34px;
+    padding: 0;
   }
 }

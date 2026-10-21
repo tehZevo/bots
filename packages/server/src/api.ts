@@ -91,6 +91,7 @@ import {
   setMachineBuild,
   setSetting,
   setTeamMember,
+  setTeamProjects,
   setTriggerSecret,
   setUserPassword,
   touchApiKey,
@@ -1186,7 +1187,7 @@ export function createApp() {
     if (!name) return c.json({ error: "name required" }, 400);
     const team = { id: randomUUID(), name, created_at: Date.now() };
     insertTeam(team);
-    return c.json({ ...team, members: [] }, 201);
+    return c.json({ ...team, members: [], project_ids: [] }, 201);
   });
 
   app.get("/api/teams/:teamId", (c) => {
@@ -1198,10 +1199,21 @@ export function createApp() {
   app.patch("/api/teams/:teamId", async (c) => {
     const team = getTeam(c.req.param("teamId"));
     if (!team) return c.json({ error: "not found" }, 404);
-    const body = await c.req.json<{ name?: string }>();
+    const body = await c.req.json<{ name?: string; project_ids?: unknown }>();
+    if (body.project_ids !== undefined) {
+      if (!Array.isArray(body.project_ids))
+        return c.json({ error: "project_ids must be an array" }, 400);
+      const ids = body.project_ids.map(String);
+      if (ids.some((id) => !getProject(id)))
+        return c.json({ error: "unknown project" }, 400);
+      setTeamProjects(team.id, ids);
+    }
+    if (body.name === undefined && body.project_ids === undefined)
+      return c.json({ error: "name required" }, 400);
     const name = body.name?.trim();
-    if (!name) return c.json({ error: "name required" }, 400);
-    renameTeam(team.id, name);
+    if (body.name !== undefined && !name)
+      return c.json({ error: "name required" }, 400);
+    if (name) renameTeam(team.id, name);
     return c.json(getTeam(team.id));
   });
 
@@ -1406,6 +1418,8 @@ export function createApp() {
       text: string;
       thinking?: string;
       tool_calls?: ToolCallTurn[];
+      injected?: boolean;
+      source?: string;
     };
     const turns: ChatTurn[] = [];
     const callsById = new Map<string, ToolCallTurn>();
@@ -1450,12 +1464,21 @@ export function createApp() {
         }
         if (turn.text.trim() || turn.tool_calls) turns.push(turn);
       } else {
-        const text = blocks
+        const raw = blocks
           .filter((b) => b?.type === "text")
           .map((b) => String(b.text ?? ""))
-          .join("")
-          .replace(/^\[(schedule|manual|chat|webhook) [^\]]*\]\n/, "");
-        if (text.trim()) turns.push({ role: "user", text });
+          .join("");
+        const inj = /^\[(schedule|manual|webhook) [^\]]*\]\n/.exec(raw);
+        const text = raw.replace(
+          /^\[(schedule|manual|chat|webhook) [^\]]*\]\n/,
+          "",
+        );
+        if (text.trim())
+          turns.push(
+            inj
+              ? { role: "user", text, injected: true, source: inj[1] }
+              : { role: "user", text },
+          );
       }
     }
     return c.json(turns);

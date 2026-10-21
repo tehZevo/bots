@@ -280,6 +280,26 @@ export function openApiDoc(): Json {
         sessionCookie: { type: "apiKey", in: "cookie", name: "bots_session" },
       },
       schemas: {
+        Team: {
+          type: "object",
+          properties: {
+            id: str,
+            name: str,
+            created_at: { type: "integer" },
+            members: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  bot_id: str,
+                  name: str,
+                  leader: { type: "boolean" },
+                },
+              },
+            },
+            project_ids: { type: "array", items: str },
+          },
+        },
         Bot: {
           type: "object",
           properties: {

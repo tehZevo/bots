@@ -4,23 +4,27 @@ A bot is a persistent agent loop: instructions + model + tools + memory. Cards s
 
 ## Chat sidebar
 
-Clicking a bot card opens that bot's chat in a closeable sidebar pinned to the right edge — the cards stay visible behind it. Your message appears instantly and a typing indicator shows until the reply lands; chat turns enter the same persistent context as everything else. Close it with its × button, Escape, or clicking outside; nothing about the bot changes. The gear icon in the sidebar header opens that bot's settings modal. Only one sidebar is open at a time — tapping another card switches it in place. On phones it spans the full screen.
+Clicking a bot card opens that bot's chat in a closeable sidebar pinned to the right edge — the cards stay visible behind it. Your message appears instantly; user messages, thinking and tool calls show up as soon as they are available rather than waiting for the full turn, and while the bot is working a working indicator sits at the bottom-left of the chat. Chat turns enter the same persistent context as everything else. Trigger-injected messages (schedule ticks, manual runs, webhook events) appear in the chat as full-width bars spanning the conversation, clearly set apart from your turns and the bot's. Close it with its × button, Escape, or clicking outside; nothing about the bot changes. The gear icon in the sidebar header opens that bot's settings modal. Only one sidebar is open at a time — tapping another card switches it in place. On phones it spans the full screen.
 
 ## Detail tabs
 
 The settings modal (opened from the chat sidebar's gear) holds:
 
-- **General** — name and instructions editing, role and machine pickers, with Save disabled until one of them changes; enable toggle switch, Stop while running, Restart machine, Clear memory, Delete.
+- **General** — name and instructions editing, role and machine pickers, with Save disabled until one of them changes (see [Editors & unsaved changes](/editors)); enable toggle switch, Stop while running, Restart machine, Clear memory, Delete.
 - **Triggers** — schedule and webhook triggers, each with its own pause switch ([details](/triggers-scheduling)).
 - **Logs** — run history: trigger source, status (ok/error), output, errors.
 
 ## Lifecycle
 
 - Enabling/disabling is instant and reflected in the dot (gray = disabled; nothing fires or injects while off).
-- "Run now" starts a loop immediately; if one is already running your message **steers** it instead of queueing a second run.
+- **Run now** — the ⚡ badge on each card starts a loop immediately with the default nudge (it never takes your words; that's chatting). The button spins until the bot's first action, then the usual status indicators take over. It's disabled while the bot is disabled; blocked bots stay runnable since you may have fixed the blocker elsewhere. If a run is already in flight your poke **steers** it instead of queueing a second run.
 - Stop interrupts the live loop mid-run; the run row records `interrupted`.
 - **Restart machine** (confirmation required) interrupts any live run, then stops and removes the bot's container. The next shell use recreates it lazily from the currently selected machine image — handy after switching machines or a broken install. `/workspace` and history persist; anything installed outside it disappears.
 - Deleting a bot removes its triggers and run history (confirmation required — destructive actions are red).
+
+## Scope and replies
+
+The trigger or chat message that starts a run is the bot's assignment. Bots stay on that task, mention adjacent issues instead of chasing them, and stop when it is done or blocked. Progress goes to the task and status line; chat gets one reply per run, not a running commentary. Scheduled and webhook runs follow the same rule.
 
 ## Memory
 

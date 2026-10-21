@@ -11,7 +11,10 @@ process.env.DATABASE_PATH = join(
 
 const { createApp } = await import("../src/api.ts");
 const dbm = await import("../src/db.ts");
-const { deliverDm, isLoopActive } = await import("../src/agent.ts");
+const { deliverDm, effectiveSystemPrompt, isLoopActive } = await import(
+  "../src/agent.ts"
+);
+const { buildTools } = await import("../src/tools.ts");
 const app = createApp();
 
 process.env.ALLOW_REGISTRATION = "true";
@@ -164,4 +167,81 @@ test("send_message delivery semantics", () => {
   const runs = dbm.listRuns("bot-b");
   assert.equal(runs.length, 1);
   assert.equal(runs[0].trigger, "dm");
+});
+
+test("send_message tool and Teams section only exist with teammates", () => {
+  const soloNames = buildTools("bot-solo").map((t) => t.name);
+  assert.ok(!soloNames.includes("send_message"));
+  assert.doesNotMatch(
+    effectiveSystemPrompt(dbm.getBot("bot-solo")!),
+    /## Teams/,
+  );
+
+  const teamTools = buildTools("bot-a", () => "delivered");
+  const sendMessage = teamTools.find((t) => t.name === "send_message");
+  assert.ok(sendMessage);
+  assert.match(
+    sendMessage.description ?? "",
+    /Do not send progress updates or recruit help/,
+  );
+  const prompt = effectiveSystemPrompt(dbm.getBot("bot-a")!);
+  assert.match(prompt, /## Teams/);
+  assert.match(prompt, /\bB\b.*id: bot-b/s);
+  assert.match(prompt, /only when this assignment needs their input/);
+  assert.match(prompt, /do not send progress updates/);
+});
+
+test("teams attach projects via PATCH", async () => {
+  const team = (await (
+    await authedRequest("/api/teams", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "proj-team" }),
+    })
+  ).json()) as { id: string; project_ids: string[] };
+  assert.deepEqual(team.project_ids, []);
+
+  const project = (await (
+    await authedRequest("/api/projects", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "site", body: "# Site" }),
+    })
+  ).json()) as { id: string };
+
+  const attached = await authedRequest(`/api/teams/${team.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ project_ids: [project.id] }),
+  });
+  assert.equal(attached.status, 200);
+  assert.deepEqual(
+    ((await attached.json()) as { project_ids: string[] }).project_ids,
+    [project.id],
+  );
+
+  const unknown = await authedRequest(`/api/teams/${team.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ project_ids: ["nope"] }),
+  });
+  assert.equal(unknown.status, 400);
+
+  const notArray = await authedRequest(`/api/teams/${team.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ project_ids: "nope" }),
+  });
+  assert.equal(notArray.status, 400);
+
+  const cleared = (await (
+    await authedRequest(`/api/teams/${team.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ project_ids: [] }),
+    })
+  ).json()) as { project_ids: string[] };
+  assert.deepEqual(cleared.project_ids, []);
+
+  await authedRequest(`/api/teams/${team.id}`, { method: "DELETE" });
 });

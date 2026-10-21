@@ -1,8 +1,11 @@
 # Team messaging
 
 - Bots in a shared team can DM each other with a `send_message` tool (recipient bot id + message text).
+- The tool is offered only to bots that have at least one teammate; a bot in no team, or alone in one, gets neither the tool nor the Teams section.
 - A DM is delivered only to the recipient and wakes it immediately (injected as a trigger).
 - DMs are recipient-only: there is no shared team history or channel.
 - Only bots can invoke the tool; humans use per-bot chat (`../chat/messages.md`, `../chat/sidebar.md`).
 - Team membership adds a system-prompt section listing teammates (id, name, role) so a bot can address DMs by id.
+- Bots DM each other only when the assignment or their instructions require coordination, or a teammate's specific answer is needed to finish. DMs are not for progress updates, side conversations, or recruiting help.
+- A delivered DM asks for a reply only when the sender requested one, so acknowledgements do not start a message loop.
 - A DM that cannot be delivered (unknown recipient, no shared team) fails without waking anyone.
