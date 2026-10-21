@@ -58,12 +58,28 @@ test("subscription validation", async () => {
     auth: "a",
   });
   assert.equal(badUrl.status, 400);
+  const plainHttp = await req("PUT", "/api/push/subscription", {
+    endpoint: "http://push.example.com/s/clear",
+    p256dh: "k",
+    auth: "a",
+  });
+  assert.equal(plainHttp.status, 400);
+  const loopback = await req("PUT", "/api/push/subscription", {
+    endpoint: "http://localhost:9/s/dev",
+    p256dh: "k",
+    auth: "a",
+  });
+  assert.equal(loopback.status, 201);
   const missingKeys = await req("PUT", "/api/push/subscription", {
     endpoint: "https://push.example.com/s/1",
     p256dh: "",
     auth: "",
   });
   assert.equal(missingKeys.status, 400);
+  const delLoopback = await req("DELETE", "/api/push/subscription", {
+    endpoint: "http://localhost:9/s/dev",
+  });
+  assert.equal(delLoopback.status, 200);
 });
 
 test("new notifications push; gone subscriptions are pruned", async () => {
@@ -134,20 +150,37 @@ test("new notifications push; gone subscriptions are pruned", async () => {
   setPushTransport(null);
 });
 
-test("delete removes subscriptions", async () => {
-  db.upsertPushSubscription({
-    id: "s-2",
-    user_id: null,
-    endpoint: "https://push.example.com/s/xyz",
+test("delete is scoped to the owning user", async () => {
+  const created = await req("PUT", "/api/push/subscription", {
+    endpoint: "https://push.example.com/s/mine",
     p256dh: "k",
     auth: "a",
   });
-  const del = await req("DELETE", "/api/push/subscription", {
-    endpoint: "https://push.example.com/s/xyz",
+  assert.equal(created.status, 201);
+
+  const other = await app.request("/api/auth/signup", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      email: "other@example.com",
+      password: "other-pass-1",
+    }),
   });
-  assert.equal(del.status, 200);
+  const otherCookie =
+    (other.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+  const foreignDelete = await app.request("/api/push/subscription", {
+    method: "DELETE",
+    headers: { cookie: otherCookie, "content-type": "application/json" },
+    body: JSON.stringify({ endpoint: "https://push.example.com/s/mine" }),
+  });
+  assert.equal(foreignDelete.status, 404);
+
+  const ownerDelete = await req("DELETE", "/api/push/subscription", {
+    endpoint: "https://push.example.com/s/mine",
+  });
+  assert.equal(ownerDelete.status, 200);
   const again = await req("DELETE", "/api/push/subscription", {
-    endpoint: "https://push.example.com/s/xyz",
+    endpoint: "https://push.example.com/s/mine",
   });
   assert.equal(again.status, 404);
 });

@@ -1003,6 +1003,21 @@ export function removePushSubscription(endpoint: string): boolean {
   );
 }
 
+// API-facing removal: a user may only drop their own subscriptions;
+// server-internal pruning keeps using removePushSubscription directly.
+export function removePushSubscriptionOwned(
+  endpoint: string,
+  userId: string,
+): boolean {
+  return (
+    db
+      .prepare(
+        "DELETE FROM push_subscriptions WHERE endpoint = ? AND (user_id IS NULL OR user_id = ?)",
+      )
+      .run(endpoint, userId).changes > 0
+  );
+}
+
 export function finishRun(
   id: string,
   status: "ok" | "error",

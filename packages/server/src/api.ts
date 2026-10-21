@@ -85,7 +85,7 @@ import {
   type ProviderRow,
   projectIdsByBot,
   projectsForBot,
-  removePushSubscription,
+  removePushSubscriptionOwned,
   removeTeamMember,
   renameTeam,
   setBotProjects,
@@ -891,8 +891,10 @@ export function createApp() {
     } catch {
       return c.json({ error: "endpoint must be an absolute URL" }, 400);
     }
-    if (url.protocol !== "https:" && url.protocol !== "http:")
-      return c.json({ error: "endpoint must be an absolute URL" }, 400);
+    const loopback =
+      url.hostname === "localhost" || url.hostname === "127.0.0.1";
+    if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback))
+      return c.json({ error: "endpoint must be an https URL" }, 400);
     if (!p256dh || !auth)
       return c.json({ error: "p256dh and auth are required" }, 400);
     const user = c.get("user") as { id: string; email: string };
@@ -912,7 +914,8 @@ export function createApp() {
       typeof body?.endpoint === "string"
         ? body.endpoint
         : (c.req.query("endpoint") ?? "");
-    if (!removePushSubscription(endpoint))
+    const user = c.get("user") as { id: string; email: string };
+    if (!removePushSubscriptionOwned(endpoint, user.id))
       return c.json({ error: "not found" }, 404);
     return c.json({ ok: true });
   });

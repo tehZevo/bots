@@ -40,26 +40,30 @@ async function keys(): Promise<VapidKeys> {
   } catch {
     // fall through to generation below
   }
-  if (!loaded) {
-    const pair = await crypto.subtle.generateKey(
-      { name: "ECDSA", namedCurve: "P-256" },
-      true,
-      ["sign", "verify"],
-    );
-    loaded = {
-      publicKey: b64url(await crypto.subtle.exportKey("raw", pair.publicKey)),
-      privateKey: (await crypto.subtle.exportKey(
-        "jwk",
-        pair.privateKey,
-      )) as JsonWebKey,
-    };
+  if (loaded) {
+    cached = loaded;
+    return cached;
   }
-  cached = loaded;
+  const pair = await crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"],
+  );
+  cached = {
+    publicKey: b64url(await crypto.subtle.exportKey("raw", pair.publicKey)),
+    privateKey: (await crypto.subtle.exportKey(
+      "jwk",
+      pair.privateKey,
+    )) as JsonWebKey,
+  };
   try {
     await mkdir(dataDir, { recursive: true });
     await writeFile(keyFile(), JSON.stringify(cached));
-  } catch {
-    // key stays in memory only; regenerated on next boot
+  } catch (e) {
+    console.error(
+      "push: failed to persist VAPID key — existing subscriptions break after restart:",
+      e,
+    );
   }
   return cached;
 }
@@ -129,6 +133,7 @@ async function sendPush(sub: PushSubscriptionRow): Promise<void> {
     const doFetch = transport ?? fetch;
     const res = await doFetch(sub.endpoint, {
       method: "POST",
+      signal: AbortSignal.timeout(5_000),
       headers: {
         authorization: await vapidAuthHeader(sub.endpoint),
         ttl: "86400",
