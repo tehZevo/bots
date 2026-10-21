@@ -37,7 +37,7 @@ globalThis.alert = () => undefined;
 
 const React = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { App, BotGeneral, Triggers } = await import("../src/App.tsx");
+const { App, BotCard, BotGeneral, Triggers } = await import("../src/App.tsx");
 const act = React.act;
 
 const now = Date.now();
@@ -386,6 +386,59 @@ test("trigger editor creates and edits triggers", async () => {
   await click(button("Remove"));
   await click(button("Remove trigger"));
 
+  await act(async () => {
+    root.unmount();
+  });
+});
+
+test("bot cards show the assigned role under the name, hidden when unset", async () => {
+  const withRole = { ...bot, role_id: "r1", role_name: "developer" };
+  const rootA = await mount(
+    React.createElement(BotCard, {
+      bot: withRole,
+      poking: false,
+      onOpen: () => undefined,
+      onRun: () => undefined,
+    }),
+  );
+  const roleLine = window.document.querySelector(".cardrole");
+  assert.ok(roleLine, "expected a role line for a bot with a role");
+  assert.equal(roleLine.textContent, "(developer)");
+  assert.equal(roleLine.getAttribute("title"), "developer");
+  await act(async () => {
+    rootA.unmount();
+  });
+
+  const rootB = await mount(
+    React.createElement(BotCard, {
+      bot: { ...bot, role_id: null },
+      poking: false,
+      onOpen: () => undefined,
+      onRun: () => undefined,
+    }),
+  );
+  assert.equal(window.document.querySelector(".cardrole"), null);
+  await act(async () => {
+    rootB.unmount();
+  });
+});
+
+test("pulsing status dots carry a per-bot halo delay without animating the dot", async () => {
+  const root = await mount(
+    React.createElement(BotCard, {
+      bot: { ...bot, run_state: "running", health: "green" },
+      poking: false,
+      onOpen: () => undefined,
+      onRun: () => undefined,
+    }),
+  );
+  const dots = [...window.document.querySelectorAll(".dot.pulse")];
+  assert.equal(dots.length, 1);
+  const delay = (dots[0] as HTMLElement).style.getPropertyValue("--dot-delay");
+  assert.ok(
+    /^-?\d+(\.\d+)?s$/.test(delay),
+    `expected a seconds value, got ${delay}`,
+  );
   await act(async () => {
     root.unmount();
   });

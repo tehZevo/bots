@@ -1,4 +1,5 @@
 import {
+  type CSSProperties,
   createContext,
   type ReactElement,
   useCallback,
@@ -24,6 +25,7 @@ interface Bot {
   instructions: string;
   model_id: string | null;
   role_id: string | null;
+  role_name?: string | null;
   machine_id: string | null;
   avatar_shape: number | null;
   avatar_color: number | null;
@@ -185,7 +187,7 @@ export function StatusDot({
   return (
     <span
       className={`dot ${health}${active ? " pulse" : ""}`}
-      style={{ animationDelay: `${delay}s` }}
+      style={{ "--dot-delay": `${delay}s` } as CSSProperties}
       {...(label ? { title: label } : {})}
     />
   );
@@ -513,6 +515,11 @@ export function BotCard({
           />
           <span className="cardtext">
             <strong title={bot.name}>{bot.name}</strong>
+            {bot.role_name ? (
+              <em className="cardrole" title={bot.role_name}>
+                ({bot.role_name})
+              </em>
+            ) : null}
             <StatusDot
               id={bot.id}
               health={bot.health}

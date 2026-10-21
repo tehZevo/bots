@@ -326,6 +326,7 @@ export function openApiDoc(): Json {
             instructions: str,
             model_id: strOrNone,
             role_id: strOrNone,
+            role_name: strOrNone,
             machine_id: strOrNone,
             sound: strOrNone,
             enabled: { type: "integer" },

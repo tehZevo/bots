@@ -621,15 +621,26 @@ button:disabled {
   cursor: not-allowed;
 }
 
-@keyframes dotpulse {
-  50% {
-    opacity: 0.35;
-    transform: scale(1.2);
+@keyframes halopulse {
+  from {
+    transform: scale(1);
+    opacity: 0.65;
+  }
+  to {
+    transform: scale(2);
+    opacity: 0;
   }
 }
 
-.dot.pulse {
-  animation: dotpulse 1.2s ease-in-out infinite;
+.dot.pulse::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  pointer-events: none;
+  animation: halopulse 1.2s ease-out infinite;
+  animation-delay: var(--dot-delay, 0s);
 }
 
 .card .dot {
@@ -1040,8 +1051,19 @@ details.turnsec pre {
 .cardtext {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   min-width: 0;
+}
+
+.cardrole {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .cardhead {
@@ -1249,28 +1271,38 @@ section > .viewhead {
   color: var(--err);
 }
 
+.dot {
+  position: relative;
+}
+
 .dot.green {
   background: var(--ok);
+  color: var(--ok);
 }
 
 .dot.yellow {
   background: var(--warn);
+  color: var(--warn);
 }
 
 .dot.red {
   background: var(--err);
+  color: var(--err);
 }
 
 [data-theme="light"] .dot.green {
   background: #22c55e;
+  color: #22c55e;
 }
 
 [data-theme="light"] .dot.yellow {
   background: #facc15;
+  color: #facc15;
 }
 
 [data-theme="light"] .dot.red {
   background: #ef4444;
+  color: #ef4444;
 }
 
 .namerow {
@@ -1384,15 +1416,19 @@ button.danger.ghost {
 }
 .dot.blue {
   background: #4c8dff;
+  color: #4c8dff;
 }
 .dot.gray {
   background: #6b7280;
+  color: #6b7280;
 }
 [data-theme="light"] .dot.blue {
   background: #3b82f6;
+  color: #3b82f6;
 }
 [data-theme="light"] .dot.gray {
   background: #9ca3af;
+  color: #9ca3af;
 }
 .chat-working {
   display: flex;
@@ -1438,10 +1474,9 @@ button.danger.ghost {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .dot.pulse {
+  .dot.pulse::after {
     animation: none;
-    opacity: 1;
-    transform: none;
+    opacity: 0;
   }
   .chat-working .dots i {
     animation: none;

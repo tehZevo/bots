@@ -1085,6 +1085,7 @@ export function createApp() {
       (() => {
         const errored = latestErrorBotIds();
         const projMap = projectIdsByBot();
+        const roleNames = new Map(listRoles().map((r) => [r.id, r.name]));
         const hasDefault = Boolean(
           getSetting("default_provider_id") && getSetting("default_model"),
         );
@@ -1095,6 +1096,9 @@ export function createApp() {
           const red = errored.has(bot.id) || noModel || agentRed;
           return {
             ...bot,
+            role_name: bot.role_id
+              ? (roleNames.get(bot.role_id) ?? null)
+              : null,
             project_ids: projMap.get(bot.id) ?? [],
             health: !bot.enabled
               ? ("gray" as const)
