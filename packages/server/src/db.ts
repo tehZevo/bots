@@ -228,6 +228,15 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT,
+    endpoint TEXT NOT NULL UNIQUE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_messages_bot ON messages (bot_id, id);
   CREATE INDEX IF NOT EXISTS idx_runs_bot ON runs (bot_id, started_at DESC);
   CREATE INDEX IF NOT EXISTS idx_triggers_due ON triggers (next_run_at);
@@ -918,6 +927,14 @@ export function insertRun(run: RunRow): void {
   ).run(run);
 }
 
+let onNewNotification: ((n: NotificationRow) => void) | null = null;
+
+export function setOnNewNotification(
+  cb: ((n: NotificationRow) => void) | null,
+): void {
+  onNewNotification = cb;
+}
+
 export function createNotification(input: {
   kind: string;
   title: string;
@@ -925,18 +942,64 @@ export function createNotification(input: {
   botId?: string | null;
   dedupeKey?: string | null;
 }): void {
+  const row: NotificationRow = {
+    id: randomUUID(),
+    kind: input.kind,
+    title: input.title,
+    body: input.body.slice(0, 1000),
+    bot_id: input.botId ?? null,
+    dedupe_key: input.dedupeKey ?? null,
+    read: 0,
+    created_at: Date.now(),
+  };
+  const result = db
+    .prepare(
+      `INSERT INTO notifications (id, kind, title, body, bot_id, dedupe_key, "read", created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+       ON CONFLICT(dedupe_key) DO NOTHING`,
+    )
+    .run(
+      row.id,
+      row.kind,
+      row.title,
+      row.body,
+      row.bot_id,
+      row.dedupe_key,
+      row.created_at,
+    );
+  if (result.changes > 0 && onNewNotification) onNewNotification(row);
+}
+
+export interface PushSubscriptionRow {
+  id: string;
+  user_id: string | null;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  created_at: number;
+}
+
+export function upsertPushSubscription(
+  sub: Omit<PushSubscriptionRow, "created_at"> & { created_at?: number },
+): void {
   db.prepare(
-    `INSERT INTO notifications (id, kind, title, body, bot_id, dedupe_key, "read", created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 0, ?)
-     ON CONFLICT(dedupe_key) DO NOTHING`,
-  ).run(
-    randomUUID(),
-    input.kind,
-    input.title,
-    input.body.slice(0, 1000),
-    input.botId ?? null,
-    input.dedupeKey ?? null,
-    Date.now(),
+    `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, created_at)
+     VALUES (@id, @user_id, @endpoint, @p256dh, @auth, @created_at)
+     ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id`,
+  ).run({ created_at: Date.now(), ...sub });
+}
+
+export function listPushSubscriptions(): PushSubscriptionRow[] {
+  return db
+    .prepare("SELECT * FROM push_subscriptions")
+    .all() as PushSubscriptionRow[];
+}
+
+export function removePushSubscription(endpoint: string): boolean {
+  return (
+    db
+      .prepare("DELETE FROM push_subscriptions WHERE endpoint = ?")
+      .run(endpoint).changes > 0
   );
 }
 

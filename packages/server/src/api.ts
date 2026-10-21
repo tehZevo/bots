@@ -85,6 +85,7 @@ import {
   type ProviderRow,
   projectIdsByBot,
   projectsForBot,
+  removePushSubscription,
   removeTeamMember,
   renameTeam,
   setBotProjects,
@@ -105,10 +106,12 @@ import {
   updateSkill,
   updateTemplate,
   updateTrigger,
+  upsertPushSubscription,
   verifyPassword,
 } from "./db.ts";
 import { testMcpConnection } from "./mcp.ts";
 import { openApiDoc } from "./openapi.ts";
+import { vapidPublicKey } from "./push.ts";
 import {
   defaultImageRef,
   idleMinutes,
@@ -861,6 +864,55 @@ export function createApp() {
   app.delete("/api/api-keys/:keyId", (c) => {
     const user = c.get("user") as { id: string; email: string };
     if (!deleteApiKey(c.req.param("keyId"), user.id))
+      return c.json({ error: "not found" }, 404);
+    return c.json({ ok: true });
+  });
+
+  app.get("/api/push/key", async (c) => {
+    try {
+      return c.json({ key: await vapidPublicKey() });
+    } catch {
+      return c.json({ error: "push unavailable" }, 503);
+    }
+  });
+
+  app.put("/api/push/subscription", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      endpoint?: unknown;
+      p256dh?: unknown;
+      auth?: unknown;
+    } | null;
+    const endpoint = typeof body?.endpoint === "string" ? body.endpoint : "";
+    const p256dh = typeof body?.p256dh === "string" ? body.p256dh : "";
+    const auth = typeof body?.auth === "string" ? body.auth : "";
+    let url: URL;
+    try {
+      url = new URL(endpoint);
+    } catch {
+      return c.json({ error: "endpoint must be an absolute URL" }, 400);
+    }
+    if (url.protocol !== "https:" && url.protocol !== "http:")
+      return c.json({ error: "endpoint must be an absolute URL" }, 400);
+    if (!p256dh || !auth)
+      return c.json({ error: "p256dh and auth are required" }, 400);
+    const user = c.get("user") as { id: string; email: string };
+    upsertPushSubscription({
+      id: randomUUID(),
+      user_id: user.id || null,
+      endpoint,
+      p256dh,
+      auth,
+    });
+    return c.json({ ok: true }, 201);
+  });
+
+  app.delete("/api/push/subscription", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const endpoint =
+      typeof body?.endpoint === "string"
+        ? body.endpoint
+        : (c.req.query("endpoint") ?? "");
+    if (!removePushSubscription(endpoint))
       return c.json({ error: "not found" }, 404);
     return c.json({ ok: true });
   });

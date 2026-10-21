@@ -51,3 +51,28 @@ self.addEventListener("fetch", (event) => {
     ),
   );
 });
+
+self.addEventListener("push", (event) => {
+  event.waitUntil(
+    fetch("/api/notifications?limit=1")
+      .then((r) => (r.ok ? r.json() : []))
+      .catch(() => [])
+      .then(([n]) =>
+        self.registration.showNotification(n?.title ?? "bots", {
+          body: n?.body ?? "",
+          tag: `bots-${n?.id ?? Date.now()}`,
+          silent: true,
+        }),
+      ),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: "window" }).then((list) => {
+      for (const client of list) if ("focus" in client) return client.focus();
+      return self.clients.openWindow("/");
+    }),
+  );
+});

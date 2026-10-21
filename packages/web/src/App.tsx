@@ -9,6 +9,7 @@ import {
 } from "react";
 import { AccountSection } from "./auth.tsx";
 import { renderMarkdown } from "./markdown.ts";
+import { PushSection } from "./push.tsx";
 
 export interface ApiKey {
   id: string;
@@ -1967,6 +1968,7 @@ export function SettingsPanel() {
           Preview
         </button>
       </div>
+      <PushSection />
 
       <p className="muted">API keys</p>
       <ul className="plist">
