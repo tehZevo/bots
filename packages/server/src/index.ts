@@ -4,6 +4,7 @@ import { serve } from "@hono/node-server";
 import { createApp } from "./api.ts";
 import { config, dataDir } from "./config.ts";
 import { sweepInterruptedRuns } from "./db.ts";
+import { attachPushNotifications } from "./push.ts";
 import { startSandboxReaper } from "./sandbox.ts";
 import { startScheduler } from "./scheduler.ts";
 
@@ -11,6 +12,7 @@ mkdirSync(dirname(config.databasePath), { recursive: true });
 
 const swept = sweepInterruptedRuns();
 if (swept > 0) console.log(`finalized ${swept} interrupted run(s)`);
+attachPushNotifications();
 
 const app = createApp();
 startScheduler();

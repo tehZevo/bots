@@ -264,6 +264,24 @@ export function openApiDoc(): Json {
   add("/api/api-keys/{keyId}", "delete", "Revoke an API key", {
     params: ["keyId"],
   });
+  add("/api/push/key", "get", "VAPID public key for browser push", {
+    res: { type: "object", properties: { key: str } },
+  });
+  add("/api/push/subscription", "put", "Register a browser push subscription", {
+    body: {
+      type: "object",
+      required: ["endpoint", "p256dh", "auth"],
+      properties: { endpoint: str, p256dh: str, auth: str },
+    },
+  });
+  add(
+    "/api/push/subscription",
+    "delete",
+    "Remove a browser push subscription",
+    {
+      params: ["endpoint"],
+    },
+  );
 
   return {
     openapi: "3.1.0",
