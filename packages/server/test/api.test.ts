@@ -114,6 +114,29 @@ test("bot sound choice validates and persists", async () => {
   assert.equal(reset.json.sound, null);
 });
 
+test("GET /api/bots includes the assigned role name", async () => {
+  const role = await req("POST", "/api/roles", {
+    name: "card-role",
+    instructions: "be terse",
+  });
+  assert.equal(role.status, 201);
+  const withRole = await makeBot("role-name-bot");
+  assert.equal(
+    (
+      await req("PATCH", `/api/bots/${withRole}`, {
+        role_id: role.json.id as string,
+      })
+    ).status,
+    200,
+  );
+  const plain = await makeBot("roleless-bot");
+  const list = await req("GET", "/api/bots");
+  assert.equal(list.status, 200);
+  const bots = list.json as { id: string; role_name?: string | null }[];
+  assert.equal(bots.find((b) => b.id === withRole)?.role_name, "card-role");
+  assert.equal(bots.find((b) => b.id === plain)?.role_name, null);
+});
+
 test("bot get/patch/delete lifecycle", async () => {
   const id = await makeBot("lifecycle-bot");
   assert.equal((await req("GET", `/api/bots/${id}`)).status, 200);
