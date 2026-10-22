@@ -1115,6 +1115,7 @@ export function App() {
             {tab === "templates" && <TemplatesPanel />}
             {tab === "projects" && <ProjectsPanel />}
             {tab === "tags" && <TagsPanel />}
+            {tab === "secrets" && <SecretsPanel />}
             {tab === "settings" && <SettingsPanel />}
           </main>
           {chatBotRow && (
@@ -1687,6 +1688,7 @@ type Tab =
   | "templates"
   | "projects"
   | "tags"
+  | "secrets"
   | "settings";
 
 const TAB_PATHS: Record<Tab, string> = {
@@ -1699,6 +1701,7 @@ const TAB_PATHS: Record<Tab, string> = {
   templates: "/templates",
   projects: "/projects",
   tags: "/tags",
+  secrets: "/secrets",
   settings: "/settings",
 };
 
@@ -1799,6 +1802,7 @@ const NAV_ITEMS: {
   { id: "templates", label: "Templates", Icon: TemplateIcon },
   { id: "projects", label: "Projects", Icon: ProjectIcon },
   { id: "tags", label: "Tags", Icon: TagIcon },
+  { id: "secrets", label: "Secrets", Icon: KeyIcon },
   { id: "settings", label: "Settings", Icon: GearIcon },
 ];
 
@@ -3528,6 +3532,7 @@ export function BotGeneral({
       </p>
       <BotProjects botId={bot.id} />
       <BotTags botId={bot.id} />
+      <BotSecrets botId={bot.id} />
       <BotTeams botId={bot.id} />
       <div className="actions">
         <label className="switch">
@@ -5623,6 +5628,298 @@ export function BotTags({ botId }: { botId: string }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function KeyIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+    </svg>
+  );
+}
+
+interface SecretMeta {
+  id: string;
+  name: string;
+  key: string;
+  created_at: number;
+}
+
+export function SecretsPanel() {
+  const [secrets, setSecrets] = useState<SecretMeta[]>([]);
+  const navGuard = useNavGuard();
+  const [creating, setCreating] = useState(false);
+  const [selSecret, setSelSecret] = useState<SecretMeta | null>(null);
+
+  const load = useCallback(async () => {
+    setSecrets(await api<SecretMeta[]>("/api/secrets").catch(() => []));
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <section>
+      <div className="viewhead">
+        <h2>Secrets</h2>
+        <button type="button" onClick={() => setCreating(true)}>
+          Add secret
+        </button>
+      </div>
+      {secrets.length === 0 && (
+        <p className="muted">
+          No secrets yet — env vars injected into sandboxes at start.
+        </p>
+      )}
+      <div className="cards">
+        {secrets.map((s) => (
+          <button
+            type="button"
+            key={s.id}
+            className="card"
+            onClick={() => navGuard(() => setSelSecret(s))}
+          >
+            <strong>{s.name}</strong>
+            <span className="preview">
+              <code>{s.key}</code>
+            </span>
+          </button>
+        ))}
+      </div>
+      {(creating || selSecret) && (
+        <SecretModal
+          secret={selSecret}
+          onClose={() => {
+            setCreating(false);
+            setSelSecret(null);
+          }}
+          onSaved={() => {
+            setCreating(false);
+            setSelSecret(null);
+            void load();
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+export function SecretModal({
+  secret,
+  onClose,
+  onSaved,
+}: {
+  secret: SecretMeta | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(secret?.name ?? "");
+  const [key, setKey] = useState(secret?.key ?? "");
+  const [value, setValue] = useState("");
+  const [revealed, setRevealed] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+  const dirty =
+    name.trim() !== (secret?.name ?? "") ||
+    key !== (secret?.key ?? "") ||
+    value !== "";
+
+  const reveal = async () => {
+    if (!secret) return;
+    if (revealed !== null) {
+      setRevealed(null);
+      return;
+    }
+    try {
+      const r = await api<{ value: string }>(`/api/secrets/${secret.id}/value`);
+      setRevealed(r.value);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      if (secret) {
+        await api(`/api/secrets/${secret.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            name: name.trim(),
+            key,
+            ...(value ? { value } : {}),
+          }),
+        });
+      } else {
+        await api("/api/secrets", {
+          method: "POST",
+          body: JSON.stringify({ name: name.trim(), key, value }),
+        });
+      }
+      onSaved();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal">
+      <button
+        type="button"
+        className="mscrim"
+        aria-label="Cancel"
+        onClick={onClose}
+      />
+      <form
+        className="dialog narrow"
+        role="dialog"
+        aria-label={secret ? "Edit secret" : "Create secret"}
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+      >
+        <label className="field">
+          Name
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
+        </label>
+        <label className="field">
+          Env var key
+          <input
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            pattern="[A-Za-z_][A-Za-z0-9_]*"
+            required
+          />
+        </label>
+        {secret ? (
+          <div className="field">
+            Value
+            <div className="row">
+              <input
+                value={revealed !== null ? revealed : ""}
+                onChange={(e) => {
+                  setRevealed(e.target.value);
+                  setValue(e.target.value);
+                }}
+                type={revealed === null ? "password" : "text"}
+                placeholder="•••••••• (unchanged unless typed)"
+              />
+              <button
+                type="button"
+                onClick={() => void reveal()}
+                title={revealed === null ? "Reveal saved value" : "Hide value"}
+              >
+                {revealed === null ? "Show" : "Hide"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <label className="field">
+            Value
+            <input
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              required
+            />
+          </label>
+        )}
+        <div className="actions">
+          <button
+            type="submit"
+            disabled={busy || !name.trim() || !KEY_RE.test(key)}
+          >
+            Save
+          </button>
+          {secret && (
+            <button
+              type="button"
+              className="danger"
+              disabled={busy}
+              onClick={() => setConfirmDel(true)}
+            >
+              Delete
+            </button>
+          )}
+        </div>
+      </form>
+      {confirmDel && secret && (
+        <ConfirmDialog
+          text={`Delete ${secret.name}? Sandboxes using it must be restarted to drop the variable.`}
+          confirmLabel="Delete secret"
+          onCancel={() => setConfirmDel(false)}
+          onConfirm={() => {
+            api(`/api/secrets/${secret.id}`, { method: "DELETE" })
+              .then(onSaved)
+              .catch((e) => alert(e instanceof Error ? e.message : String(e)));
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+export function BotSecrets({ botId }: { botId: string }) {
+  const [all, setAll] = useState<SecretMeta[]>([]);
+  const [attached, setAttached] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void api<SecretMeta[]>("/api/secrets")
+      .then(setAll)
+      .catch(() => setAll([]));
+    void api<{ secret_ids: string[] }>(`/api/bots/${botId}`)
+      .then((b) => setAttached(b.secret_ids ?? []))
+      .catch(() => undefined);
+  }, [botId]);
+
+  if (all.length === 0) return null;
+
+  const toggle = (id: string) => {
+    const next = attached.includes(id)
+      ? attached.filter((x) => x !== id)
+      : [...attached, id];
+    setBusy(true);
+    api(`/api/bots/${botId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ secret_ids: next }),
+    })
+      .then(() => setAttached(next))
+      .catch((e) => alert(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div className="botsecrets">
+      {all.map((s) => (
+        <label key={s.id}>
+          <input
+            type="checkbox"
+            disabled={busy}
+            checked={attached.includes(s.id)}
+            onChange={() => toggle(s.id)}
+          />{" "}
+          {s.name} <code>{s.key}</code>
+        </label>
+      ))}
     </div>
   );
 }
