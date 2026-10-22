@@ -7,5 +7,5 @@
 - Member, leader and project changes in the modal are not applied until Save is pressed.
 - The Teams view lists teams as cards; each card shows the team name and a single status icon computed across its members by priority: blocked if any member is blocked, else issues if any has issues, else active if any is active, else idle if any is idle, and disabled only when every member is disabled. Each card also shows its member count in secondary italic (e.g. `9 bots`). Clicking a card opens a team config modal for renaming the team and adding/removing members.
 - Teams are filterable by name or by a separate bots multiselect with autocomplete.
-- A team may attach Projects; all members inherit them (`projects/projects.md`).
+- A team may attach Projects and Secrets; all members inherit them (`projects/projects.md`, `secrets/manage.md`).
 - Roles, providers and MCP servers stay global resources shared across teams.
