@@ -22,7 +22,9 @@ The API and UI are login-protected. Sessions live in an HttpOnly cookie for 7 da
 
 ## The console
 
-Open the web UI (default `http://localhost:8075`). The status bar up top shows totals at a glance; the sidebar switches between **Bots**, **Roles**, **Machines**, **Skills**, **Integrations** and **Settings**. Each tab owns a URL (`/bots`, `/roles`, `/machines`, `/integrations`, `/skills`, `/templates`, `/settings`) — links open the tab directly, reloading keeps it, and Back/Forward walk between tabs.
+Open the web UI (default `http://localhost:8075`). The status bar up top shows totals at a glance; the sidebar switches between **Bots**, **Teams**, **Roles**, **Machines**, **Integrations**, **Skills**, **Templates**, **Projects**, **Tags** and **Settings**. Each tab owns a URL (`/bots`, `/teams`, `/roles`, `/machines`, `/integrations`, `/skills`, `/templates`, `/projects`, `/tags`, `/settings`) — links open the tab directly, reloading keeps it, and Back/Forward walk between tabs.
+
+Settings offers the theme as one segmented control — `Light | Dark | System`. The choice applies instantly, persists per device, and is applied before first paint; **System** follows your OS light/dark preference live while selected (dark when there is no saved choice).
 
 1. **Configure a model first** — Settings → LLM providers: add an OpenAI-compatible provider (base URL + API key) and pick a default model. Bots without their own model use the default; with none configured they show **Blocked**.
 2. **Add a bot** — "Add bot" suggests a random name (↻ reshuffles it). Instructions and role are optional.
