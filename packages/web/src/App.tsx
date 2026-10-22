@@ -11,6 +11,7 @@ import {
 import { AccountSection } from "./auth.tsx";
 import { renderMarkdown } from "./markdown.ts";
 import { PushSection } from "./push.tsx";
+import { readStoredTheme, setStoredTheme } from "./theme.ts";
 
 export interface ApiKey {
   id: string;
@@ -1831,11 +1832,6 @@ function Nav({
 const THEMES = ["light", "dark", "system"] as const;
 type Theme = (typeof THEMES)[number];
 
-function currentTheme(): Theme {
-  const stored = localStorage.getItem("bots-theme");
-  return stored === "light" || stored === "system" ? stored : "dark";
-}
-
 interface Provider {
   id: string;
   name: string;
@@ -1845,7 +1841,7 @@ interface Provider {
 }
 
 export function SettingsPanel() {
-  const [theme, setTheme] = useState<Theme>(currentTheme);
+  const [theme, setTheme] = useState<Theme>(readStoredTheme);
   const [idle, setIdle] = useState(5);
   const [savedIdle, setSavedIdle] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
@@ -1982,8 +1978,7 @@ export function SettingsPanel() {
   );
 
   const pick = (t: Theme) => {
-    localStorage.setItem("bots-theme", t);
-    document.documentElement.dataset.theme = t;
+    setStoredTheme(t);
     setTheme(t);
   };
 

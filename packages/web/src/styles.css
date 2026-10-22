@@ -2059,7 +2059,8 @@ button.danger.ghost {
 .projectbody {
   font-family: ui-monospace, monospace;
   min-height: 260px;
-  resize: vertical;
+  height: 340px;
+  resize: none;
 }
 
 .sidepanel {
