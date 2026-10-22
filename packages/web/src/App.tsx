@@ -497,14 +497,64 @@ function playSound(id: string): void {
 export function BotCard({
   bot,
   poking,
-  onOpen,
+  onChat,
   onRun,
+  onStop,
+  onSettings,
+  onClearMemory,
+  onDelete,
 }: {
   bot: Bot;
   poking: boolean;
-  onOpen: () => void;
+  onChat: () => void;
   onRun: () => void;
+  onStop: () => void;
+  onSettings: () => void;
+  onClearMemory: () => void;
+  onDelete: () => void;
 }) {
+  const [quickMenuOpen, setQuickMenuOpen] = useState(false);
+  const [quickMenuFocus, setQuickMenuFocus] = useState(0);
+  const quickMenuRef = useRef<HTMLDivElement>(null);
+  const quickTriggerRef = useRef<HTMLButtonElement>(null);
+  const quickItemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  const closeQuickMenu = useCallback((refocus = true) => {
+    setQuickMenuOpen(false);
+    if (refocus) quickTriggerRef.current?.focus();
+  }, []);
+
+  const quickActions: { label: string; run: () => void; disabled?: boolean }[] =
+    [
+      { label: "Open chat", run: onChat, disabled: !bot.enabled },
+      { label: "Run now", run: onRun, disabled: !bot.enabled },
+      ...(bot.run_state === "running" ? [{ label: "Stop", run: onStop }] : []),
+      { label: "Settings", run: onSettings },
+      { label: "Clear memory", run: onClearMemory },
+      { label: "Delete", run: onDelete, disabled: !bot.enabled },
+    ];
+
+  useEffect(() => {
+    if (!quickMenuOpen) return;
+    quickItemRefs.current[quickMenuFocus]?.focus();
+  }, [quickMenuOpen, quickMenuFocus]);
+
+  useEffect(() => {
+    if (!quickMenuOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!quickMenuRef.current?.contains(e.target as Node)) closeQuickMenu(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [quickMenuOpen, closeQuickMenu]);
+
+  const moveQuickFocus = (delta: number) => {
+    setQuickMenuFocus((i) => {
+      const n = quickActions.length;
+      return (((i + delta) % n) + n) % n;
+    });
+  };
+
   return (
     <div className="cardwrap">
       <button
@@ -512,7 +562,7 @@ export function BotCard({
         className="card"
         data-bot-card={bot.id}
         aria-label={`${bot.name} (${bot.status})`}
-        onClick={() => onOpen()}
+        onClick={() => onChat()}
       >
         <span className="cardhead">
           <Avatar
@@ -561,16 +611,73 @@ export function BotCard({
           </>
         ) : null}
       </button>
-      <button
-        type="button"
-        className={`runcard${poking ? " poking" : ""}`}
-        aria-label={poking ? `${bot.name} is starting` : `Run ${bot.name} now`}
-        title="Run now"
-        disabled={!bot.enabled || !!poking}
-        onClick={() => onRun()}
-      >
-        {poking ? <SpinnerIcon size={14} /> : <PlayIcon size={14} />}
-      </button>
+      <div className="quickmenu" ref={quickMenuRef}>
+        <button
+          type="button"
+          ref={quickTriggerRef}
+          className={`quickbtn${quickMenuOpen ? " open" : ""}`}
+          aria-label={`Quick menu for ${bot.name}`}
+          title="Quick menu"
+          aria-haspopup="menu"
+          aria-expanded={quickMenuOpen}
+          onClick={() => {
+            setQuickMenuFocus(0);
+            setQuickMenuOpen((o) => !o);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowDown" && !quickMenuOpen) {
+              e.preventDefault();
+              setQuickMenuFocus(0);
+              setQuickMenuOpen(true);
+            }
+          }}
+        >
+          <KebabIcon size={14} />
+        </button>
+        {quickMenuOpen && (
+          <div className="quickpanel">
+            {quickActions.map((a, i) => (
+              <button
+                key={a.label}
+                type="button"
+                ref={(el) => {
+                  quickItemRefs.current[i] = el;
+                }}
+                disabled={a.disabled}
+                onClick={() => {
+                  closeQuickMenu();
+                  a.run();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    moveQuickFocus(1);
+                  } else if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    moveQuickFocus(-1);
+                  } else if (e.key === "Home") {
+                    e.preventDefault();
+                    setQuickMenuFocus(0);
+                  } else if (e.key === "End") {
+                    e.preventDefault();
+                    setQuickMenuFocus(quickActions.length - 1);
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    closeQuickMenu();
+                  }
+                }}
+              >
+                {a.label === "Run now" && poking ? (
+                  <SpinnerIcon size={14} />
+                ) : (
+                  a.label
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1096,8 +1203,31 @@ export function App() {
                       key={bot.id}
                       bot={bot}
                       poking={!!poking[bot.id]}
-                      onOpen={() => setChatBot(bot.id)}
+                      onChat={() => setChatBot(bot.id)}
                       onRun={() => poke(bot)}
+                      onStop={() =>
+                        void api(`/api/bot/${bot.id}/interrupt`, {
+                          method: "POST",
+                        })
+                          .then(() => void load())
+                          .catch(() => undefined)
+                      }
+                      onSettings={() => {
+                        setOpenBot(bot.id);
+                        setDetailOpen(true);
+                      }}
+                      onClearMemory={() =>
+                        void api(`/api/bot/${bot.id}/messages`, {
+                          method: "DELETE",
+                        })
+                          .then(() => void load())
+                          .catch(() => undefined)
+                      }
+                      onDelete={() =>
+                        void api(`/api/bot/${bot.id}`, { method: "DELETE" })
+                          .then(() => void load())
+                          .catch(() => undefined)
+                      }
                     />
                   ))}
                 </div>
@@ -1614,6 +1744,22 @@ export function SpinnerIcon({ size = 14 }: { size?: number }) {
       aria-hidden="true"
     >
       <path d="M12 3a9 9 0 1 0 9 9" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function KebabIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="5" r="2" />
+      <circle cx="12" cy="12" r="2" />
+      <circle cx="12" cy="19" r="2" />
     </svg>
   );
 }
