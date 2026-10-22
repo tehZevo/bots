@@ -583,9 +583,71 @@ article header {
   color: #3b82f6;
 }
 .runcard:disabled {
-  opacity: 0.35;
+  opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* bot card quick menu (specs/bots/quick-menu.md) */
+.quickmenu {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  z-index: 3;
+}
+.quickbtn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+.quickbtn:hover,
+.quickbtn.open {
+  color: var(--accent);
+}
+.quickpanel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 150px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  z-index: 50;
+}
+.quickpanel button {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.quickpanel button:hover:not(:disabled),
+.quickpanel button:focus-visible {
+  background: rgba(59, 130, 246, 0.12);
+  outline: none;
+}
+.quickpanel button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.quickpanel button.danger {
+  color: var(--danger, #ef4444);
+}
+
 .spin {
   animation: rotate 0.9s linear infinite;
 }

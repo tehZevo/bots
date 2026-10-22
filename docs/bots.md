@@ -17,11 +17,24 @@ The settings modal (opened from the chat sidebar's gear) holds:
 ## Lifecycle
 
 - Enabling/disabling is instant and reflected in the dot (gray = disabled; nothing fires or injects while off).
-- **Run now** — the ⚡ badge on each card starts a loop immediately with the default nudge (it never takes your words; that's chatting). The button spins until the bot's first action, then the usual status indicators take over. It's disabled while the bot is disabled; blocked bots stay runnable since you may have fixed the blocker elsewhere. If a run is already in flight your poke **steers** it instead of queueing a second run.
+- **Run now** — picked from each card's three-dot quick menu (see [Quick menu](#quick-menu)), starts a loop immediately with the default nudge (it never takes your words; that's chatting). The item spins until the bot's first action then returns to normal. It is disabled while the bot is disabled; blocked bots stay runnable since you may have fixed the blocker elsewhere. If a run is already in flight your poke **steers** it instead of queueing a second run.
 - Stop interrupts the live loop mid-run; the run row records `interrupted`.
 - If the server crashes or restarts mid-run, boot finalizes those runs as `interrupted` (error) too — no run stays stuck in running.
 - **Restart machine** (confirmation required) interrupts any live run, then stops and removes the bot's container. The next shell use recreates it lazily from the currently selected machine image — handy after switching machines or a broken install. `/workspace` and history persist; anything installed outside it disappears.
 - Deleting a bot removes its triggers and run history (confirmation required — destructive actions are red).
+
+## Quick menu
+
+Every bot card carries a small three-dot button at its top-right corner, in place of the old standalone run badge. Clicking it opens a compact menu anchored to the button; it never opens chat by itself. The menu lists common per-bot actions:
+
+- **Open chat** — opens this bot's chat sidebar (unavailable while the bot is disabled).
+- **Run now** — see [Lifecycle](#lifecycle); spins in-place until the first action of the run.
+- **Stop** — interrupts the live loop; listed only while the bot is running.
+- **Settings** — opens this bot's settings modal.
+- **Clear memory** — drops stored context immediately, no confirmation.
+- **Delete** — removes the bot (confirmation required).
+
+The menu closes on selection, on outside click or on Escape, and is fully keyboard reachable: arrow keys plus Home/End move between items. Actions apply to that bot only; cards keep refreshing with the regular dashboard polling.
 
 ## Scope and replies
 
