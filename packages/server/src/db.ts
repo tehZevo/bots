@@ -565,6 +565,7 @@ export function deleteBot(id: string): void {
   db.prepare("DELETE FROM notifications WHERE bot_id = ?").run(id);
   db.prepare("DELETE FROM team_members WHERE bot_id = ?").run(id);
   db.prepare("DELETE FROM bot_projects WHERE bot_id = ?").run(id);
+  db.prepare("DELETE FROM bot_tags WHERE bot_id = ?").run(id);
   db.prepare("DELETE FROM bots WHERE id = ?").run(id);
 }
 
@@ -844,6 +845,96 @@ export function projectIdsByBot(): Map<string, string[]> {
     .all() as { bot_id: string; project_id: string }[]) {
     const list = map.get(row.bot_id) ?? [];
     list.push(row.project_id);
+    map.set(row.bot_id, list);
+  }
+  return map;
+}
+
+export interface TagRow {
+  id: string;
+  name: string;
+  created_at: number;
+}
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS tags (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS bot_tags (
+    bot_id TEXT NOT NULL REFERENCES bots(id),
+    tag_id TEXT NOT NULL REFERENCES tags(id),
+    PRIMARY KEY (bot_id, tag_id)
+  );
+`);
+
+export function listTags(): (TagRow & { bot_count: number })[] {
+  return db
+    .prepare(
+      `SELECT t.*, (SELECT COUNT(*) FROM bot_tags bt WHERE bt.tag_id = t.id) AS bot_count
+       FROM tags t ORDER BY t.name COLLATE NOCASE`,
+    )
+    .all() as (TagRow & { bot_count: number })[];
+}
+
+export function getTag(id: string): TagRow | undefined {
+  return db.prepare("SELECT * FROM tags WHERE id = ?").get(id) as
+    | TagRow
+    | undefined;
+}
+
+export function tagByName(name: string): TagRow | undefined {
+  return db
+    .prepare("SELECT * FROM tags WHERE name = ? COLLATE NOCASE")
+    .get(name) as TagRow | undefined;
+}
+
+export function insertTag(tag: TagRow): void {
+  db.prepare("INSERT INTO tags (id, name, created_at) VALUES (?, ?, ?)").run(
+    tag.id,
+    tag.name,
+    tag.created_at,
+  );
+}
+
+export function renameTag(id: string, name: string): void {
+  db.prepare("UPDATE tags SET name = ? WHERE id = ?").run(name, id);
+}
+
+export function deleteTag(id: string): void {
+  db.prepare("DELETE FROM bot_tags WHERE tag_id = ?").run(id);
+  db.prepare("DELETE FROM tags WHERE id = ?").run(id);
+}
+
+export function setBotTags(botId: string, tagIds: string[]): void {
+  db.prepare("DELETE FROM bot_tags WHERE bot_id = ?").run(botId);
+  const ins = db.prepare(
+    "INSERT OR IGNORE INTO bot_tags (bot_id, tag_id) VALUES (?, ?)",
+  );
+  for (const tid of new Set(tagIds)) {
+    if (!getTag(tid)) throw new Error(`unknown tag: ${tid}`);
+    ins.run(botId, tid);
+  }
+}
+
+export function tagsForBot(botId: string): TagRow[] {
+  return db
+    .prepare(
+      `SELECT t.* FROM bot_tags bt JOIN tags t ON t.id = bt.tag_id
+       WHERE bt.bot_id = ? ORDER BY t.name COLLATE NOCASE`,
+    )
+    .all(botId) as TagRow[];
+}
+
+export function tagIdsByBot(): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  for (const row of db
+    .prepare("SELECT bot_id, tag_id FROM bot_tags ORDER BY tag_id")
+    .all() as { bot_id: string; tag_id: string }[]) {
+    const list = map.get(row.bot_id) ?? [];
+    list.push(row.tag_id);
     map.set(row.bot_id, list);
   }
   return map;

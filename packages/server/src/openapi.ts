@@ -204,6 +204,20 @@ export function openApiDoc(): Json {
     params: ["projectId"],
   });
 
+  add("/api/tags", "get", "List tags with bot counts", {
+    res: { type: "array", items: ref("Tag") },
+  });
+  add("/api/tags", "post", "Create a tag (unique name required)", {
+    body: ref("Tag"),
+  });
+  add("/api/tags/{tagId}", "patch", "Rename a tag", {
+    params: ["tagId"],
+    body: ref("Tag"),
+  });
+  add("/api/tags/{tagId}", "delete", "Delete a tag and its attachments", {
+    params: ["tagId"],
+  });
+
   add("/api/skills", "get", "List skills");
   add("/api/skills", "post", "Create a skill", { body: ref("Skill") });
   add("/api/skills/{skillId}", "patch", "Update a skill", {
@@ -346,6 +360,15 @@ export function openApiDoc(): Json {
             machine_id: strOrNone,
             sound: strOrNone,
             enabled: { type: "boolean" },
+          },
+        },
+        Tag: {
+          type: "object",
+          properties: {
+            id: str,
+            name: str,
+            created_at: { type: "integer" },
+            bot_count: { type: "integer" },
           },
         },
         Project: {

@@ -2152,3 +2152,59 @@ main.scr-active,
 .scr-active::-webkit-scrollbar-thumb {
   background: var(--border);
 }
+
+.bottags {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+}
+.tagchips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+.chip button {
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  min-width: auto;
+  font-size: 13px;
+  line-height: 1;
+}
+.chip button:hover {
+  color: var(--err);
+}
+.tagsuggest {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.tagsuggest button {
+  text-align: left;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--panel);
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.tagsuggest button:last-child {
+  border-bottom: none;
+}
+.tagsuggest button:hover {
+  background: var(--hover);
+}
