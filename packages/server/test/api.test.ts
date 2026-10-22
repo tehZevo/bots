@@ -137,6 +137,50 @@ test("GET /api/bots includes the assigned role name", async () => {
   assert.equal(bots.find((b) => b.id === plain)?.role_name, null);
 });
 
+test("tags CRUD, counts and bot assignment", async () => {
+  assert.equal((await req("POST", "/api/tags", {})).status, 400);
+  const a = await req("POST", "/api/tags", { name: "prod" });
+  assert.equal(a.status, 201);
+  assert.equal((await req("POST", "/api/tags", { name: "PROD" })).status, 400);
+  const b = await req("POST", "/api/tags", { name: "experimental" });
+  assert.equal(b.status, 201);
+
+  const id = await makeBot("tagged-bot");
+  assert.equal(
+    (await req("PATCH", `/api/bots/${id}`, { tag_ids: ["ghost"] })).status,
+    400,
+  );
+  const p = await req("PATCH", `/api/bots/${id}`, {
+    tag_ids: [a.json.id as string],
+  });
+  assert.equal(p.status, 200);
+  assert.deepEqual(p.json.tag_ids, [a.json.id]);
+
+  const list = await req("GET", "/api/tags");
+  const rows = list.json as { id: string; name: string; bot_count: number }[];
+  assert.equal(rows.find((t) => t.id === a.json.id)?.bot_count, 1);
+  assert.equal(rows.find((t) => t.id === b.json.id)?.bot_count, 0);
+  const bots = (await req("GET", "/api/bots")).json as {
+    id: string;
+    tag_ids?: string[];
+  }[];
+  assert.deepEqual(bots.find((x) => x.id === id)?.tag_ids, [a.json.id]);
+
+  const renamed = await req("PATCH", `/api/tags/${b.json.id}`, {
+    name: "experiments",
+  });
+  assert.equal(renamed.status, 200);
+  assert.equal(renamed.json.name, "experiments");
+
+  const del = await req("DELETE", `/api/tags/${a.json.id}`);
+  assert.equal(del.status, 200);
+  assert.equal((await req("GET", `/api/bots/${id}`)).json.tag_ids.length, 0);
+  assert.equal(
+    (await req("PATCH", `/api/tags/${a.json.id}`, { name: "x" })).status,
+    404,
+  );
+});
+
 test("bot get/patch/delete lifecycle", async () => {
   const id = await makeBot("lifecycle-bot");
   assert.equal((await req("GET", `/api/bots/${id}`)).status, 200);

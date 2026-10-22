@@ -1,6 +1,6 @@
 # Bots
 
-A bot is a persistent agent loop: instructions + model + tools + memory. Cards show a one-line name (long names truncate with an ellipsis, full text on hover), the assigned role beneath it in italic muted `(role)` — no line at all for bots without a role — generated avatar (deterministic from the bot id — it blinks on a seeded cadence and floats/tilts per health level; disabled bots sit perfectly still), current task and health dot; filters match those health words exactly. While a loop is active the health dot itself stays steady and full-color — an outward-growing halo ring in the dot's status color carries the motion (each bot's halo runs on its own offset so card dots never sync). A visible gap separates the search/filter bar from the content below it on every main screen. A single control bar above the cards holds the name search with two labeled dropdown multiselects beside it — `Status:` (`Active`/`Idle`/`Issues`/`Blocked`/`Disabled`) and a searchable `Role:` list including `(no role)`; both show `All` when nothing is selected, selections inside one dropdown OR together and across dropdowns AND.
+A bot is a persistent agent loop: instructions + model + tools + memory. Cards show a one-line name (long names truncate with an ellipsis, full text on hover), the assigned role beneath it in italic muted `(role)` — no line at all for bots without a role — generated avatar (deterministic from the bot id — it blinks on a seeded cadence and floats/tilts per health level; disabled bots sit perfectly still), current task and health dot; filters match those health words exactly. While a loop is active the health dot itself stays steady and full-color — an outward-growing halo ring in the dot's status color carries the motion (each bot's halo runs on its own offset so card dots never sync). A visible gap separates the search/filter bar from the content below it on every main screen. A single control bar above the cards holds the name search with three labeled dropdown multiselects beside it — `Status:` (`Active`/`Idle`/`Issues`/`Blocked`/`Disabled`), a searchable `Role:` list including `(no role)`, and a `Tag:` list of defined tags (shown once tags exist); each shows `All` when nothing is selected, selections inside one dropdown OR together (a tag filter keeps bots carrying at least one chosen tag) and across dropdowns AND.
 
 ## Chat sidebar
 
@@ -10,7 +10,7 @@ Clicking a bot card opens that bot's chat in a closeable sidebar pinned to the r
 
 The settings modal (opened from the chat sidebar's gear) holds:
 
-- **General** — name and instructions editing, role and machine pickers, with Save disabled until one of them changes (see [Editors & unsaved changes](/editors)); enable toggle switch, Stop while running, Restart machine, Clear memory, Delete.
+- **General** — name and instructions editing, role, machine, projects and tags pickers, with Save disabled until one of them changes (see [Editors & unsaved changes](/editors)); enable toggle switch, Stop while running, Restart machine, Clear memory, Delete.
 - **Triggers** — schedule and webhook triggers, each with its own pause switch ([details](/triggers-scheduling)).
 - **Logs** — run history: trigger source, status (ok/error), output, errors.
 

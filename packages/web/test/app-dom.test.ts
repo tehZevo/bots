@@ -187,6 +187,12 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       control_mcp_enabled: true,
     });
   }
+  if (url === "/api/tags") {
+    return json([
+      { id: "g1", name: "prod", created_at: now, bot_count: 2 },
+      { id: "g2", name: "experiments", created_at: now, bot_count: 0 },
+    ]);
+  }
   if (url === "/api/api-keys") return json([]);
   if (url === "/api/providers") return json([]);
   if (url === "/api/triggers/t1" && method === "PATCH") return json(trigger);
@@ -439,6 +445,19 @@ test("pulsing status dots carry a per-bot halo delay without animating the dot",
     /^-?\d+(\.\d+)?s$/.test(delay),
     `expected a seconds value, got ${delay}`,
   );
+  await act(async () => {
+    root.unmount();
+  });
+});
+
+test("tags panel lists tags with bot counts", async () => {
+  const { TagsPanel } = await import("../src/App.tsx");
+  const root = await mount(React.createElement(TagsPanel));
+  await flush();
+  const cards = [...window.document.querySelectorAll(".cards .card")];
+  assert.ok(cards.length >= 2, "expected tag cards to render");
+  const prod = cards.find((c) => c.textContent?.includes("prod"));
+  assert.ok(prod?.textContent?.includes("2 bots"));
   await act(async () => {
     root.unmount();
   });

@@ -26,6 +26,7 @@ interface Bot {
   model_id: string | null;
   role_id: string | null;
   role_name?: string | null;
+  tag_ids?: string[];
   machine_id: string | null;
   avatar_shape: number | null;
   avatar_color: number | null;
@@ -90,6 +91,13 @@ interface Project {
   description: string;
   body: string;
   created_at: number;
+}
+
+interface Tag {
+  id: string;
+  name: string;
+  created_at: number;
+  bot_count: number;
 }
 
 interface Run {
@@ -651,6 +659,8 @@ export function App() {
   const [statusSel, setStatusSel] = useState<Bot["health"][]>([]);
   const [roleSel, setRoleSel] = useState<string[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [tagSel, setTagSel] = useState<string[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
@@ -661,10 +671,11 @@ export function App() {
 
   const load = useCallback(async () => {
     try {
-      const [botData, notificationData, roleData] = await Promise.all([
+      const [botData, notificationData, roleData, tagData] = await Promise.all([
         api<Bot[]>("/api/bots"),
         api<NotificationsResponse>("/api/notifications"),
         api<Role[]>("/api/roles"),
+        api<Tag[]>("/api/tags").catch(() => []),
       ]);
       setBots(botData);
       const prevSeen = seenNotifIds.current;
@@ -679,6 +690,7 @@ export function App() {
       setNotifications(notificationData.items);
       setUnreadNotifications(notificationData.unread_count);
       setRoles(roleData);
+      setTags(tagData);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -742,6 +754,8 @@ export function App() {
     (bot) =>
       (statusSel.length === 0 || statusSel.includes(bot.health)) &&
       (roleSel.length === 0 || roleSel.includes(bot.role_id ?? "")) &&
+      (tagSel.length === 0 ||
+        (bot.tag_ids ?? []).some((t) => tagSel.includes(t))) &&
       (!botFilter || bot.name.toLowerCase().includes(botFilter)),
   );
 
@@ -1043,6 +1057,37 @@ export function App() {
                       ))}
                     </div>
                   </details>
+                  {tags.length > 0 && (
+                    <details className="filterdd">
+                      <summary
+                        aria-label={`Tag filter: ${tagSel.length === 0 ? "All" : `${tagSel.length} selected`}`}
+                      >
+                        Tag:{" "}
+                        {tagSel.length === 0
+                          ? "All"
+                          : tagSel
+                              .map(
+                                (id) =>
+                                  tags.find((t) => t.id === id)?.name ?? "?",
+                              )
+                              .join(", ")}
+                      </summary>
+                      <div className="filterpanel">
+                        {tags.map((t) => (
+                          <label key={t.id} data-name={t.name}>
+                            <input
+                              type="checkbox"
+                              checked={tagSel.includes(t.id)}
+                              onChange={() =>
+                                setTagSel((v) => toggleIn(v, t.id))
+                              }
+                            />{" "}
+                            {t.name}
+                          </label>
+                        ))}
+                      </div>
+                    </details>
+                  )}
                 </div>
                 <div className="cards">
                   {visibleBots.map((bot) => (
@@ -1068,6 +1113,7 @@ export function App() {
             {tab === "skills" && <SkillsPanel />}
             {tab === "templates" && <TemplatesPanel />}
             {tab === "projects" && <ProjectsPanel />}
+            {tab === "tags" && <TagsPanel />}
             {tab === "settings" && <SettingsPanel />}
           </main>
           {chatBotRow && (
@@ -1639,6 +1685,7 @@ type Tab =
   | "skills"
   | "templates"
   | "projects"
+  | "tags"
   | "settings";
 
 const TAB_PATHS: Record<Tab, string> = {
@@ -1650,6 +1697,7 @@ const TAB_PATHS: Record<Tab, string> = {
   skills: "/skills",
   templates: "/templates",
   projects: "/projects",
+  tags: "/tags",
   settings: "/settings",
 };
 
@@ -1699,6 +1747,24 @@ function ProjectIcon({ size = 18 }: { size?: number }) {
   );
 }
 
+function TagIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82Z" />
+      <circle cx="7" cy="7" r="1.2" />
+    </svg>
+  );
+}
+
 function TemplateIcon({ size = 18 }: { size?: number }) {
   return (
     <svg
@@ -1731,6 +1797,7 @@ const NAV_ITEMS: {
   { id: "skills", label: "Skills", Icon: BookIcon },
   { id: "templates", label: "Templates", Icon: TemplateIcon },
   { id: "projects", label: "Projects", Icon: ProjectIcon },
+  { id: "tags", label: "Tags", Icon: TagIcon },
   { id: "settings", label: "Settings", Icon: GearIcon },
 ];
 
@@ -3465,6 +3532,7 @@ export function BotGeneral({
         {HEALTH_LABEL[bot.health]}
       </p>
       <BotProjects botId={bot.id} />
+      <BotTags botId={bot.id} />
       <BotTeams botId={bot.id} />
       <div className="actions">
         <label className="switch">
@@ -5299,5 +5367,267 @@ export function TemplatesPanel() {
         />
       )}
     </section>
+  );
+}
+
+export function TagsPanel() {
+  const [tags, setTags] = useState<Tag[]>([]);
+  const navGuard = useNavGuard();
+  const [creating, setCreating] = useState(false);
+  const [selTag, setSelTag] = useState<Tag | null>(null);
+
+  const load = useCallback(async () => {
+    setTags(await api<Tag[]>("/api/tags").catch(() => []));
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <section>
+      <div className="viewhead">
+        <h2>Tags</h2>
+        <button type="button" onClick={() => setCreating(true)}>
+          Add tag
+        </button>
+      </div>
+      {tags.length === 0 && (
+        <p className="muted">No tags yet — labels for organizing bots.</p>
+      )}
+      <div className="cards">
+        {tags.map((tag) => (
+          <button
+            type="button"
+            key={tag.id}
+            className="card"
+            onClick={() => navGuard(() => setSelTag(tag))}
+          >
+            <strong>{tag.name}</strong>
+            <span className="preview">
+              {tag.bot_count === 1 ? "1 bot" : `${tag.bot_count} bots`}
+            </span>
+          </button>
+        ))}
+      </div>
+      {(creating || selTag) && (
+        <TagModal
+          tag={selTag}
+          onClose={() => {
+            setCreating(false);
+            setSelTag(null);
+          }}
+          onSaved={() => {
+            setCreating(false);
+            setSelTag(null);
+            void load();
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+export function TagModal({
+  tag,
+  onClose,
+  onSaved,
+}: {
+  tag: Tag | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(tag?.name ?? "");
+  const [busy, setBusy] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const dirty = name.trim() !== (tag?.name ?? "") && name.trim() !== "";
+  const attemptClose = useDiscardGuard(
+    tag ? `tag ${tag.name}` : "this new tag",
+    dirty,
+    onClose,
+  );
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api(tag ? `/api/tags/${tag.id}` : "/api/tags", {
+        method: tag ? "PATCH" : "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      onSaved();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal">
+      <button
+        type="button"
+        className="mscrim"
+        aria-label="Cancel"
+        onClick={attemptClose}
+      />
+      <form
+        className="dialog narrow"
+        role="dialog"
+        aria-label={tag ? "Edit tag" : "Create tag"}
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+      >
+        <label className="field">
+          Name
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
+        </label>
+        <div className="actions">
+          <button type="submit" disabled={busy || !name.trim()}>
+            Save
+          </button>
+          <UnsavedNote dirty={dirty} />
+          {tag && (
+            <button
+              type="button"
+              className="danger"
+              disabled={busy}
+              onClick={() => setConfirmDel(true)}
+            >
+              Delete
+            </button>
+          )}
+        </div>
+      </form>
+      {confirmDel && tag && (
+        <ConfirmDialog
+          text={`Delete tag ${tag.name}? Bots keep running — the label is removed from them.`}
+          confirmLabel="Delete tag"
+          onCancel={() => setConfirmDel(false)}
+          onConfirm={() => {
+            api(`/api/tags/${tag.id}`, { method: "DELETE" })
+              .then(onSaved)
+              .catch((e) => alert(e.message));
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+export function BotTags({ botId }: { botId: string }) {
+  const [all, setAll] = useState<Tag[]>([]);
+  const [attached, setAttached] = useState<string[]>([]);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void api<Tag[]>("/api/tags")
+      .then(setAll)
+      .catch(() => setAll([]));
+    void api<{ tag_ids: string[] }>(`/api/bots/${botId}`)
+      .then((b) => setAttached(b.tag_ids ?? []))
+      .catch(() => undefined);
+  }, [botId]);
+
+  const save = (next: string[]) => {
+    setBusy(true);
+    api(`/api/bots/${botId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tag_ids: next }),
+    })
+      .then(() => setAttached(next))
+      .catch((e) => alert(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBusy(false));
+  };
+
+  const q = text.trim().toLowerCase();
+  const suggestions = all.filter(
+    (t) => !attached.includes(t.id) && t.name.toLowerCase().includes(q),
+  );
+
+  const commit = async () => {
+    const name = text.trim();
+    if (!name || busy) return;
+    const existing = all.find((t) => t.name.toLowerCase() === q);
+    if (existing) {
+      if (!attached.includes(existing.id)) save([...attached, existing.id]);
+      setText("");
+      return;
+    }
+    setBusy(true);
+    try {
+      const created = await api<Tag>("/api/tags", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      setAll((list) => [...list, created]);
+      save([...attached, created.id]);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+    setText("");
+  };
+
+  return (
+    <div className="bottags">
+      <span>Tags</span>
+      <div className="tagchips">
+        {attached.map((id) => {
+          const t = all.find((x) => x.id === id);
+          if (!t) return null;
+          return (
+            <span key={id} className="chip">
+              {t.name}
+              <button
+                type="button"
+                aria-label={`Remove ${t.name}`}
+                disabled={busy}
+                onClick={() => save(attached.filter((x) => x !== id))}
+              >
+                ×
+              </button>
+            </span>
+          );
+        })}
+      </div>
+      <input
+        className="tagadd"
+        placeholder="Add tag — Enter attaches or creates"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            void commit();
+          }
+        }}
+      />
+      {q !== "" && suggestions.length > 0 && (
+        <div className="tagsuggest">
+          {suggestions.slice(0, 8).map((t) => (
+            <button
+              type="button"
+              key={t.id}
+              disabled={busy}
+              onClick={() => {
+                save([...attached, t.id]);
+                setText("");
+              }}
+            >
+              {t.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

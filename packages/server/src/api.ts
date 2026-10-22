@@ -33,6 +33,7 @@ import {
   deleteSessionsForUser,
   deleteSetting,
   deleteSkill,
+  deleteTag,
   deleteTeam,
   deleteTemplate,
   deleteTrigger,
@@ -47,6 +48,7 @@ import {
   getSessionUser,
   getSetting,
   getSkill,
+  getTag,
   getTeam,
   getTemplate,
   getTrigger,
@@ -61,6 +63,7 @@ import {
   insertProvider,
   insertRole,
   insertSkill,
+  insertTag,
   insertTeam,
   insertTemplate,
   insertTrigger,
@@ -76,6 +79,7 @@ import {
   listRoles,
   listRuns,
   listSkills,
+  listTags,
   listTeams,
   listTemplates,
   listTriggers,
@@ -87,14 +91,19 @@ import {
   projectsForBot,
   removePushSubscriptionOwned,
   removeTeamMember,
+  renameTag,
   renameTeam,
   setBotProjects,
+  setBotTags,
   setMachineBuild,
   setSetting,
   setTeamMember,
   setTeamProjects,
   setTriggerSecret,
   setUserPassword,
+  tagByName,
+  tagIdsByBot,
+  tagsForBot,
   touchApiKey,
   unreadNotificationCount,
   updateBot,
@@ -1085,6 +1094,7 @@ export function createApp() {
       (() => {
         const errored = latestErrorBotIds();
         const projMap = projectIdsByBot();
+        const tagMap = tagIdsByBot();
         const roleNames = new Map(listRoles().map((r) => [r.id, r.name]));
         const hasDefault = Boolean(
           getSetting("default_provider_id") && getSetting("default_model"),
@@ -1100,6 +1110,7 @@ export function createApp() {
               ? (roleNames.get(bot.role_id) ?? null)
               : null,
             project_ids: projMap.get(bot.id) ?? [],
+            tag_ids: tagMap.get(bot.id) ?? [],
             health: !bot.enabled
               ? ("gray" as const)
               : red
@@ -1194,6 +1205,42 @@ export function createApp() {
     const project = getProject(c.req.param("projectId"));
     if (!project) return c.json({ error: "not found" }, 404);
     deleteProject(project.id);
+    return c.json({ ok: true });
+  });
+
+  app.get("/api/tags", (c) => c.json(listTags()));
+
+  app.post("/api/tags", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      name?: unknown;
+    } | null;
+    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    if (!name) return c.json({ error: "name is required" }, 400);
+    if (tagByName(name)) return c.json({ error: "name already exists" }, 400);
+    const tag = { id: randomUUID(), name, created_at: Date.now() };
+    insertTag(tag);
+    return c.json({ ...tag, bot_count: 0 }, 201);
+  });
+
+  app.patch("/api/tags/:tagId", async (c) => {
+    const tag = getTag(c.req.param("tagId"));
+    if (!tag) return c.json({ error: "not found" }, 404);
+    const body = (await c.req.json().catch(() => null)) as {
+      name?: unknown;
+    } | null;
+    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    if (!name) return c.json({ error: "name is required" }, 400);
+    const clash = tagByName(name);
+    if (clash && clash.id !== tag.id)
+      return c.json({ error: "name already exists" }, 400);
+    renameTag(tag.id, name);
+    return c.json(getTag(tag.id));
+  });
+
+  app.delete("/api/tags/:tagId", (c) => {
+    const tag = getTag(c.req.param("tagId"));
+    if (!tag) return c.json({ error: "not found" }, 404);
+    deleteTag(tag.id);
     return c.json({ ok: true });
   });
 
@@ -1414,13 +1461,16 @@ export function createApp() {
     return c.json({
       ...bot,
       project_ids: projectsForBot(bot.id).map((p) => p.id),
+      tag_ids: tagsForBot(bot.id).map((t) => t.id),
     });
   });
 
   app.patch("/api/bots/:id", async (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
-    const input = await c.req.json<BotInput & { project_ids?: unknown }>();
+    const input = await c.req.json<
+      BotInput & { project_ids?: unknown; tag_ids?: unknown }
+    >();
     const payload = toBotPayload({ ...bot, ...input });
     if ("error" in payload) return c.json({ error: payload.error }, 400);
     updateBot(bot.id, payload);
@@ -1439,9 +1489,25 @@ export function createApp() {
         );
       }
     }
+    if (input.tag_ids !== undefined) {
+      if (!Array.isArray(input.tag_ids))
+        return c.json({ error: "tag_ids must be an array" }, 400);
+      try {
+        setBotTags(
+          bot.id,
+          input.tag_ids.filter((x): x is string => typeof x === "string"),
+        );
+      } catch (err) {
+        return c.json(
+          { error: err instanceof Error ? err.message : String(err) },
+          400,
+        );
+      }
+    }
     return c.json({
       ...getBot(bot.id),
       project_ids: projectsForBot(bot.id).map((p) => p.id),
+      tag_ids: tagsForBot(bot.id).map((t) => t.id),
     });
   });
 
