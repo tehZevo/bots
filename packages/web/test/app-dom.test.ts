@@ -403,8 +403,12 @@ test("bot cards show the assigned role under the name, hidden when unset", async
     React.createElement(BotCard, {
       bot: withRole,
       poking: false,
-      onOpen: () => undefined,
+      onChat: () => undefined,
       onRun: () => undefined,
+      onStop: () => undefined,
+      onSettings: () => undefined,
+      onClearMemory: () => undefined,
+      onDelete: () => undefined,
     }),
   );
   const roleLine = window.document.querySelector(".cardrole");
@@ -419,8 +423,12 @@ test("bot cards show the assigned role under the name, hidden when unset", async
     React.createElement(BotCard, {
       bot: { ...bot, role_id: null },
       poking: false,
-      onOpen: () => undefined,
+      onChat: () => undefined,
       onRun: () => undefined,
+      onStop: () => undefined,
+      onSettings: () => undefined,
+      onClearMemory: () => undefined,
+      onDelete: () => undefined,
     }),
   );
   assert.equal(window.document.querySelector(".cardrole"), null);
@@ -434,8 +442,12 @@ test("pulsing status dots carry a per-bot halo delay without animating the dot",
     React.createElement(BotCard, {
       bot: { ...bot, run_state: "running", health: "green" },
       poking: false,
-      onOpen: () => undefined,
+      onChat: () => undefined,
       onRun: () => undefined,
+      onStop: () => undefined,
+      onSettings: () => undefined,
+      onClearMemory: () => undefined,
+      onDelete: () => undefined,
     }),
   );
   const dots = [...window.document.querySelectorAll(".dot.pulse")];
