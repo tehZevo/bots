@@ -54,8 +54,15 @@
   box-sizing: border-box;
 }
 
+html,
+body {
+  height: 100%;
+}
+
 body {
   margin: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
   background: var(--bg);
   color: var(--text);
 }
@@ -63,18 +70,22 @@ body {
 .app {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100dvh;
 }
 
 .layout {
   flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: 320px 1fr;
+  grid-template-rows: minmax(0, 1fr);
 }
 
 aside {
   border-right: 1px solid var(--border);
   padding: 1rem;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .hdr {
@@ -234,6 +245,8 @@ button.danger {
 
 main {
   padding: 1rem 1.5rem;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .actions {
@@ -2043,6 +2056,7 @@ button.danger.ghost {
 .sidepanel .chat-log {
   max-height: none;
   flex: 1;
+  min-height: 0;
 }
 @media (max-width: 720px) {
   .sidepanel {
@@ -2068,4 +2082,38 @@ button.danger.ghost {
     height: 34px;
     padding: 0;
   }
+}
+
+/* Pane scrollbars: visible only while scrolling, retracted when idle (specs/ui/layout.md). */
+aside,
+main,
+.chat-log,
+.drawer .panel,
+.notifpanel {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+aside.scr-active,
+main.scr-active,
+.chat-log.scr-active,
+.drawer .panel.scr-active,
+.notifpanel.scr-active {
+  scrollbar-color: var(--border) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 8px;
+  transition: background 0.25s;
+}
+
+.scr-active::-webkit-scrollbar-thumb {
+  background: var(--border);
 }
