@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { AccountSection } from "./auth.tsx";
 import { renderMarkdown } from "./markdown.ts";
 import { PushSection } from "./push.tsx";
@@ -515,13 +516,29 @@ export function BotCard({
 }) {
   const [quickMenuOpen, setQuickMenuOpen] = useState(false);
   const [quickMenuFocus, setQuickMenuFocus] = useState(0);
+  const [quickPos, setQuickPos] = useState<{
+    left: number;
+    top: number;
+    maxHeight: number;
+  } | null>(null);
   const quickMenuRef = useRef<HTMLDivElement>(null);
+  const quickPanelRef = useRef<HTMLDivElement>(null);
   const quickTriggerRef = useRef<HTMLButtonElement>(null);
   const quickItemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const closeQuickMenu = useCallback((refocus = true) => {
     setQuickMenuOpen(false);
     if (refocus) quickTriggerRef.current?.focus();
+  }, []);
+
+  const positionPanel = useCallback(() => {
+    const rect = quickTriggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setQuickPos({
+      left: Math.max(8, Math.min(rect.right - 4, window.innerWidth - 168)),
+      top: rect.bottom + 6,
+      maxHeight: Math.max(160, window.innerHeight - rect.bottom - 16),
+    });
   }, []);
 
   const quickActions: { label: string; run: () => void; disabled?: boolean }[] =
@@ -541,8 +558,24 @@ export function BotCard({
 
   useEffect(() => {
     if (!quickMenuOpen) return;
+    positionPanel();
+    window.addEventListener("scroll", positionPanel, true);
+    window.addEventListener("resize", positionPanel);
+    return () => {
+      window.removeEventListener("scroll", positionPanel, true);
+      window.removeEventListener("resize", positionPanel);
+    };
+  }, [quickMenuOpen, positionPanel]);
+
+  useEffect(() => {
+    if (!quickMenuOpen) return;
     const onPointerDown = (e: PointerEvent) => {
-      if (!quickMenuRef.current?.contains(e.target as Node)) closeQuickMenu(false);
+      const t = e.target as Node;
+      if (
+        !quickMenuRef.current?.contains(t) &&
+        !quickPanelRef.current?.contains(t)
+      )
+        closeQuickMenu(false);
     };
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
@@ -579,12 +612,6 @@ export function BotCard({
                 ({bot.role_name})
               </em>
             ) : null}
-            <StatusDot
-              id={bot.id}
-              health={bot.health}
-              label={HEALTH_LABEL[bot.health]}
-              active={bot.run_state === "running"}
-            />
           </span>
         </span>
         {bot.current_task && !bot.status && (
@@ -611,7 +638,7 @@ export function BotCard({
           </>
         ) : null}
       </button>
-      <div className="quickmenu" ref={quickMenuRef}>
+      <div className="quickhead" ref={quickMenuRef}>
         <button
           type="button"
           ref={quickTriggerRef}
@@ -620,13 +647,17 @@ export function BotCard({
           title="Quick menu"
           aria-haspopup="menu"
           aria-expanded={quickMenuOpen}
-          onClick={() => {
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
             setQuickMenuFocus(0);
             setQuickMenuOpen((o) => !o);
           }}
           onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") e.preventDefault();
             if (e.key === "ArrowDown" && !quickMenuOpen) {
               e.preventDefault();
+              e.stopPropagation();
               setQuickMenuFocus(0);
               setQuickMenuOpen(true);
             }
@@ -634,50 +665,72 @@ export function BotCard({
         >
           <KebabIcon size={14} />
         </button>
-        {quickMenuOpen && (
-          <div className="quickpanel">
-            {quickActions.map((a, i) => (
-              <button
-                key={a.label}
-                type="button"
-                ref={(el) => {
-                  quickItemRefs.current[i] = el;
-                }}
-                disabled={a.disabled}
-                onClick={() => {
-                  closeQuickMenu();
-                  a.run();
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    moveQuickFocus(1);
-                  } else if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    moveQuickFocus(-1);
-                  } else if (e.key === "Home") {
-                    e.preventDefault();
-                    setQuickMenuFocus(0);
-                  } else if (e.key === "End") {
-                    e.preventDefault();
-                    setQuickMenuFocus(quickActions.length - 1);
-                  } else if (e.key === "Escape") {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    closeQuickMenu();
-                  }
-                }}
-              >
-                {a.label === "Run now" && poking ? (
-                  <SpinnerIcon size={14} />
-                ) : (
-                  a.label
-                )}
-              </button>
-            ))}
-          </div>
-        )}
+        <StatusDot
+          id={bot.id}
+          health={bot.health}
+          label={HEALTH_LABEL[bot.health]}
+          active={bot.run_state === "running"}
+        />
       </div>
+      {quickMenuOpen && quickPos
+        ? createPortal(
+            <div
+              className="quickpanel"
+              ref={quickPanelRef}
+              role="menu"
+              aria-label={`Actions for ${bot.name}`}
+              style={
+                {
+                  left: quickPos.left,
+                  top: quickPos.top,
+                  maxHeight: quickPos.maxHeight,
+                } as CSSProperties
+              }
+            >
+              {quickActions.map((a, i) => (
+                <button
+                  key={a.label}
+                  type="button"
+                  role="menuitem"
+                  ref={(el) => {
+                    quickItemRefs.current[i] = el;
+                  }}
+                  disabled={a.disabled}
+                  onClick={() => {
+                    closeQuickMenu();
+                    a.run();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      moveQuickFocus(1);
+                    } else if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      moveQuickFocus(-1);
+                    } else if (e.key === "Home") {
+                      e.preventDefault();
+                      setQuickMenuFocus(0);
+                    } else if (e.key === "End") {
+                      e.preventDefault();
+                      setQuickMenuFocus(quickActions.length - 1);
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      closeQuickMenu();
+                    }
+                  }}
+                >
+                  {a.label === "Run now" && poking ? (
+                    <SpinnerIcon size={14} />
+                  ) : (
+                    a.label
+                  )}
+                </button>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
