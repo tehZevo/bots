@@ -566,6 +566,7 @@ export function deleteBot(id: string): void {
   db.prepare("DELETE FROM team_members WHERE bot_id = ?").run(id);
   db.prepare("DELETE FROM bot_projects WHERE bot_id = ?").run(id);
   db.prepare("DELETE FROM bot_tags WHERE bot_id = ?").run(id);
+  db.prepare("DELETE FROM bot_secret WHERE bot_id = ?").run(id);
   db.prepare("DELETE FROM bots WHERE id = ?").run(id);
 }
 
@@ -701,6 +702,7 @@ export function renameTeam(id: string, name: string): void {
 
 export function deleteTeam(id: string): void {
   db.prepare("DELETE FROM team_members WHERE team_id = ?").run(id);
+  db.prepare("DELETE FROM team_secret WHERE team_id=?").run(id);
   db.prepare("DELETE FROM team_projects WHERE team_id = ?").run(id);
   db.prepare("DELETE FROM teams WHERE id = ?").run(id);
 }
@@ -938,6 +940,153 @@ export function tagIdsByBot(): Map<string, string[]> {
     map.set(row.bot_id, list);
   }
   return map;
+}
+
+export interface SecretRow {
+  id: string;
+  name: string;
+  key: string;
+  value: string;
+  created_at: number;
+}
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS secret (
+    id TEXT PRIMARY KEY,
+    name TEXT UNIQUE NOT NULL COLLATE NOCASE,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS bot_secret (
+    bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    secret_id TEXT NOT NULL REFERENCES secret(id) ON DELETE CASCADE,
+    PRIMARY KEY (bot_id, secret_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS team_secret (
+    team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    secret_id TEXT NOT NULL REFERENCES secret(id) ON DELETE CASCADE,
+    PRIMARY KEY (team_id, secret_id)
+  );
+`);
+
+export function listSecret(): Omit<SecretRow, "value">[] {
+  return db
+    .prepare(
+      `SELECT id, name, key, created_at FROM secret ORDER BY name COLLATE NOCASE`,
+    )
+    .all() as Omit<SecretRow, "value">[];
+}
+
+export function getSecret(id: string): SecretRow | undefined {
+  return db.prepare("SELECT * FROM secret WHERE id = ?").get(id) as
+    | SecretRow
+    | undefined;
+}
+
+export function findSecretByName(name: string): SecretRow | undefined {
+  return db
+    .prepare("SELECT * FROM secret WHERE name = ? COLLATE NOCASE")
+    .get(name) as SecretRow | undefined;
+}
+
+export function insertSecret(s: SecretRow): void {
+  db.prepare(
+    `INSERT INTO secret (id, name, key, value, created_at)
+     VALUES (@id, @name, @key, @value, @created_at)`,
+  ).run(s);
+}
+
+export function updateSecret(
+  id: string,
+  patch: Partial<Pick<SecretRow, "name" | "key" | "value">>,
+): void {
+  const cur = getSecret(id);
+  if (!cur) throw new Error(`unknown secret ${id}`);
+  db.prepare(
+    `UPDATE secret SET name = @name, key = @key, value = @value WHERE id = @id`,
+  ).run({ ...cur, ...patch, id });
+}
+
+export function deleteSecret(id: string): void {
+  db.prepare("DELETE FROM bot_secret WHERE secret_id = ?").run(id);
+  db.prepare("DELETE FROM team_secret WHERE secret_id = ?").run(id);
+  db.prepare("DELETE FROM secret WHERE id = ?").run(id);
+}
+
+function assertKnownSecrets(ids: string[]): void {
+  for (const sid of ids)
+    if (!getSecret(sid)) throw new Error(`unknown secret ${sid}`);
+}
+
+export function setBotSecret(botId: string, secretIds: string[]): void {
+  const ids = [...new Set(secretIds)];
+  assertKnownSecrets(ids);
+  db.prepare("DELETE FROM bot_secret WHERE bot_id = ?").run(botId);
+  const ins = db.prepare(
+    "INSERT OR IGNORE INTO bot_secret (bot_id, secret_id) VALUES (?, ?)",
+  );
+  for (const sid of ids) ins.run(botId, sid);
+}
+
+export function setTeamSecret(teamId: string, secretIds: string[]): void {
+  const ids = [...new Set(secretIds)];
+  assertKnownSecrets(ids);
+  db.prepare("DELETE FROM team_secret WHERE team_id = ?").run(teamId);
+  const ins = db.prepare(
+    "INSERT OR IGNORE INTO team_secret (team_id, secret_id) VALUES (?, ?)",
+  );
+  for (const sid of ids) ins.run(teamId, sid);
+}
+
+export function botSecretIds(botId: string): string[] {
+  return (
+    db
+      .prepare(
+        "SELECT secret_id FROM bot_secret WHERE bot_id = ? ORDER BY secret_id",
+      )
+      .all(botId) as { secret_id: string }[]
+  ).map((r) => r.secret_id);
+}
+
+export function teamSecretIds(teamId: string): string[] {
+  return (
+    db
+      .prepare(
+        "SELECT secret_id FROM team_secret WHERE team_id = ? ORDER BY secret_id",
+      )
+      .all(teamId) as { secret_id: string }[]
+  ).map((r) => r.secret_id);
+}
+
+function botSecretRows(botId: string): SecretRow[] {
+  return db
+    .prepare(
+      `SELECT s.* FROM bot_secret bs JOIN secret s ON s.id = bs.secret_id
+       WHERE bs.bot_id = ? ORDER BY s.name ASC, s.key ASC`,
+    )
+    .all(botId) as SecretRow[];
+}
+
+function teamSecretRowsForBot(botId: string): SecretRow[] {
+  return db
+    .prepare(
+      `SELECT DISTINCT s.* FROM team_secret ts
+       JOIN team_members tm ON tm.team_id = ts.team_id
+       JOIN secret s ON s.id = ts.secret_id
+       WHERE tm.bot_id = ? ORDER BY s.name ASC, s.key ASC`,
+    )
+    .all(botId) as SecretRow[];
+}
+
+export function secretEnvForBot(botId: string): Record<string, string> {
+  const env: Record<string, string> = {};
+  // team-level secrets first; bot-level assignments override on key collision
+  for (const s of teamSecretRowsForBot(botId)) env[s.key] = s.value;
+  for (const s of botSecretRows(botId)) env[s.key] = s.value;
+  return env;
 }
 
 function hasTable(name: string): boolean {

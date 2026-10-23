@@ -18,6 +18,7 @@ import {
 } from "./agent.ts";
 import { repoRoot } from "./config.ts";
 import {
+  botSecretIds,
   botsUsingMachine,
   clearMessages,
   countUsers,
@@ -29,6 +30,7 @@ import {
   deleteProject,
   deleteProvider,
   deleteRole,
+  deleteSecret,
   deleteSession,
   deleteSessionsForUser,
   deleteSetting,
@@ -37,6 +39,7 @@ import {
   deleteTeam,
   deleteTemplate,
   deleteTrigger,
+  findSecretByName,
   getApiKeyByHash,
   getBot,
   getMachine,
@@ -45,6 +48,7 @@ import {
   getProject,
   getProvider,
   getRole,
+  getSecret,
   getSessionUser,
   getSetting,
   getSkill,
@@ -62,6 +66,7 @@ import {
   insertProject,
   insertProvider,
   insertRole,
+  insertSecret,
   insertSkill,
   insertTag,
   insertTeam,
@@ -78,6 +83,7 @@ import {
   listProviders,
   listRoles,
   listRuns,
+  listSecret,
   listSkills,
   listTags,
   listTeams,
@@ -93,17 +99,21 @@ import {
   removeTeamMember,
   renameTag,
   renameTeam,
+  secretEnvForBot,
   setBotProjects,
+  setBotSecret,
   setBotTags,
   setMachineBuild,
   setSetting,
   setTeamMember,
   setTeamProjects,
+  setTeamSecret,
   setTriggerSecret,
   setUserPassword,
   tagByName,
   tagIdsByBot,
   tagsForBot,
+  teamSecretIds,
   touchApiKey,
   unreadNotificationCount,
   updateBot,
@@ -112,6 +122,7 @@ import {
   updateProject,
   updateProvider,
   updateRole,
+  updateSecret,
   updateSkill,
   updateTemplate,
   updateTrigger,
@@ -1111,6 +1122,7 @@ export function createApp() {
               : null,
             project_ids: projMap.get(bot.id) ?? [],
             tag_ids: tagMap.get(bot.id) ?? [],
+            secret_ids: botSecretIds(bot.id),
             health: !bot.enabled
               ? ("gray" as const)
               : red
@@ -1145,6 +1157,114 @@ export function createApp() {
     };
     insertBot(bot);
     return c.json(bot, 201);
+  });
+
+  app.get("/api/secrets", (c) => {
+    return c.json(
+      listSecret().map((s) => ({
+        id: s.id,
+        name: s.name,
+        key: s.key,
+        created_at: s.created_at,
+      })),
+    );
+  });
+
+  app.post("/api/secrets", async (c) => {
+    const body = await c.req
+      .json<{ name?: unknown; key?: unknown; value?: unknown }>()
+      .catch(() => null);
+    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    if (!name) return c.json({ error: "name is required" }, 400);
+    const key = typeof body?.key === "string" ? body.key.trim() : "";
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
+      return c.json(
+        {
+          error:
+            "key must be a valid env var name (letters, digits, underscores; not starting with a digit)",
+        },
+        400,
+      );
+    if (typeof body?.value !== "string" || !body.value)
+      return c.json({ error: "value is required" }, 400);
+    if (findSecretByName(name))
+      return c.json({ error: "name already exists" }, 400);
+    const secret = {
+      id: randomUUID(),
+      name,
+      key,
+      value: body.value,
+      created_at: Date.now(),
+    };
+    insertSecret(secret);
+    return c.json(
+      {
+        id: secret.id,
+        name: secret.name,
+        key: secret.key,
+        created_at: secret.created_at,
+      },
+      201,
+    );
+  });
+
+  app.get("/api/secrets/:secretId", (c) => {
+    const found = getSecret(c.req.param("secretId"));
+    if (!found) return c.json({ error: "not found" }, 404);
+    const { value: _value, ...rest } = found;
+    return c.json(rest);
+  });
+
+  app.get("/api/secrets/:secretId/value", (c) => {
+    const found = getSecret(c.req.param("secretId"));
+    if (!found) return c.json({ error: "not found" }, 404);
+    return c.json({ value: found.value });
+  });
+
+  app.patch("/api/secrets/:secretId", async (c) => {
+    const found = getSecret(c.req.param("secretId"));
+    if (!found) return c.json({ error: "not found" }, 404);
+    const body = await c.req
+      .json<{ name?: unknown; key?: unknown; value?: unknown }>()
+      .catch(() => null);
+    const patch: { name?: string; key?: string; value?: string } = {};
+    if (body?.name !== undefined) {
+      const newName = typeof body.name === "string" ? body.name.trim() : "";
+      if (!newName) return c.json({ error: "name is required" }, 400);
+      const clash = findSecretByName(newName);
+      if (clash && clash.id !== found.id)
+        return c.json({ error: "name already exists" }, 400);
+      patch.name = newName;
+    }
+    if (body?.key !== undefined) {
+      const key = typeof body.key === "string" ? body.key.trim() : "";
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
+        return c.json(
+          {
+            error:
+              "key must be a valid env var name (letters, digits, underscores; not starting with a digit)",
+          },
+          400,
+        );
+      patch.key = key;
+    }
+    if (body?.value !== undefined) {
+      if (typeof body.value !== "string" || !body.value)
+        return c.json({ error: "value is required" }, 400);
+      patch.value = body.value;
+    }
+    updateSecret(found.id, patch);
+    const updated = getSecret(found.id);
+    if (!updated) return c.json({ error: "not found" }, 404);
+    const { value: _value, ...rest } = updated;
+    return c.json(rest);
+  });
+
+  app.delete("/api/secrets/:secretId", (c) => {
+    const found = getSecret(c.req.param("secretId"));
+    if (!found) return c.json({ error: "not found" }, 404);
+    deleteSecret(found.id);
+    return c.json({ ok: true });
   });
 
   app.get("/api/roles", (c) => c.json(listRoles()));
@@ -1305,7 +1425,11 @@ export function createApp() {
   app.patch("/api/teams/:teamId", async (c) => {
     const team = getTeam(c.req.param("teamId"));
     if (!team) return c.json({ error: "not found" }, 404);
-    const body = await c.req.json<{ name?: string; project_ids?: unknown }>();
+    const body = await c.req.json<{
+      name?: string;
+      project_ids?: unknown;
+      secret_ids?: unknown;
+    }>();
     if (body.project_ids !== undefined) {
       if (!Array.isArray(body.project_ids))
         return c.json({ error: "project_ids must be an array" }, 400);
@@ -1314,13 +1438,33 @@ export function createApp() {
         return c.json({ error: "unknown project" }, 400);
       setTeamProjects(team.id, ids);
     }
+    if (body.secret_ids !== undefined) {
+      if (!Array.isArray(body.secret_ids))
+        return c.json({ error: "secret_ids must be an array" }, 400);
+      try {
+        setTeamSecret(
+          team.id,
+          body.secret_ids.filter((x): x is string => typeof x === "string"),
+        );
+      } catch (err) {
+        return c.json(
+          { error: err instanceof Error ? err.message : String(err) },
+          400,
+        );
+      }
+    }
     if (body.name === undefined && body.project_ids === undefined)
       return c.json({ error: "name required" }, 400);
     const name = body.name?.trim();
     if (body.name !== undefined && !name)
       return c.json({ error: "name required" }, 400);
     if (name) renameTeam(team.id, name);
-    return c.json(getTeam(team.id));
+    const updated = getTeam(team.id);
+    if (!updated) return c.json({ error: "not found" }, 404);
+    return c.json({
+      ...updated,
+      secret_ids: teamSecretIds(team.id),
+    });
   });
 
   app.delete("/api/teams/:teamId", (c) => {
@@ -1462,6 +1606,7 @@ export function createApp() {
       ...bot,
       project_ids: projectsForBot(bot.id).map((p) => p.id),
       tag_ids: tagsForBot(bot.id).map((t) => t.id),
+      secret_ids: botSecretIds(bot.id),
     });
   });
 
@@ -1469,7 +1614,11 @@ export function createApp() {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
     const input = await c.req.json<
-      BotInput & { project_ids?: unknown; tag_ids?: unknown }
+      BotInput & {
+        project_ids?: unknown;
+        tag_ids?: unknown;
+        secret_ids?: unknown;
+      }
     >();
     const payload = toBotPayload({ ...bot, ...input });
     if ("error" in payload) return c.json({ error: payload.error }, 400);
@@ -1504,10 +1653,27 @@ export function createApp() {
         );
       }
     }
+    if (input.secret_ids !== undefined) {
+      if (!Array.isArray(input.secret_ids))
+        return c.json({ error: "secret_ids must be an array" }, 400);
+      try {
+        setBotSecret(
+          bot.id,
+          input.secret_ids.filter((x): x is string => typeof x === "string"),
+        );
+      } catch (err) {
+        return c.json(
+          { error: err instanceof Error ? err.message : String(err) },
+          400,
+        );
+      }
+    }
+
     return c.json({
       ...getBot(bot.id),
       project_ids: projectsForBot(bot.id).map((p) => p.id),
       tag_ids: tagsForBot(bot.id).map((t) => t.id),
+      secret_ids: botSecretIds(bot.id),
     });
   });
 

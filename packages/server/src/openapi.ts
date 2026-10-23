@@ -297,6 +297,36 @@ export function openApiDoc(): Json {
     },
   );
 
+  add("/api/secrets", "get", "List secrets (values hidden)", {
+    res: { type: "array", items: ref("Secret") },
+  });
+  add("/api/secrets", "post", "Create secret (unique name required)", {
+    body: ref("SecretInput"),
+  });
+  add("/api/secrets/{secretId}", "get", "Get secret metadata (value hidden)", {
+    params: ["secretId"],
+  });
+  add("/api/secrets/{secretId}/value", "get", "Reveal secret value", {
+    params: ["secretId"],
+  });
+  add(
+    "/api/secrets/{secretId}",
+    "patch",
+    "Update secret (destructive on value change)",
+    {
+      params: ["secretId"],
+      body: ref("SecretInput"),
+    },
+  );
+  add(
+    "/api/secrets/{secretId}",
+    "delete",
+    "Delete secret and its assignments",
+    {
+      params: ["secretId"],
+    },
+  );
+
   return {
     openapi: "3.1.0",
     info: {
@@ -369,6 +399,24 @@ export function openApiDoc(): Json {
             name: str,
             created_at: { type: "integer" },
             bot_count: { type: "integer" },
+          },
+        },
+        Secret: {
+          type: "object",
+          properties: {
+            id: str,
+            name: str,
+            key: str,
+            created_at: { type: "integer" },
+          },
+        },
+        SecretInput: {
+          type: "object",
+          required: ["name", "key", "value"],
+          properties: {
+            name: str,
+            key: str,
+            value: str,
           },
         },
         Project: {
