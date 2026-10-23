@@ -14,4 +14,6 @@ Behaviors agreed on but not yet specced in detail. Each becomes its own spec dir
 
 - **Installable skills — skills.sh** — discover and install skills from the skills.sh registry.
 - **Installable skills — git repo** — install a skill from a git repository URL.
+- **Transcript secret redaction** — scrub secret values (managed secrets, provider keys, declared MCP env values) out of tool results before they are persisted into the transcript and replayed to the model; the env allowlist (`specs/mcp/child-env.md`) only stops host variables from reaching a child, not a child's own secrets from reaching the transcript.
+- **Isolated MCP execution** — run MCP servers in a container with the orchestrator's own filesystem, network and docker socket withheld, instead of as host processes.
 - **Electron app** — desktop wrapper around the web UI: pick a server, keep bots visible via tray icon and native notifications; reuses the REST API and browser push conventions of the PWA.
