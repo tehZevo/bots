@@ -32,11 +32,18 @@ All routes below require a session cookie (web UI login) or `Authorization: Bear
 | GET | `/api/bots` | List bots incl. derived `health` (`green`/`blue`/`yellow`/`red`/`gray`) and `run_state` |
 | POST | `/api/bots` | Create — `{ name, instructions?, model_id?, role_id? }` |
 | GET/PATCH/DELETE | `/api/bots/:id` | Read / update fields incl. `enabled` / delete (cascades triggers + runs + notifications) |
-| POST | `/api/bots/:id/run` | Run now — `{ message? }`, steers a live loop, returns `{ runId, steered }` |
+| POST | `/api/bots/:id/run` | Run now — `{ message? }`, steers a live loop, returns `{ runId, steered }`; 409 while globally paused |
 | POST | `/api/bots/:id/interrupt` | Stop the live loop |
 | GET | `/api/bots/:id/runs` | Run history (status ok/error/interrupted, output, error) |
-| GET/POST | `/api/bots/:id/messages` | Chat history / inject a chat turn (202; steers or starts) |
+| GET/POST | `/api/bots/:id/messages` | Chat history / inject a chat turn (steers or starts; while globally paused `{ runId: null, held: true }`) |
 | DELETE | `/api/bots/:id/messages` | Clear stored context |
+
+## Global pause
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/pause` | `{ paused }` — the server-wide pause state |
+| POST | `/api/pause` | `{ paused: bool }` — hold or resume every bot; anything injected while held drains on resume |
 
 ## Triggers
 
@@ -79,4 +86,4 @@ CRUD on `/api/roles`, `/api/skills`, `/api/mcp-servers`. Roles accept `instructi
 
 ## Webhooks
 
-`POST /api/webhooks/:triggerId` with `Authorization: Bearer <secret>` — 401 bad token, 409 trigger/bot disabled, 413 payload over 64 KB.
+`POST /api/webhooks/:triggerId` with `Authorization: Bearer <secret>` — 401 bad token, 409 trigger/bot disabled or globally paused, 413 payload over 64 KB.

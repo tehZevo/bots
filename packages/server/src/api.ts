@@ -15,6 +15,7 @@ import {
   interruptBot,
   isLoopActive,
   resetBotRuntime,
+  resumePendingInjections,
 } from "./agent.ts";
 import { repoRoot } from "./config.ts";
 import {
@@ -68,6 +69,7 @@ import {
   insertTemplate,
   insertTrigger,
   insertUser,
+  isPaused,
   latestErrorBotIds,
   listApiKeys,
   listBots,
@@ -96,6 +98,7 @@ import {
   setBotProjects,
   setBotTags,
   setMachineBuild,
+  setPaused,
   setSetting,
   setTeamMember,
   setTeamProjects,
@@ -489,6 +492,19 @@ export function createApp() {
       control_mcp_enabled: getSetting("control_mcp_enabled") !== "0",
     }),
   );
+
+  app.get("/api/pause", (c) => c.json({ paused: isPaused() }));
+
+  app.post("/api/pause", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      paused?: unknown;
+    } | null;
+    if (typeof body?.paused !== "boolean")
+      return c.json({ error: "paused must be a boolean" }, 400);
+    setPaused(body.paused);
+    if (!body.paused) resumePendingInjections();
+    return c.json({ paused: body.paused });
+  });
 
   app.put("/api/settings", async (c) => {
     const body = (await c.req.json().catch(() => null)) as {
@@ -1523,6 +1539,7 @@ export function createApp() {
   app.post("/api/bots/:id/run", async (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
+    if (isPaused()) return c.json({ error: "bots are paused" }, 409);
     const body: { message?: unknown } = await c.req
       .json<{ message?: unknown }>()
       .catch(() => ({}));
@@ -1618,8 +1635,8 @@ export function createApp() {
     } | null;
     const text = typeof body?.text === "string" ? body.text.trim() : "";
     if (!text) return c.json({ error: "text is required" }, 400);
-    const { runId, steered } = injectMessage(bot, text, "chat");
-    return c.json({ runId, steered });
+    const { runId, steered, held } = injectMessage(bot, text, "chat");
+    return c.json({ runId, steered, ...(held ? { held: true } : {}) });
   });
   app.post("/api/bots/:id/interrupt", (c) => {
     const bot = getBot(c.req.param("id"));
@@ -1757,6 +1774,7 @@ export function createApp() {
     if (!trigger.enabled) return c.json({ error: "trigger is disabled" }, 409);
     const bot = getBot(trigger.bot_id);
     if (!bot?.enabled) return c.json({ error: "bot is disabled" }, 409);
+    if (isPaused()) return c.json({ error: "bots are paused" }, 409);
     const body = await c.req.text();
     if (body.length > 64 * 1024)
       return c.json({ error: "payload too large" }, 413);

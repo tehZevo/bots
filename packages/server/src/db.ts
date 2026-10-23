@@ -237,10 +237,19 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS pending_injections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    text TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_messages_bot ON messages (bot_id, id);
   CREATE INDEX IF NOT EXISTS idx_runs_bot ON runs (bot_id, started_at DESC);
   CREATE INDEX IF NOT EXISTS idx_triggers_due ON triggers (next_run_at);
   CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications (created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_pending_bot ON pending_injections (bot_id, id);
 `);
 
 db.prepare(
@@ -1398,6 +1407,56 @@ export function setSetting(key: string, value: string): void {
   db.prepare(
     "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
   ).run(key, value);
+}
+
+export function isPaused(): boolean {
+  return getSetting("global_paused") === "1";
+}
+
+export function setPaused(paused: boolean): void {
+  setSetting("global_paused", paused ? "1" : "0");
+}
+
+export interface PendingInjectionRow {
+  id: number;
+  bot_id: string;
+  kind: string;
+  text: string;
+  created_at: number;
+}
+
+export function insertPendingInjection(
+  botId: string,
+  kind: string,
+  text: string,
+): void {
+  db.prepare(
+    "INSERT INTO pending_injections (bot_id, kind, text, created_at) VALUES (?, ?, ?, ?)",
+  ).run(botId, kind, text, Date.now());
+}
+
+export function listPendingInjections(botId: string): PendingInjectionRow[] {
+  return db
+    .prepare(
+      "SELECT id, bot_id, kind, text, created_at FROM pending_injections WHERE bot_id = ? ORDER BY id",
+    )
+    .all(botId) as PendingInjectionRow[];
+}
+
+export function pendingBotIds(): string[] {
+  return (
+    db
+      .prepare(
+        "SELECT bot_id FROM pending_injections GROUP BY bot_id ORDER BY MIN(id)",
+      )
+      .all() as { bot_id: string }[]
+  ).map((row) => row.bot_id);
+}
+
+export function deletePendingInjections(ids: number[]): void {
+  if (ids.length === 0) return;
+  const del = db.prepare("DELETE FROM pending_injections WHERE id = ?");
+  for (const id of ids) del.run(id);
 }
 
 export interface McpServerRow {

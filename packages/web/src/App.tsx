@@ -498,6 +498,7 @@ function playSound(id: string): void {
 export function BotCard({
   bot,
   poking,
+  paused = false,
   onChat,
   onRun,
   onStop,
@@ -507,6 +508,7 @@ export function BotCard({
 }: {
   bot: Bot;
   poking: boolean;
+  paused?: boolean;
   onChat: () => void;
   onRun: () => void;
   onStop: () => void;
@@ -544,7 +546,7 @@ export function BotCard({
   const quickActions: { label: string; run: () => void; disabled?: boolean }[] =
     [
       { label: "Open chat", run: onChat, disabled: !bot.enabled },
-      { label: "Run now", run: onRun, disabled: !bot.enabled },
+      { label: "Run now", run: onRun, disabled: !bot.enabled || paused },
       ...(bot.run_state === "running" ? [{ label: "Stop", run: onStop }] : []),
       { label: "Settings", run: onSettings },
       { label: "Clear memory", run: onClearMemory },
@@ -800,9 +802,10 @@ export function App() {
   const [openBot, setOpenBot] = useState<string | null>(null);
   const [chatBot, setChatBot] = useState<string | null>(null);
   const [poking, setPoking] = useState<Record<string, boolean>>({});
+  const [paused, setPausedState] = useState(false);
 
   const poke = (bot: Bot) => {
-    if (!bot.enabled || poking[bot.id]) return;
+    if (!bot.enabled || paused || poking[bot.id]) return;
     setPoking((p) => ({ ...p, [bot.id]: true }));
     void api<{ runId: string }>(`/api/bots/${bot.id}/run`, { method: "POST" })
       .then((r) => waitFirstAction(bot.id, r.runId))
@@ -832,13 +835,18 @@ export function App() {
 
   const load = useCallback(async () => {
     try {
-      const [botData, notificationData, roleData, tagData] = await Promise.all([
-        api<Bot[]>("/api/bots"),
-        api<NotificationsResponse>("/api/notifications"),
-        api<Role[]>("/api/roles"),
-        api<Tag[]>("/api/tags").catch(() => []),
-      ]);
+      const [botData, notificationData, roleData, tagData, pauseData] =
+        await Promise.all([
+          api<Bot[]>("/api/bots"),
+          api<NotificationsResponse>("/api/notifications"),
+          api<Role[]>("/api/roles"),
+          api<Tag[]>("/api/tags").catch(() => []),
+          api<{ paused: boolean }>("/api/pause").catch(() => ({
+            paused: false,
+          })),
+        ]);
       setBots(botData);
+      setPausedState(pauseData.paused);
       const prevSeen = seenNotifIds.current;
       if (localStorage.getItem("bots-sounds") === "on" && prevSeen) {
         const fresh = notificationData.items.filter((n) => !prevSeen.has(n.id));
@@ -996,7 +1004,30 @@ export function App() {
                 · <span className="redcount">{redCount} blocked</span>
               </>
             )}
+            {paused && (
+              <>
+                {" "}
+                · <span className="pausedcount">paused</span>
+              </>
+            )}
           </span>
+          <button
+            type="button"
+            className={`pausetoggle${paused ? " on" : ""}`}
+            aria-label={paused ? "Resume all bots" : "Pause all bots"}
+            title={paused ? "Resume all bots" : "Pause all bots"}
+            onClick={() =>
+              void api("/api/pause", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ paused: !paused }),
+              })
+                .then(() => void load())
+                .catch(() => undefined)
+            }
+          >
+            {paused ? "Resume" : "Pause"}
+          </button>
           <div className="notifwrap">
             <button
               type="button"
@@ -1256,10 +1287,11 @@ export function App() {
                       key={bot.id}
                       bot={bot}
                       poking={!!poking[bot.id]}
+                      paused={paused}
                       onChat={() => setChatBot(bot.id)}
                       onRun={() => poke(bot)}
                       onStop={() =>
-                        void api(`/api/bot/${bot.id}/interrupt`, {
+                        void api(`/api/bots/${bot.id}/interrupt`, {
                           method: "POST",
                         })
                           .then(() => void load())
@@ -1270,14 +1302,14 @@ export function App() {
                         setDetailOpen(true);
                       }}
                       onClearMemory={() =>
-                        void api(`/api/bot/${bot.id}/messages`, {
+                        void api(`/api/bots/${bot.id}/messages`, {
                           method: "DELETE",
                         })
                           .then(() => void load())
                           .catch(() => undefined)
                       }
                       onDelete={() =>
-                        void api(`/api/bot/${bot.id}`, { method: "DELETE" })
+                        void api(`/api/bots/${bot.id}`, { method: "DELETE" })
                           .then(() => void load())
                           .catch(() => undefined)
                       }

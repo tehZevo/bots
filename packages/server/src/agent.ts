@@ -13,14 +13,19 @@ import {
   appendMessages,
   type BotRow,
   createNotification,
+  deletePendingInjections,
   finishRun,
   getBot,
   getMcpServer,
   getRole,
   getSkill,
+  insertPendingInjection,
   insertRun,
+  isPaused,
   listMcpServers,
+  listPendingInjections,
   loadMessages,
+  pendingBotIds,
   projectsForBot,
   projectsInheritedByBot,
   replaceMessages,
@@ -270,8 +275,9 @@ interface LiveLoop {
 const liveLoops = new Map<string, LiveLoop>();
 
 export interface InjectResult {
-  runId: string;
+  runId: string | null;
   steered: boolean;
+  held?: boolean;
 }
 
 async function startLoop(
@@ -367,7 +373,8 @@ async function startLoop(
   void (async () => {
     try {
       await agent.prompt(firstMessage);
-      while (!loop.stopped && agent.hasQueuedMessages()) await agent.continue();
+      while (!loop.stopped && !isPaused() && agent.hasQueuedMessages())
+        await agent.continue();
       persistence.appendUnpersisted(agent.state.messages);
       if (loop.stopped) {
         finishRun(
@@ -441,6 +448,10 @@ export function injectMessage(
   text: string,
   kind: "schedule" | "manual" | "chat" | "webhook" | "dm",
 ): InjectResult {
+  if (isPaused()) {
+    insertPendingInjection(bot.id, kind, text);
+    return { runId: null, steered: false, held: true };
+  }
   supersedeInterruptedRuns(bot.id);
   const message = {
     role: "user",
@@ -495,6 +506,22 @@ export function interruptBot(botId: string): boolean {
   live.agent.abort();
   liveLoops.delete(botId);
   return true;
+}
+
+export function resumePendingInjections(): void {
+  if (isPaused()) return;
+  for (const botId of pendingBotIds()) {
+    const bot = getBot(botId);
+    if (!bot?.enabled) continue;
+    const pending = listPendingInjections(botId);
+    deletePendingInjections(pending.map((row) => row.id));
+    for (const row of pending)
+      injectMessage(
+        bot,
+        row.text,
+        row.kind as "schedule" | "manual" | "chat" | "webhook" | "dm",
+      );
+  }
 }
 
 export function resetBotRuntime(botId: string): void {
