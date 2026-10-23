@@ -462,6 +462,78 @@ test("pulsing status dots carry a per-bot halo delay without animating the dot",
   });
 });
 
+test("quick menu trigger sits in the card header left of the status circle", async () => {
+  const root = await mount(
+    React.createElement(BotCard, {
+      bot,
+      poking: false,
+      onChat: () => undefined,
+      onRun: () => undefined,
+      onStop: () => undefined,
+      onSettings: () => undefined,
+      onClearMemory: () => undefined,
+      onDelete: () => undefined,
+    }),
+  );
+  const head = window.document.querySelector(".quickhead");
+  const trigger = window.document.querySelector(".quickbtn");
+  const dot = window.document.querySelector(".cardwrap .dot");
+  assert.ok(head && trigger && dot);
+  assert.ok(head.contains(dot), "status circle shares the header controls");
+  assert.ok(
+    Boolean(
+      trigger.compareDocumentPosition(dot) &
+        window.Node.DOCUMENT_POSITION_FOLLOWING,
+    ),
+    "the trigger sits immediately left of the status circle",
+  );
+  await act(async () => {
+    root.unmount();
+  });
+});
+
+test("quick menu opens anchored to the trigger and closes on Escape", async () => {
+  const root = await mount(
+    React.createElement(BotCard, {
+      bot,
+      poking: false,
+      onChat: () => undefined,
+      onRun: () => undefined,
+      onStop: () => undefined,
+      onSettings: () => undefined,
+      onClearMemory: () => undefined,
+      onDelete: () => undefined,
+    }),
+  );
+  await click(window.document.querySelector(".quickbtn"));
+  const panel = window.document.querySelector(".quickpanel");
+  assert.ok(panel, "expected the menu panel to open");
+  const items = [...panel.querySelectorAll("[role=menuitem]")];
+  assert.deepEqual(
+    items.map((item) => item.textContent?.trim()),
+    ["Open chat", "Run now", "Settings", "Clear memory", "Delete"],
+  );
+  await act(async () => {
+    items[0].dispatchEvent(
+      new window.KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  await flush();
+  assert.equal(window.document.querySelector(".quickpanel"), null);
+  await act(async () => {
+    root.unmount();
+  });
+  window.document
+    .querySelectorAll(".quickpanel, .quickhead")
+    .forEach((node) => {
+      node.remove();
+    });
+});
+
 test("tags panel lists tags with bot counts", async () => {
   const { TagsPanel } = await import("../src/App.tsx");
   const root = await mount(React.createElement(TagsPanel));

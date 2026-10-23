@@ -558,45 +558,28 @@ article header {
 .cardwrap .card {
   flex: 1;
 }
-.runcard {
-  position: absolute;
-  top: -8px;
-  right: -8px;
-  z-index: 2;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--panel);
-  color: var(--muted);
-  border: 1px solid var(--border);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
-  opacity: 0.75;
-  cursor: pointer;
-}
-.runcard:hover:not(:disabled),
-.runcard:focus-visible {
-  opacity: 1;
-  color: #3b82f6;
-}
-.runcard:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
 
 /* bot card quick menu (specs/bots/quick-menu.md) */
-.quickmenu {
+.quickhead {
   position: absolute;
-  top: -8px;
-  right: -8px;
+  top: 0.7rem;
+  right: 0.7rem;
   z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.quickhead .dot {
+  position: static;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 .quickbtn {
   width: 26px;
   height: 26px;
+  flex-shrink: 0;
   padding: 0;
   border-radius: 50%;
   display: inline-flex;
@@ -612,15 +595,14 @@ article header {
   color: var(--accent);
 }
 .quickpanel {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
+  position: fixed;
   min-width: 150px;
   padding: 4px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  overflow-y: auto;
   z-index: 50;
 }
 .quickpanel button {
@@ -1293,7 +1275,7 @@ textarea.code {
 
 button:not(.sidetabs button):not(.mtabs button):not(.card):not(
   .avatarmenu button
-):not(.avatarpick):not(.runcard):not(.pickscrim) {
+):not(.avatarpick):not(.quickbtn):not(.pickscrim) {
   min-height: var(--control-h);
   padding: 0 0.85rem;
   border-radius: var(--radius-control);
@@ -2175,7 +2157,7 @@ button.danger.ghost {
   }
 }
 @media (max-width: 720px) {
-  .runcard {
+  .quickbtn {
     width: 34px;
     height: 34px;
     padding: 0;

@@ -25,7 +25,7 @@ The settings modal (opened from the chat sidebar's gear) holds:
 
 ## Quick menu
 
-Every bot card carries a small three-dot button at its top-right corner, in place of the old standalone run badge. Clicking it opens a compact menu anchored to the button; it never opens chat by itself. The menu lists common per-bot actions:
+Every bot card carries a small three-dot button in the card header at the top of the card, immediately to the left of the status circle. Clicking it opens a compact menu anchored to the button; it never opens chat by itself. The menu lists common per-bot actions:
 
 - **Open chat** — opens this bot's chat sidebar (unavailable while the bot is disabled).
 - **Run now** — see [Lifecycle](#lifecycle); spins in-place until the first action of the run.
