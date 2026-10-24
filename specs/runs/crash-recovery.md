@@ -1,10 +1,10 @@
 # Crash recovery
 
-Runs are durable: every turn, tool call, and piece of run state is committed to storage (pi-durable) before it is surfaced, so a process death mid-run loses nothing already committed.
+Model turns, tool calls, and injected messages are committed to durable storage before they are surfaced, so a process death preserves committed work and its context.
 
-- Each model turn, tool call, and injected message is committed before its output is streamed; the `runs` row reflects committed state (`committed`/`ok`/`error`), never a bare in-memory assumption.
-- On boot the server reopens the pi-durable store and resumes or finalizes every run left mid-flight; no run stays `running` forever and no sweep heuristic is needed (replaces the stale-row caveat in `lifecycle.md`).
-- A resumed run continues from its last committed turn with full context — partial assistant text, pending steers, and prior tool results are intact; nothing already committed replays.
-- Side-effecting tools are not replayed after resume; a run that dies between committing a tool call and executing it records the gap as `error` with the partial output kept (see `lifecycle.md` for output rules).
-- MCP connections are per-process: on resume they reconnect fresh; sessions from the dead process are dropped, never restored.
-- Resume is silent to end users — resumed runs appear in run history (`GET /api/bots/:id/runs`) like any other, newest first.
+- Durable commits are internal: a run stays `running` until it ends `ok` or `error`.
+- On boot, the server resumes runs that have resumable durable work. Runs with none — legacy rows, tasks parked after repeated crashes, or failed storage — end `error` with a clear reason. No run stays `running` forever.
+- A resumed run continues from its last committed checkpoint with committed messages, tool results, and pending steers intact; committed work does not replay.
+- Side-effecting tools are not replayed. An interrupted tool call becomes an `interrupted` tool result; a run that cannot continue ends `error` with partial output kept (`lifecycle.md`).
+- MCP sessions are per-process: after resume they reconnect fresh; dead-process sessions are never restored.
+- Resume is silent: resumed runs appear in run history (`GET /api/bots/:id/runs`) like any other.
