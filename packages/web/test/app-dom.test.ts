@@ -37,7 +37,7 @@ globalThis.alert = () => undefined;
 
 const React = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { App, BotGeneral, Triggers } = await import("../src/App.tsx");
+const { App, BotCard, BotGeneral, Triggers } = await import("../src/App.tsx");
 const act = React.act;
 
 const now = Date.now();
@@ -72,6 +72,7 @@ const trigger = {
 };
 
 const requests: string[] = [];
+let pausedFlag = false;
 
 function json(value: unknown): Response {
   return new Response(JSON.stringify(value), {
@@ -187,8 +188,20 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       control_mcp_enabled: true,
     });
   }
+  if (url === "/api/tags") {
+    return json([
+      { id: "g1", name: "prod", created_at: now, bot_count: 2 },
+      { id: "g2", name: "experiments", created_at: now, bot_count: 0 },
+    ]);
+  }
   if (url === "/api/api-keys") return json([]);
   if (url === "/api/providers") return json([]);
+  if (url === "/api/pause" && method === "GET")
+    return json({ paused: pausedFlag });
+  if (url === "/api/pause" && method === "POST") {
+    pausedFlag = Boolean(JSON.parse(String(init?.body)).paused);
+    return json({ paused: pausedFlag });
+  }
   if (url === "/api/triggers/t1" && method === "PATCH") return json(trigger);
   if (url.startsWith("/api/triggers/") && method === "DELETE") return json({});
   return json([]);
@@ -386,6 +399,214 @@ test("trigger editor creates and edits triggers", async () => {
   await click(button("Remove"));
   await click(button("Remove trigger"));
 
+  await act(async () => {
+    root.unmount();
+  });
+});
+
+test("bot cards show the assigned role under the name, hidden when unset", async () => {
+  const withRole = { ...bot, role_id: "r1", role_name: "developer" };
+  const rootA = await mount(
+    React.createElement(BotCard, {
+      bot: withRole,
+      poking: false,
+      onChat: () => undefined,
+      onRun: () => undefined,
+      onStop: () => undefined,
+      onSettings: () => undefined,
+      onClearMemory: () => undefined,
+      onDelete: () => undefined,
+    }),
+  );
+  const roleLine = window.document.querySelector(".cardrole");
+  assert.ok(roleLine, "expected a role line for a bot with a role");
+  assert.equal(roleLine.textContent, "(developer)");
+  assert.equal(roleLine.getAttribute("title"), "developer");
+  await act(async () => {
+    rootA.unmount();
+  });
+
+  const rootB = await mount(
+    React.createElement(BotCard, {
+      bot: { ...bot, role_id: null },
+      poking: false,
+      onChat: () => undefined,
+      onRun: () => undefined,
+      onStop: () => undefined,
+      onSettings: () => undefined,
+      onClearMemory: () => undefined,
+      onDelete: () => undefined,
+    }),
+  );
+  assert.equal(window.document.querySelector(".cardrole"), null);
+  await act(async () => {
+    rootB.unmount();
+  });
+});
+
+test("pulsing status dots carry a per-bot halo delay without animating the dot", async () => {
+  const root = await mount(
+    React.createElement(BotCard, {
+      bot: { ...bot, run_state: "running", health: "green" },
+      poking: false,
+      onChat: () => undefined,
+      onRun: () => undefined,
+      onStop: () => undefined,
+      onSettings: () => undefined,
+      onClearMemory: () => undefined,
+      onDelete: () => undefined,
+    }),
+  );
+  const dots = [...window.document.querySelectorAll(".dot.pulse")];
+  assert.equal(dots.length, 1);
+  const delay = (dots[0] as HTMLElement).style.getPropertyValue("--dot-delay");
+  assert.ok(
+    /^-?\d+(\.\d+)?s$/.test(delay),
+    `expected a seconds value, got ${delay}`,
+  );
+  await act(async () => {
+    root.unmount();
+  });
+});
+
+test("quick menu trigger sits in the card header left of the status circle", async () => {
+  const root = await mount(
+    React.createElement(BotCard, {
+      bot,
+      poking: false,
+      onChat: () => undefined,
+      onRun: () => undefined,
+      onStop: () => undefined,
+      onSettings: () => undefined,
+      onClearMemory: () => undefined,
+      onDelete: () => undefined,
+    }),
+  );
+  const head = window.document.querySelector(".quickhead");
+  const trigger = window.document.querySelector(".quickbtn");
+  const dot = window.document.querySelector(".cardwrap .dot");
+  assert.ok(head && trigger && dot);
+  assert.ok(head.contains(dot), "status circle shares the header controls");
+  assert.ok(
+    Boolean(
+      trigger.compareDocumentPosition(dot) &
+        window.Node.DOCUMENT_POSITION_FOLLOWING,
+    ),
+    "the trigger sits immediately left of the status circle",
+  );
+  await act(async () => {
+    root.unmount();
+  });
+});
+
+test("quick menu opens anchored to the trigger and closes on Escape", async () => {
+  const root = await mount(
+    React.createElement(BotCard, {
+      bot,
+      poking: false,
+      onChat: () => undefined,
+      onRun: () => undefined,
+      onStop: () => undefined,
+      onSettings: () => undefined,
+      onClearMemory: () => undefined,
+      onDelete: () => undefined,
+    }),
+  );
+  await click(window.document.querySelector(".quickbtn"));
+  const panel = window.document.querySelector(".quickpanel");
+  assert.ok(panel, "expected the menu panel to open");
+  const items = [...panel.querySelectorAll("[role=menuitem]")];
+  assert.deepEqual(
+    items.map((item) => item.textContent?.trim()),
+    ["Open chat", "Run now", "Settings", "Clear memory", "Delete"],
+  );
+  await act(async () => {
+    items[0].dispatchEvent(
+      new window.KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  await flush();
+  assert.equal(window.document.querySelector(".quickpanel"), null);
+  await act(async () => {
+    root.unmount();
+  });
+  window.document
+    .querySelectorAll(".quickpanel, .quickhead")
+    .forEach((node) => {
+      node.remove();
+    });
+});
+
+test("status bar pause toggle flips the global pause state", async () => {
+  pausedFlag = false;
+  const root = await mount(React.createElement(App));
+  await click(byLabel("Pause all bots"));
+  assert.ok(requests.includes("POST /api/pause"));
+  await flush();
+  assert.ok(byLabel("Resume all bots"), "expected the toggle to flip");
+  assert.match(window.document.body.textContent ?? "", /paused/);
+
+  await click(byLabel("Resume all bots"));
+  await flush();
+  assert.ok(byLabel("Pause all bots"));
+  await act(async () => {
+    root.unmount();
+  });
+});
+
+test("quick menu destructive actions ask for confirmation first", async () => {
+  window.history.pushState({}, "", "/bots");
+  const delReqs = () =>
+    requests.filter((r) => r.startsWith("DELETE /api/bots/")).length;
+  const baseDel = delReqs();
+  const root = await mount(React.createElement(App));
+  try {
+    await click(window.document.querySelector(".quickbtn"));
+    const item = (label: string) =>
+      [...window.document.querySelectorAll(".quickpanel [role=menuitem]")].find(
+        (n) => n.textContent?.trim() === label,
+      );
+    await click(item("Delete") as HTMLElement);
+    await flush();
+    assert.match(window.document.body.textContent ?? "", /Delete bot Sable\?/);
+    assert.equal(delReqs(), baseDel, "nothing sent before confirm");
+
+    const danger = window.document.querySelector(".confirm button.danger");
+    await click(danger as HTMLElement);
+    assert.equal(delReqs(), baseDel + 1, "DELETE sent after confirm");
+
+    await click(window.document.querySelector(".quickbtn"));
+    await click(item("Clear memory") as HTMLElement);
+    await flush();
+    assert.match(
+      window.document.body.textContent ?? "",
+      /Clear the stored context of Sable\?/,
+    );
+    const clearBase = delReqs();
+
+    const scrim = window.document.querySelector(".confirm .mscrim");
+    await click(scrim as HTMLElement);
+    await flush();
+    assert.equal(delReqs(), clearBase, "outside tap cancels without sending");
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("tags panel lists tags with bot counts", async () => {
+  const { TagsPanel } = await import("../src/App.tsx");
+  const root = await mount(React.createElement(TagsPanel));
+  await flush();
+  const cards = [...window.document.querySelectorAll(".cards .card")];
+  assert.ok(cards.length >= 2, "expected tag cards to render");
+  const prod = cards.find((c) => c.textContent?.includes("prod"));
+  assert.ok(prod?.textContent?.includes("2 bots"));
   await act(async () => {
     root.unmount();
   });

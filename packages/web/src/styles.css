@@ -329,6 +329,29 @@ article header {
   flex: 1;
 }
 
+.statusbar .pausedcount {
+  color: var(--warn);
+}
+
+.pausetoggle {
+  min-height: 2rem;
+  padding: 0 0.85rem;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.pausetoggle:hover {
+  color: var(--text);
+}
+
+.pausetoggle.on {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
 .notifwrap {
   position: relative;
   display: flex;
@@ -558,34 +581,78 @@ article header {
 .cardwrap .card {
   flex: 1;
 }
-.runcard {
+
+/* bot card quick menu (specs/bots/quick-menu.md) */
+.quickhead {
   position: absolute;
-  top: -8px;
-  right: -8px;
-  z-index: 2;
+  top: 0.7rem;
+  right: 0.7rem;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.quickhead .dot {
+  position: static;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+/* Plain horizontal ⋯ icon, no visually distinct container (specs/bots/quick-menu.md). */
+.quickbtn {
   width: 26px;
   height: 26px;
+  flex-shrink: 0;
   padding: 0;
-  border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--panel);
+  background: none;
   color: var(--muted);
-  border: 1px solid var(--border);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
-  opacity: 0.75;
+  border: none;
   cursor: pointer;
 }
-.runcard:hover:not(:disabled),
-.runcard:focus-visible {
-  opacity: 1;
-  color: #3b82f6;
+.quickbtn:hover,
+.quickbtn.open {
+  color: var(--accent);
 }
-.runcard:disabled {
-  opacity: 0.35;
+.quickpanel {
+  position: fixed;
+  min-width: 150px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  overflow-y: auto;
+  z-index: 50;
+}
+.quickpanel button {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.quickpanel button:hover:not(:disabled),
+.quickpanel button:focus-visible {
+  background: rgba(59, 130, 246, 0.12);
+  outline: none;
+}
+.quickpanel button:disabled {
+  opacity: 0.45;
   cursor: not-allowed;
 }
+.quickpanel button.danger {
+  color: var(--danger, #ef4444);
+}
+
 .spin {
   animation: rotate 0.9s linear infinite;
 }
@@ -634,15 +701,26 @@ button:disabled {
   cursor: not-allowed;
 }
 
-@keyframes dotpulse {
-  50% {
-    opacity: 0.35;
-    transform: scale(1.2);
+@keyframes halopulse {
+  from {
+    transform: scale(1);
+    opacity: 0.65;
+  }
+  to {
+    transform: scale(2);
+    opacity: 0;
   }
 }
 
-.dot.pulse {
-  animation: dotpulse 1.2s ease-in-out infinite;
+.dot.pulse::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  pointer-events: none;
+  animation: halopulse 1.2s ease-out infinite;
+  animation-delay: var(--dot-delay, 0s);
 }
 
 .card .dot {
@@ -1053,8 +1131,19 @@ details.turnsec pre {
 .cardtext {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   min-width: 0;
+}
+
+.cardrole {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .cardhead {
@@ -1209,7 +1298,7 @@ textarea.code {
 
 button:not(.sidetabs button):not(.mtabs button):not(.card):not(
   .avatarmenu button
-):not(.avatarpick):not(.runcard):not(.pickscrim) {
+):not(.avatarpick):not(.quickbtn):not(.pickscrim) {
   min-height: var(--control-h);
   padding: 0 0.85rem;
   border-radius: var(--radius-control);
@@ -1262,28 +1351,38 @@ section > .viewhead {
   color: var(--err);
 }
 
+.dot {
+  position: relative;
+}
+
 .dot.green {
   background: var(--ok);
+  color: var(--ok);
 }
 
 .dot.yellow {
   background: var(--warn);
+  color: var(--warn);
 }
 
 .dot.red {
   background: var(--err);
+  color: var(--err);
 }
 
 [data-theme="light"] .dot.green {
   background: #22c55e;
+  color: #22c55e;
 }
 
 [data-theme="light"] .dot.yellow {
   background: #facc15;
+  color: #facc15;
 }
 
 [data-theme="light"] .dot.red {
   background: #ef4444;
+  color: #ef4444;
 }
 
 .namerow {
@@ -1397,15 +1496,19 @@ button.danger.ghost {
 }
 .dot.blue {
   background: #4c8dff;
+  color: #4c8dff;
 }
 .dot.gray {
   background: #6b7280;
+  color: #6b7280;
 }
 [data-theme="light"] .dot.blue {
   background: #3b82f6;
+  color: #3b82f6;
 }
 [data-theme="light"] .dot.gray {
   background: #9ca3af;
+  color: #9ca3af;
 }
 .chat-working {
   display: flex;
@@ -1451,10 +1554,9 @@ button.danger.ghost {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .dot.pulse {
+  .dot.pulse::after {
     animation: none;
-    opacity: 1;
-    transform: none;
+    opacity: 0;
   }
   .chat-working .dots i {
     animation: none;
@@ -2024,7 +2126,8 @@ button.danger.ghost {
 .projectbody {
   font-family: ui-monospace, monospace;
   min-height: 260px;
-  resize: vertical;
+  height: 340px;
+  resize: none;
 }
 
 .sidepanel {
@@ -2077,7 +2180,7 @@ button.danger.ghost {
   }
 }
 @media (max-width: 720px) {
-  .runcard {
+  .quickbtn {
     width: 34px;
     height: 34px;
     padding: 0;
@@ -2116,4 +2219,60 @@ main.scr-active,
 
 .scr-active::-webkit-scrollbar-thumb {
   background: var(--border);
+}
+
+.bottags {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+}
+.tagchips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+.chip button {
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  min-width: auto;
+  font-size: 13px;
+  line-height: 1;
+}
+.chip button:hover {
+  color: var(--err);
+}
+.tagsuggest {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.tagsuggest button {
+  text-align: left;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--panel);
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.tagsuggest button:last-child {
+  border-bottom: none;
+}
+.tagsuggest button:hover {
+  background: var(--hover);
 }

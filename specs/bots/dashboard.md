@@ -2,7 +2,7 @@
 
 Single-page console for operating bots; any signed-in user may operate all bots (`../auth/multi-user.md`).
 
-- A status bar stretches across the very top of the app, above the sidebar, showing bot totals and running counts per `status-colors.md`, refreshed by the same polling as the cards.
+- A status bar stretches across the very top of the app, above the sidebar, showing bot totals and running counts per `status-colors.md`, refreshed by the same polling as the cards, plus the global Pause/Resume toggle (`global-pause.md`).
 - Bots tab (default view): a card per bot showing its name on one line — names too long for the card truncate with an ellipsis (full name available via title) — with status as a colored circle in the card's upper-right corner using the health levels of `status-colors.md`; on desktop, hovering the circle reveals its meaning. Creating a bot adds a card; selecting a card opens that bot's chat sidebar (`../chat/sidebar.md`), whose gear icon opens the settings modal (`detail.md`).
 - Under the bot name the card shows the assigned role in secondary styling and parentheses — e.g. `(developer)` in italic muted text on its own line, aligned with the name; bots without a role show no line at all.
 - When a bot has a current task and/or status substep, the card shows them per `status-line.md`; both truncate with ellipsis and expose full text via title.

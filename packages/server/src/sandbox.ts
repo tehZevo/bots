@@ -7,6 +7,7 @@ import {
   getBot,
   getMachine,
   getSetting,
+  secretEnvForBot,
   setMachineBuild,
   setSetting,
 } from "./db.ts";
@@ -246,6 +247,10 @@ export async function ensureContainer(
       });
     return name;
   }
+  // assigned secrets (bot-level overrides inherited team values)
+  const secretArgs = Object.entries(secretEnvForBot(botId)).flatMap(
+    ([key, value]) => ["-e", `${key}=${value}`],
+  );
   const run = await spawnCapture([
     "run",
     "-d",
@@ -259,6 +264,7 @@ export async function ensureContainer(
     "/workspace",
     "-e",
     "HOME=/workspace",
+    ...secretArgs,
     image,
   ]);
   if (run.code !== 0) {

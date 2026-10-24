@@ -183,7 +183,7 @@ test("App shell renders", () => {
   assert.ok(html.includes("Bots"));
 });
 
-test("bot cards carry a run-now button, disabled with the bot", () => {
+test("bot card carries a quick menu trigger instead of a run-now badge", () => {
   const base = {
     id: "b1",
     name: "Alpha",
@@ -205,21 +205,31 @@ test("bot cards carry a run-now button, disabled with the bot", () => {
     React.createElement(BotCard, {
       bot: { ...base, enabled: 1 } as never,
       poking: false,
-      onOpen: () => undefined,
+      onChat: () => undefined,
       onRun: () => undefined,
+      onStop: () => undefined,
+      onSettings: () => undefined,
+      onClearMemory: () => undefined,
+      onDelete: () => undefined,
     }),
   );
-  assert.match(on, /aria-label="Run Alpha now"/);
+  assert.match(on, /aria-label="quick menu for alpha"/i);
   assert.doesNotMatch(on, /class="spin"/);
   const off = renderToStaticMarkup(
     React.createElement(BotCard, {
       bot: { ...base, enabled: 0 } as never,
       poking: false,
-      onOpen: () => undefined,
+      onChat: () => undefined,
       onRun: () => undefined,
+      onStop: () => undefined,
+      onSettings: () => undefined,
+      onClearMemory: () => undefined,
+      onDelete: () => undefined,
     }),
   );
-  assert.match(off, /disabled=""/);
+  // the trigger stays clickable when the bot is disabled; actions gate inside the menu
+  assert.match(off, /aria-label="quick menu for alpha"/i);
+  assert.doesNotMatch(off, /<button[^>]+disabled/);
 });
 
 test("panels and tab bodies render with stubbed fetch", () => {

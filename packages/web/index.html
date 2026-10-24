@@ -10,8 +10,13 @@
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <script>
       const saved = localStorage.getItem("bots-theme");
-      document.documentElement.dataset.theme =
-        saved === "light" || saved === "system" ? saved : "dark";
+      const theme =
+        saved === "light" || saved === "dark"
+          ? saved
+          : saved === "system" && !matchMedia("(prefers-color-scheme: dark)").matches
+            ? "light"
+            : "dark";
+      document.documentElement.dataset.theme = theme;
     </script>
   </head>
   <body>

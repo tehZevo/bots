@@ -15,9 +15,11 @@ import {
   interruptBot,
   isLoopActive,
   resetBotRuntime,
+  resumePendingInjections,
 } from "./agent.ts";
 import { repoRoot } from "./config.ts";
 import {
+  botSecretIds,
   botsUsingMachine,
   clearMessages,
   countUsers,
@@ -29,13 +31,16 @@ import {
   deleteProject,
   deleteProvider,
   deleteRole,
+  deleteSecret,
   deleteSession,
   deleteSessionsForUser,
   deleteSetting,
   deleteSkill,
+  deleteTag,
   deleteTeam,
   deleteTemplate,
   deleteTrigger,
+  findSecretByName,
   getApiKeyByHash,
   getBot,
   getMachine,
@@ -44,9 +49,11 @@ import {
   getProject,
   getProvider,
   getRole,
+  getSecret,
   getSessionUser,
   getSetting,
   getSkill,
+  getTag,
   getTeam,
   getTemplate,
   getTrigger,
@@ -60,11 +67,14 @@ import {
   insertProject,
   insertProvider,
   insertRole,
+  insertSecret,
   insertSkill,
+  insertTag,
   insertTeam,
   insertTemplate,
   insertTrigger,
   insertUser,
+  isPaused,
   latestErrorBotIds,
   listApiKeys,
   listBots,
@@ -75,7 +85,9 @@ import {
   listProviders,
   listRoles,
   listRuns,
+  listSecret,
   listSkills,
+  listTags,
   listTeams,
   listTemplates,
   listTriggers,
@@ -87,14 +99,24 @@ import {
   projectsForBot,
   removePushSubscriptionOwned,
   removeTeamMember,
+  renameTag,
   renameTeam,
+  secretEnvForBot,
   setBotProjects,
+  setBotSecret,
+  setBotTags,
   setMachineBuild,
+  setPaused,
   setSetting,
   setTeamMember,
   setTeamProjects,
+  setTeamSecret,
   setTriggerSecret,
   setUserPassword,
+  tagByName,
+  tagIdsByBot,
+  tagsForBot,
+  teamSecretIds,
   touchApiKey,
   unreadNotificationCount,
   updateBot,
@@ -103,6 +125,7 @@ import {
   updateProject,
   updateProvider,
   updateRole,
+  updateSecret,
   updateSkill,
   updateTemplate,
   updateTrigger,
@@ -480,6 +503,19 @@ export function createApp() {
       control_mcp_enabled: getSetting("control_mcp_enabled") !== "0",
     }),
   );
+
+  app.get("/api/pause", (c) => c.json({ paused: isPaused() }));
+
+  app.post("/api/pause", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      paused?: unknown;
+    } | null;
+    if (typeof body?.paused !== "boolean")
+      return c.json({ error: "paused must be a boolean" }, 400);
+    setPaused(body.paused);
+    if (!body.paused) resumePendingInjections();
+    return c.json({ paused: body.paused });
+  });
 
   app.put("/api/settings", async (c) => {
     const body = (await c.req.json().catch(() => null)) as {
@@ -1085,6 +1121,8 @@ export function createApp() {
       (() => {
         const errored = latestErrorBotIds();
         const projMap = projectIdsByBot();
+        const tagMap = tagIdsByBot();
+        const roleNames = new Map(listRoles().map((r) => [r.id, r.name]));
         const hasDefault = Boolean(
           getSetting("default_provider_id") && getSetting("default_model"),
         );
@@ -1095,7 +1133,12 @@ export function createApp() {
           const red = errored.has(bot.id) || noModel || agentRed;
           return {
             ...bot,
+            role_name: bot.role_id
+              ? (roleNames.get(bot.role_id) ?? null)
+              : null,
             project_ids: projMap.get(bot.id) ?? [],
+            tag_ids: tagMap.get(bot.id) ?? [],
+            secret_ids: botSecretIds(bot.id),
             health: !bot.enabled
               ? ("gray" as const)
               : red
@@ -1130,6 +1173,114 @@ export function createApp() {
     };
     insertBot(bot);
     return c.json(bot, 201);
+  });
+
+  app.get("/api/secrets", (c) => {
+    return c.json(
+      listSecret().map((s) => ({
+        id: s.id,
+        name: s.name,
+        key: s.key,
+        created_at: s.created_at,
+      })),
+    );
+  });
+
+  app.post("/api/secrets", async (c) => {
+    const body = await c.req
+      .json<{ name?: unknown; key?: unknown; value?: unknown }>()
+      .catch(() => null);
+    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    if (!name) return c.json({ error: "name is required" }, 400);
+    const key = typeof body?.key === "string" ? body.key.trim() : "";
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
+      return c.json(
+        {
+          error:
+            "key must be a valid env var name (letters, digits, underscores; not starting with a digit)",
+        },
+        400,
+      );
+    if (typeof body?.value !== "string" || !body.value)
+      return c.json({ error: "value is required" }, 400);
+    if (findSecretByName(name))
+      return c.json({ error: "name already exists" }, 400);
+    const secret = {
+      id: randomUUID(),
+      name,
+      key,
+      value: body.value,
+      created_at: Date.now(),
+    };
+    insertSecret(secret);
+    return c.json(
+      {
+        id: secret.id,
+        name: secret.name,
+        key: secret.key,
+        created_at: secret.created_at,
+      },
+      201,
+    );
+  });
+
+  app.get("/api/secrets/:secretId", (c) => {
+    const found = getSecret(c.req.param("secretId"));
+    if (!found) return c.json({ error: "not found" }, 404);
+    const { value: _value, ...rest } = found;
+    return c.json(rest);
+  });
+
+  app.get("/api/secrets/:secretId/value", (c) => {
+    const found = getSecret(c.req.param("secretId"));
+    if (!found) return c.json({ error: "not found" }, 404);
+    return c.json({ value: found.value });
+  });
+
+  app.patch("/api/secrets/:secretId", async (c) => {
+    const found = getSecret(c.req.param("secretId"));
+    if (!found) return c.json({ error: "not found" }, 404);
+    const body = await c.req
+      .json<{ name?: unknown; key?: unknown; value?: unknown }>()
+      .catch(() => null);
+    const patch: { name?: string; key?: string; value?: string } = {};
+    if (body?.name !== undefined) {
+      const newName = typeof body.name === "string" ? body.name.trim() : "";
+      if (!newName) return c.json({ error: "name is required" }, 400);
+      const clash = findSecretByName(newName);
+      if (clash && clash.id !== found.id)
+        return c.json({ error: "name already exists" }, 400);
+      patch.name = newName;
+    }
+    if (body?.key !== undefined) {
+      const key = typeof body.key === "string" ? body.key.trim() : "";
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
+        return c.json(
+          {
+            error:
+              "key must be a valid env var name (letters, digits, underscores; not starting with a digit)",
+          },
+          400,
+        );
+      patch.key = key;
+    }
+    if (body?.value !== undefined) {
+      if (typeof body.value !== "string" || !body.value)
+        return c.json({ error: "value is required" }, 400);
+      patch.value = body.value;
+    }
+    updateSecret(found.id, patch);
+    const updated = getSecret(found.id);
+    if (!updated) return c.json({ error: "not found" }, 404);
+    const { value: _value, ...rest } = updated;
+    return c.json(rest);
+  });
+
+  app.delete("/api/secrets/:secretId", (c) => {
+    const found = getSecret(c.req.param("secretId"));
+    if (!found) return c.json({ error: "not found" }, 404);
+    deleteSecret(found.id);
+    return c.json({ ok: true });
   });
 
   app.get("/api/roles", (c) => c.json(listRoles()));
@@ -1190,6 +1341,42 @@ export function createApp() {
     const project = getProject(c.req.param("projectId"));
     if (!project) return c.json({ error: "not found" }, 404);
     deleteProject(project.id);
+    return c.json({ ok: true });
+  });
+
+  app.get("/api/tags", (c) => c.json(listTags()));
+
+  app.post("/api/tags", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      name?: unknown;
+    } | null;
+    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    if (!name) return c.json({ error: "name is required" }, 400);
+    if (tagByName(name)) return c.json({ error: "name already exists" }, 400);
+    const tag = { id: randomUUID(), name, created_at: Date.now() };
+    insertTag(tag);
+    return c.json({ ...tag, bot_count: 0 }, 201);
+  });
+
+  app.patch("/api/tags/:tagId", async (c) => {
+    const tag = getTag(c.req.param("tagId"));
+    if (!tag) return c.json({ error: "not found" }, 404);
+    const body = (await c.req.json().catch(() => null)) as {
+      name?: unknown;
+    } | null;
+    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    if (!name) return c.json({ error: "name is required" }, 400);
+    const clash = tagByName(name);
+    if (clash && clash.id !== tag.id)
+      return c.json({ error: "name already exists" }, 400);
+    renameTag(tag.id, name);
+    return c.json(getTag(tag.id));
+  });
+
+  app.delete("/api/tags/:tagId", (c) => {
+    const tag = getTag(c.req.param("tagId"));
+    if (!tag) return c.json({ error: "not found" }, 404);
+    deleteTag(tag.id);
     return c.json({ ok: true });
   });
 
@@ -1254,7 +1441,11 @@ export function createApp() {
   app.patch("/api/teams/:teamId", async (c) => {
     const team = getTeam(c.req.param("teamId"));
     if (!team) return c.json({ error: "not found" }, 404);
-    const body = await c.req.json<{ name?: string; project_ids?: unknown }>();
+    const body = await c.req.json<{
+      name?: string;
+      project_ids?: unknown;
+      secret_ids?: unknown;
+    }>();
     if (body.project_ids !== undefined) {
       if (!Array.isArray(body.project_ids))
         return c.json({ error: "project_ids must be an array" }, 400);
@@ -1263,13 +1454,33 @@ export function createApp() {
         return c.json({ error: "unknown project" }, 400);
       setTeamProjects(team.id, ids);
     }
+    if (body.secret_ids !== undefined) {
+      if (!Array.isArray(body.secret_ids))
+        return c.json({ error: "secret_ids must be an array" }, 400);
+      try {
+        setTeamSecret(
+          team.id,
+          body.secret_ids.filter((x): x is string => typeof x === "string"),
+        );
+      } catch (err) {
+        return c.json(
+          { error: err instanceof Error ? err.message : String(err) },
+          400,
+        );
+      }
+    }
     if (body.name === undefined && body.project_ids === undefined)
       return c.json({ error: "name required" }, 400);
     const name = body.name?.trim();
     if (body.name !== undefined && !name)
       return c.json({ error: "name required" }, 400);
     if (name) renameTeam(team.id, name);
-    return c.json(getTeam(team.id));
+    const updated = getTeam(team.id);
+    if (!updated) return c.json({ error: "not found" }, 404);
+    return c.json({
+      ...updated,
+      secret_ids: teamSecretIds(team.id),
+    });
   });
 
   app.delete("/api/teams/:teamId", (c) => {
@@ -1410,13 +1621,21 @@ export function createApp() {
     return c.json({
       ...bot,
       project_ids: projectsForBot(bot.id).map((p) => p.id),
+      tag_ids: tagsForBot(bot.id).map((t) => t.id),
+      secret_ids: botSecretIds(bot.id),
     });
   });
 
   app.patch("/api/bots/:id", async (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
-    const input = await c.req.json<BotInput & { project_ids?: unknown }>();
+    const input = await c.req.json<
+      BotInput & {
+        project_ids?: unknown;
+        tag_ids?: unknown;
+        secret_ids?: unknown;
+      }
+    >();
     const payload = toBotPayload({ ...bot, ...input });
     if ("error" in payload) return c.json({ error: payload.error }, 400);
     updateBot(bot.id, payload);
@@ -1435,9 +1654,42 @@ export function createApp() {
         );
       }
     }
+    if (input.tag_ids !== undefined) {
+      if (!Array.isArray(input.tag_ids))
+        return c.json({ error: "tag_ids must be an array" }, 400);
+      try {
+        setBotTags(
+          bot.id,
+          input.tag_ids.filter((x): x is string => typeof x === "string"),
+        );
+      } catch (err) {
+        return c.json(
+          { error: err instanceof Error ? err.message : String(err) },
+          400,
+        );
+      }
+    }
+    if (input.secret_ids !== undefined) {
+      if (!Array.isArray(input.secret_ids))
+        return c.json({ error: "secret_ids must be an array" }, 400);
+      try {
+        setBotSecret(
+          bot.id,
+          input.secret_ids.filter((x): x is string => typeof x === "string"),
+        );
+      } catch (err) {
+        return c.json(
+          { error: err instanceof Error ? err.message : String(err) },
+          400,
+        );
+      }
+    }
+
     return c.json({
       ...getBot(bot.id),
       project_ids: projectsForBot(bot.id).map((p) => p.id),
+      tag_ids: tagsForBot(bot.id).map((t) => t.id),
+      secret_ids: botSecretIds(bot.id),
     });
   });
 
@@ -1453,6 +1705,7 @@ export function createApp() {
   app.post("/api/bots/:id/run", async (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
+    if (isPaused()) return c.json({ error: "bots are paused" }, 409);
     const body: { message?: unknown } = await c.req
       .json<{ message?: unknown }>()
       .catch(() => ({}));
@@ -1548,8 +1801,8 @@ export function createApp() {
     } | null;
     const text = typeof body?.text === "string" ? body.text.trim() : "";
     if (!text) return c.json({ error: "text is required" }, 400);
-    const { runId, steered } = injectMessage(bot, text, "chat");
-    return c.json({ runId, steered });
+    const { runId, steered, held } = injectMessage(bot, text, "chat");
+    return c.json({ runId, steered, ...(held ? { held: true } : {}) });
   });
   app.post("/api/bots/:id/interrupt", (c) => {
     const bot = getBot(c.req.param("id"));
@@ -1687,6 +1940,7 @@ export function createApp() {
     if (!trigger.enabled) return c.json({ error: "trigger is disabled" }, 409);
     const bot = getBot(trigger.bot_id);
     if (!bot?.enabled) return c.json({ error: "bot is disabled" }, 409);
+    if (isPaused()) return c.json({ error: "bots are paused" }, 409);
     const body = await c.req.text();
     if (body.length > 64 * 1024)
       return c.json({ error: "payload too large" }, 413);
