@@ -10,6 +10,6 @@
 # Dirty-state save buttons
 
 - Every saveable form tracks dirty state and guards navigation per `unsaved-changes.md`.
-- The bot detail `General` tab's Save button is disabled until Name, Instructions, role, machine or Projects differs from the loaded values; reverting every field back disables it again. Trigger editor Save follows the same rule. Saving an unchanged form is never possible.
+- The bot detail `General` tab's Save button is disabled until Name, Instructions, role, machine or Projects differs from the loaded values; reverting every field back disables it again. Trigger editor Save follows the same rule. The Stats budget Save follows the same rule. Saving an unchanged form is never possible.
 - Other edit forms keep plain always-enabled Save while still showing the unsaved-changes indicator.
 
