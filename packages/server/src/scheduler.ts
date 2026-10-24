@@ -1,6 +1,12 @@
 import { CronExpressionParser } from "cron-parser";
 import { injectMessage } from "./agent.ts";
-import { dueTriggers, getBot, latestErrorBotIds, updateTrigger } from "./db.ts";
+import {
+  dueTriggers,
+  getBot,
+  isPaused,
+  latestErrorBotIds,
+  updateTrigger,
+} from "./db.ts";
 
 export function nextRunAt(
   schedule: string,
@@ -50,10 +56,13 @@ function isBlocked(botId: string, errers: Set<string>): boolean {
 }
 
 export function runTick(): void {
+  const paused = isPaused();
   let errers: Set<string> | null = null;
   for (const trigger of dueTriggers(Date.now())) {
     if (trigger.kind === "continuous") {
-      // One-shot: re-armed by finishRun, never by the clock.
+      // One-shot: re-armed by finishRun, never by the clock. While paused a
+      // continuous fire stays armed and simply goes off once resumed.
+      if (paused) continue;
       updateTrigger(trigger.id, { next_run_at: null });
       const bot = getBot(trigger.bot_id);
       if (!bot?.enabled) continue;
@@ -62,6 +71,7 @@ export function runTick(): void {
       inject(bot, trigger.message, "continuous");
     } else {
       updateTrigger(trigger.id, { next_run_at: nextRunAt(trigger.schedule) });
+      if (paused) continue;
       const bot = getBot(trigger.bot_id);
       if (!bot?.enabled) continue;
       inject(bot, trigger.message, "schedule");

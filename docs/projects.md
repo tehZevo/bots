@@ -8,7 +8,7 @@ The **Projects** tab lists one card per project (name + optional one-line descri
 
 ## Attaching to bots
 
-A bot's General tab shows a checkbox per project; toggling attaches or detaches immediately. A team may later reference projects so all members inherit them (activates with the Teams feature). The effective prompt appends inherited project bodies first, then the bot's direct attachments, after the role's instructions.
+A bot's General tab shows a checkbox per project; toggling attaches or detaches immediately. A team can attach projects too, and every member inherits them (see [Teams](/teams)). The effective prompt appends inherited project bodies first, then the bot's direct attachments, after the role's instructions.
 
 ## API & MCP
 

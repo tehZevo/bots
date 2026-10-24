@@ -75,6 +75,23 @@ export function openApiDoc(): Json {
 
   add("/api/settings", "get", "Read app settings");
   add("/api/settings", "put", "Update app settings", { body: ref("Settings") });
+  add("/api/pause", "get", "Read the global pause state", {
+    res: {
+      type: "object",
+      properties: { paused: { type: "boolean" } },
+    },
+  });
+  add("/api/pause", "post", "Pause or resume all bots", {
+    body: {
+      type: "object",
+      required: ["paused"],
+      properties: { paused: { type: "boolean" } },
+    },
+    res: {
+      type: "object",
+      properties: { paused: { type: "boolean" } },
+    },
+  });
   add("/api/bots", "get", "List bots with health and run state", {
     res: { type: "array", items: ref("Bot") },
   });
@@ -204,6 +221,20 @@ export function openApiDoc(): Json {
     params: ["projectId"],
   });
 
+  add("/api/tags", "get", "List tags with bot counts", {
+    res: { type: "array", items: ref("Tag") },
+  });
+  add("/api/tags", "post", "Create a tag (unique name required)", {
+    body: ref("Tag"),
+  });
+  add("/api/tags/{tagId}", "patch", "Rename a tag", {
+    params: ["tagId"],
+    body: ref("Tag"),
+  });
+  add("/api/tags/{tagId}", "delete", "Delete a tag and its attachments", {
+    params: ["tagId"],
+  });
+
   add("/api/skills", "get", "List skills");
   add("/api/skills", "post", "Create a skill", { body: ref("Skill") });
   add("/api/skills/{skillId}", "patch", "Update a skill", {
@@ -283,6 +314,36 @@ export function openApiDoc(): Json {
     },
   );
 
+  add("/api/secrets", "get", "List secrets (values hidden)", {
+    res: { type: "array", items: ref("Secret") },
+  });
+  add("/api/secrets", "post", "Create secret (unique name required)", {
+    body: ref("SecretInput"),
+  });
+  add("/api/secrets/{secretId}", "get", "Get secret metadata (value hidden)", {
+    params: ["secretId"],
+  });
+  add("/api/secrets/{secretId}/value", "get", "Reveal secret value", {
+    params: ["secretId"],
+  });
+  add(
+    "/api/secrets/{secretId}",
+    "patch",
+    "Update secret (destructive on value change)",
+    {
+      params: ["secretId"],
+      body: ref("SecretInput"),
+    },
+  );
+  add(
+    "/api/secrets/{secretId}",
+    "delete",
+    "Delete secret and its assignments",
+    {
+      params: ["secretId"],
+    },
+  );
+
   return {
     openapi: "3.1.0",
     info: {
@@ -326,6 +387,7 @@ export function openApiDoc(): Json {
             instructions: str,
             model_id: strOrNone,
             role_id: strOrNone,
+            role_name: strOrNone,
             machine_id: strOrNone,
             sound: strOrNone,
             enabled: { type: "integer" },
@@ -345,6 +407,33 @@ export function openApiDoc(): Json {
             machine_id: strOrNone,
             sound: strOrNone,
             enabled: { type: "boolean" },
+          },
+        },
+        Tag: {
+          type: "object",
+          properties: {
+            id: str,
+            name: str,
+            created_at: { type: "integer" },
+            bot_count: { type: "integer" },
+          },
+        },
+        Secret: {
+          type: "object",
+          properties: {
+            id: str,
+            name: str,
+            key: str,
+            created_at: { type: "integer" },
+          },
+        },
+        SecretInput: {
+          type: "object",
+          required: ["name", "key", "value"],
+          properties: {
+            name: str,
+            key: str,
+            value: str,
           },
         },
         Project: {

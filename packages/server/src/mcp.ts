@@ -18,6 +18,14 @@ export interface McpToolDef {
   inputSchema?: unknown;
 }
 
+// specs/mcp/child-env.md — explicit allowlist, never a spread of process.env.
+export function mcpChildEnv(server: McpServerRow): Record<string, string> {
+  const base: Record<string, string> = {};
+  if (typeof process.env.PATH === "string") base.PATH = process.env.PATH;
+  if (typeof process.env.HOME === "string") base.HOME = process.env.HOME;
+  return { ...base, ...server.env };
+}
+
 export interface McpSession {
   listTools(): Promise<McpToolDef[]>;
   callTool(name: string, args: unknown): Promise<string>;
@@ -29,7 +37,7 @@ export async function connectMcpServer(
 ): Promise<McpSession> {
   if (!server.command.trim()) throw new Error("command is empty");
   const child = spawn(server.command, server.args, {
-    env: { ...process.env, ...server.env },
+    env: mcpChildEnv(server),
     stdio: ["pipe", "pipe", "pipe"],
   });
 

@@ -1,4 +1,5 @@
 import {
+  type CSSProperties,
   createContext,
   type ReactElement,
   useCallback,
@@ -7,9 +8,11 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { AccountSection } from "./auth.tsx";
 import { renderMarkdown } from "./markdown.ts";
 import { PushSection } from "./push.tsx";
+import { readStoredTheme, setStoredTheme } from "./theme.ts";
 
 export interface ApiKey {
   id: string;
@@ -24,6 +27,8 @@ interface Bot {
   instructions: string;
   model_id: string | null;
   role_id: string | null;
+  role_name?: string | null;
+  tag_ids?: string[];
   machine_id: string | null;
   avatar_shape: number | null;
   avatar_color: number | null;
@@ -88,6 +93,13 @@ interface Project {
   description: string;
   body: string;
   created_at: number;
+}
+
+interface Tag {
+  id: string;
+  name: string;
+  created_at: number;
+  bot_count: number;
 }
 
 interface Run {
@@ -185,7 +197,7 @@ export function StatusDot({
   return (
     <span
       className={`dot ${health}${active ? " pulse" : ""}`}
-      style={{ animationDelay: `${delay}s` }}
+      style={{ "--dot-delay": `${delay}s` } as CSSProperties}
       {...(label ? { title: label } : {})}
     />
   );
@@ -486,14 +498,98 @@ function playSound(id: string): void {
 export function BotCard({
   bot,
   poking,
-  onOpen,
+  paused = false,
+  onChat,
   onRun,
+  onStop,
+  onSettings,
+  onClearMemory,
+  onDelete,
 }: {
   bot: Bot;
   poking: boolean;
-  onOpen: () => void;
+  paused?: boolean;
+  onChat: () => void;
   onRun: () => void;
+  onStop: () => void;
+  onSettings: () => void;
+  onClearMemory: () => void;
+  onDelete: () => void;
 }) {
+  const [quickMenuOpen, setQuickMenuOpen] = useState(false);
+  const [quickMenuFocus, setQuickMenuFocus] = useState(0);
+  const [quickPos, setQuickPos] = useState<{
+    left: number;
+    top: number;
+    maxHeight: number;
+  } | null>(null);
+  const quickMenuRef = useRef<HTMLDivElement>(null);
+  const quickPanelRef = useRef<HTMLDivElement>(null);
+  const quickTriggerRef = useRef<HTMLButtonElement>(null);
+  const quickItemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  const closeQuickMenu = useCallback((refocus = true) => {
+    setQuickMenuOpen(false);
+    if (refocus) quickTriggerRef.current?.focus();
+  }, []);
+
+  const positionPanel = useCallback(() => {
+    const rect = quickTriggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setQuickPos({
+      left: Math.max(8, Math.min(rect.right - 4, window.innerWidth - 168)),
+      top: rect.bottom + 6,
+      maxHeight: Math.max(160, window.innerHeight - rect.bottom - 16),
+    });
+  }, []);
+
+  const quickActions: { label: string; run: () => void; disabled?: boolean }[] =
+    [
+      { label: "Open chat", run: onChat, disabled: !bot.enabled },
+      { label: "Run now", run: onRun, disabled: !bot.enabled || paused },
+      ...(bot.run_state === "running" ? [{ label: "Stop", run: onStop }] : []),
+      { label: "Settings", run: onSettings },
+      { label: "Clear memory", run: onClearMemory },
+      { label: "Delete", run: onDelete, disabled: !bot.enabled },
+    ];
+
+  useEffect(() => {
+    if (!quickMenuOpen) return;
+    quickItemRefs.current[quickMenuFocus]?.focus();
+  }, [quickMenuOpen, quickMenuFocus]);
+
+  useEffect(() => {
+    if (!quickMenuOpen) return;
+    positionPanel();
+    window.addEventListener("scroll", positionPanel, true);
+    window.addEventListener("resize", positionPanel);
+    return () => {
+      window.removeEventListener("scroll", positionPanel, true);
+      window.removeEventListener("resize", positionPanel);
+    };
+  }, [quickMenuOpen, positionPanel]);
+
+  useEffect(() => {
+    if (!quickMenuOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (
+        !quickMenuRef.current?.contains(t) &&
+        !quickPanelRef.current?.contains(t)
+      )
+        closeQuickMenu(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [quickMenuOpen, closeQuickMenu]);
+
+  const moveQuickFocus = (delta: number) => {
+    setQuickMenuFocus((i) => {
+      const n = quickActions.length;
+      return (((i + delta) % n) + n) % n;
+    });
+  };
+
   return (
     <div className="cardwrap">
       <button
@@ -501,7 +597,7 @@ export function BotCard({
         className="card"
         data-bot-card={bot.id}
         aria-label={`${bot.name} (${bot.status})`}
-        onClick={() => onOpen()}
+        onClick={() => onChat()}
       >
         <span className="cardhead">
           <Avatar
@@ -513,12 +609,11 @@ export function BotCard({
           />
           <span className="cardtext">
             <strong title={bot.name}>{bot.name}</strong>
-            <StatusDot
-              id={bot.id}
-              health={bot.health}
-              label={HEALTH_LABEL[bot.health]}
-              active={bot.run_state === "running"}
-            />
+            {bot.role_name ? (
+              <em className="cardrole" title={bot.role_name}>
+                ({bot.role_name})
+              </em>
+            ) : null}
           </span>
         </span>
         {bot.current_task && !bot.status && (
@@ -545,16 +640,99 @@ export function BotCard({
           </>
         ) : null}
       </button>
-      <button
-        type="button"
-        className={`runcard${poking ? " poking" : ""}`}
-        aria-label={poking ? `${bot.name} is starting` : `Run ${bot.name} now`}
-        title="Run now"
-        disabled={!bot.enabled || !!poking}
-        onClick={() => onRun()}
-      >
-        {poking ? <SpinnerIcon size={14} /> : <PlayIcon size={14} />}
-      </button>
+      <div className="quickhead" ref={quickMenuRef}>
+        <button
+          type="button"
+          ref={quickTriggerRef}
+          className={`quickbtn${quickMenuOpen ? " open" : ""}`}
+          aria-label={`Quick menu for ${bot.name}`}
+          title="Quick menu"
+          aria-haspopup="menu"
+          aria-expanded={quickMenuOpen}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setQuickMenuFocus(0);
+            setQuickMenuOpen((o) => !o);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") e.preventDefault();
+            if (e.key === "ArrowDown" && !quickMenuOpen) {
+              e.preventDefault();
+              e.stopPropagation();
+              setQuickMenuFocus(0);
+              setQuickMenuOpen(true);
+            }
+          }}
+        >
+          <KebabIcon size={14} />
+        </button>
+        <StatusDot
+          id={bot.id}
+          health={bot.health}
+          label={HEALTH_LABEL[bot.health]}
+          active={bot.run_state === "running"}
+        />
+      </div>
+      {quickMenuOpen && quickPos
+        ? createPortal(
+            <div
+              className="quickpanel"
+              ref={quickPanelRef}
+              role="menu"
+              aria-label={`Actions for ${bot.name}`}
+              style={
+                {
+                  left: quickPos.left,
+                  top: quickPos.top,
+                  maxHeight: quickPos.maxHeight,
+                } as CSSProperties
+              }
+            >
+              {quickActions.map((a, i) => (
+                <button
+                  key={a.label}
+                  type="button"
+                  role="menuitem"
+                  ref={(el) => {
+                    quickItemRefs.current[i] = el;
+                  }}
+                  disabled={a.disabled}
+                  onClick={() => {
+                    closeQuickMenu();
+                    a.run();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      moveQuickFocus(1);
+                    } else if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      moveQuickFocus(-1);
+                    } else if (e.key === "Home") {
+                      e.preventDefault();
+                      setQuickMenuFocus(0);
+                    } else if (e.key === "End") {
+                      e.preventDefault();
+                      setQuickMenuFocus(quickActions.length - 1);
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      closeQuickMenu();
+                    }
+                  }}
+                >
+                  {a.label === "Run now" && poking ? (
+                    <SpinnerIcon size={14} />
+                  ) : (
+                    a.label
+                  )}
+                </button>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
@@ -624,9 +802,24 @@ export function App() {
   const [openBot, setOpenBot] = useState<string | null>(null);
   const [chatBot, setChatBot] = useState<string | null>(null);
   const [poking, setPoking] = useState<Record<string, boolean>>({});
+  const [paused, setPausedState] = useState(false);
+  const [quickConfirm, setQuickConfirm] = useState<{
+    bot: Bot;
+    action: "clear" | "delete";
+  } | null>(null);
+
+  const runQuickAction = (bot: Bot, action: "clear" | "delete") => {
+    const path =
+      action === "clear"
+        ? `/api/bots/${bot.id}/messages`
+        : `/api/bots/${bot.id}`;
+    void api(path, { method: "DELETE" })
+      .then(() => void load())
+      .catch(() => undefined);
+  };
 
   const poke = (bot: Bot) => {
-    if (!bot.enabled || poking[bot.id]) return;
+    if (!bot.enabled || paused || poking[bot.id]) return;
     setPoking((p) => ({ ...p, [bot.id]: true }));
     void api<{ runId: string }>(`/api/bots/${bot.id}/run`, { method: "POST" })
       .then((r) => waitFirstAction(bot.id, r.runId))
@@ -644,6 +837,8 @@ export function App() {
   const [statusSel, setStatusSel] = useState<Bot["health"][]>([]);
   const [roleSel, setRoleSel] = useState<string[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [tagSel, setTagSel] = useState<string[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
@@ -654,12 +849,18 @@ export function App() {
 
   const load = useCallback(async () => {
     try {
-      const [botData, notificationData, roleData] = await Promise.all([
-        api<Bot[]>("/api/bots"),
-        api<NotificationsResponse>("/api/notifications"),
-        api<Role[]>("/api/roles"),
-      ]);
+      const [botData, notificationData, roleData, tagData, pauseData] =
+        await Promise.all([
+          api<Bot[]>("/api/bots"),
+          api<NotificationsResponse>("/api/notifications"),
+          api<Role[]>("/api/roles"),
+          api<Tag[]>("/api/tags").catch(() => []),
+          api<{ paused: boolean }>("/api/pause").catch(() => ({
+            paused: false,
+          })),
+        ]);
       setBots(botData);
+      setPausedState(pauseData.paused);
       const prevSeen = seenNotifIds.current;
       if (localStorage.getItem("bots-sounds") === "on" && prevSeen) {
         const fresh = notificationData.items.filter((n) => !prevSeen.has(n.id));
@@ -672,6 +873,7 @@ export function App() {
       setNotifications(notificationData.items);
       setUnreadNotifications(notificationData.unread_count);
       setRoles(roleData);
+      setTags(tagData);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -735,6 +937,8 @@ export function App() {
     (bot) =>
       (statusSel.length === 0 || statusSel.includes(bot.health)) &&
       (roleSel.length === 0 || roleSel.includes(bot.role_id ?? "")) &&
+      (tagSel.length === 0 ||
+        (bot.tag_ids ?? []).some((t) => tagSel.includes(t))) &&
       (!botFilter || bot.name.toLowerCase().includes(botFilter)),
   );
 
@@ -814,7 +1018,30 @@ export function App() {
                 · <span className="redcount">{redCount} blocked</span>
               </>
             )}
+            {paused && (
+              <>
+                {" "}
+                · <span className="pausedcount">paused</span>
+              </>
+            )}
           </span>
+          <button
+            type="button"
+            className={`pausetoggle${paused ? " on" : ""}`}
+            aria-label={paused ? "Resume all bots" : "Pause all bots"}
+            title={paused ? "Resume all bots" : "Pause all bots"}
+            onClick={() =>
+              void api("/api/pause", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ paused: !paused }),
+              })
+                .then(() => void load())
+                .catch(() => undefined)
+            }
+          >
+            {paused ? "Resume" : "Pause"}
+          </button>
           <div className="notifwrap">
             <button
               type="button"
@@ -1036,6 +1263,37 @@ export function App() {
                       ))}
                     </div>
                   </details>
+                  {tags.length > 0 && (
+                    <details className="filterdd">
+                      <summary
+                        aria-label={`Tag filter: ${tagSel.length === 0 ? "All" : `${tagSel.length} selected`}`}
+                      >
+                        Tag:{" "}
+                        {tagSel.length === 0
+                          ? "All"
+                          : tagSel
+                              .map(
+                                (id) =>
+                                  tags.find((t) => t.id === id)?.name ?? "?",
+                              )
+                              .join(", ")}
+                      </summary>
+                      <div className="filterpanel">
+                        {tags.map((t) => (
+                          <label key={t.id} data-name={t.name}>
+                            <input
+                              type="checkbox"
+                              checked={tagSel.includes(t.id)}
+                              onChange={() =>
+                                setTagSel((v) => toggleIn(v, t.id))
+                              }
+                            />{" "}
+                            {t.name}
+                          </label>
+                        ))}
+                      </div>
+                    </details>
+                  )}
                 </div>
                 <div className="cards">
                   {visibleBots.map((bot) => (
@@ -1043,8 +1301,26 @@ export function App() {
                       key={bot.id}
                       bot={bot}
                       poking={!!poking[bot.id]}
-                      onOpen={() => setChatBot(bot.id)}
+                      paused={paused}
+                      onChat={() => setChatBot(bot.id)}
                       onRun={() => poke(bot)}
+                      onStop={() =>
+                        void api(`/api/bots/${bot.id}/interrupt`, {
+                          method: "POST",
+                        })
+                          .then(() => void load())
+                          .catch(() => undefined)
+                      }
+                      onSettings={() => {
+                        setOpenBot(bot.id);
+                        setDetailOpen(true);
+                      }}
+                      onClearMemory={() =>
+                        setQuickConfirm({ bot, action: "clear" })
+                      }
+                      onDelete={() =>
+                        setQuickConfirm({ bot, action: "delete" })
+                      }
                     />
                   ))}
                 </div>
@@ -1061,6 +1337,8 @@ export function App() {
             {tab === "skills" && <SkillsPanel />}
             {tab === "templates" && <TemplatesPanel />}
             {tab === "projects" && <ProjectsPanel />}
+            {tab === "tags" && <TagsPanel />}
+            {tab === "secrets" && <SecretsPanel />}
             {tab === "settings" && <SettingsPanel />}
           </main>
           {chatBotRow && (
@@ -1225,6 +1503,23 @@ export function App() {
               setPendingDiscard(null);
               clearAllDirty();
               p.fn();
+            }}
+          />
+        )}
+        {quickConfirm && (
+          <ConfirmDialog
+            text={
+              quickConfirm.action === "delete"
+                ? `Delete bot ${quickConfirm.bot.name}? This removes the bot, its triggers and run history.`
+                : `Clear the stored context of ${quickConfirm.bot.name}? The bot forgets its conversation history.`
+            }
+            confirmLabel={
+              quickConfirm.action === "delete" ? "Delete bot" : "Clear memory"
+            }
+            onCancel={() => setQuickConfirm(null)}
+            onConfirm={() => {
+              runQuickAction(quickConfirm.bot, quickConfirm.action);
+              setQuickConfirm(null);
             }}
           />
         )}
@@ -1564,6 +1859,22 @@ export function SpinnerIcon({ size = 14 }: { size?: number }) {
   );
 }
 
+export function KebabIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <circle cx="5" cy="12" r="2" />
+      <circle cx="12" cy="12" r="2" />
+      <circle cx="19" cy="12" r="2" />
+    </svg>
+  );
+}
+
 export function GearIcon({ size = 18 }: { size?: number }) {
   return (
     <svg
@@ -1632,6 +1943,8 @@ type Tab =
   | "skills"
   | "templates"
   | "projects"
+  | "tags"
+  | "secrets"
   | "settings";
 
 const TAB_PATHS: Record<Tab, string> = {
@@ -1643,6 +1956,8 @@ const TAB_PATHS: Record<Tab, string> = {
   skills: "/skills",
   templates: "/templates",
   projects: "/projects",
+  tags: "/tags",
+  secrets: "/secrets",
   settings: "/settings",
 };
 
@@ -1692,6 +2007,24 @@ function ProjectIcon({ size = 18 }: { size?: number }) {
   );
 }
 
+function TagIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82Z" />
+      <circle cx="7" cy="7" r="1.2" />
+    </svg>
+  );
+}
+
 function TemplateIcon({ size = 18 }: { size?: number }) {
   return (
     <svg
@@ -1724,6 +2057,8 @@ const NAV_ITEMS: {
   { id: "skills", label: "Skills", Icon: BookIcon },
   { id: "templates", label: "Templates", Icon: TemplateIcon },
   { id: "projects", label: "Projects", Icon: ProjectIcon },
+  { id: "tags", label: "Tags", Icon: TagIcon },
+  { id: "secrets", label: "Secrets", Icon: KeyIcon },
   { id: "settings", label: "Settings", Icon: GearIcon },
 ];
 
@@ -1757,11 +2092,6 @@ function Nav({
 const THEMES = ["light", "dark", "system"] as const;
 type Theme = (typeof THEMES)[number];
 
-function currentTheme(): Theme {
-  const stored = localStorage.getItem("bots-theme");
-  return stored === "light" || stored === "system" ? stored : "dark";
-}
-
 interface Provider {
   id: string;
   name: string;
@@ -1771,7 +2101,7 @@ interface Provider {
 }
 
 export function SettingsPanel() {
-  const [theme, setTheme] = useState<Theme>(currentTheme);
+  const [theme, setTheme] = useState<Theme>(readStoredTheme);
   const [idle, setIdle] = useState(5);
   const [savedIdle, setSavedIdle] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
@@ -1908,8 +2238,7 @@ export function SettingsPanel() {
   );
 
   const pick = (t: Theme) => {
-    localStorage.setItem("bots-theme", t);
-    document.documentElement.dataset.theme = t;
+    setStoredTheme(t);
     setTheme(t);
   };
 
@@ -3458,6 +3787,8 @@ export function BotGeneral({
         {HEALTH_LABEL[bot.health]}
       </p>
       <BotProjects botId={bot.id} />
+      <BotTags botId={bot.id} />
+      <BotSecrets botId={bot.id} />
       <BotTeams botId={bot.id} />
       <div className="actions">
         <label className="switch">
@@ -5314,5 +5645,559 @@ export function TemplatesPanel() {
         />
       )}
     </section>
+  );
+}
+
+export function TagsPanel() {
+  const [tags, setTags] = useState<Tag[]>([]);
+  const navGuard = useNavGuard();
+  const [creating, setCreating] = useState(false);
+  const [selTag, setSelTag] = useState<Tag | null>(null);
+
+  const load = useCallback(async () => {
+    setTags(await api<Tag[]>("/api/tags").catch(() => []));
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <section>
+      <div className="viewhead">
+        <h2>Tags</h2>
+        <button type="button" onClick={() => setCreating(true)}>
+          Add tag
+        </button>
+      </div>
+      {tags.length === 0 && (
+        <p className="muted">No tags yet — labels for organizing bots.</p>
+      )}
+      <div className="cards">
+        {tags.map((tag) => (
+          <button
+            type="button"
+            key={tag.id}
+            className="card"
+            onClick={() => navGuard(() => setSelTag(tag))}
+          >
+            <strong>{tag.name}</strong>
+            <span className="preview">
+              {tag.bot_count === 1 ? "1 bot" : `${tag.bot_count} bots`}
+            </span>
+          </button>
+        ))}
+      </div>
+      {(creating || selTag) && (
+        <TagModal
+          tag={selTag}
+          onClose={() => {
+            setCreating(false);
+            setSelTag(null);
+          }}
+          onSaved={() => {
+            setCreating(false);
+            setSelTag(null);
+            void load();
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+export function TagModal({
+  tag,
+  onClose,
+  onSaved,
+}: {
+  tag: Tag | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(tag?.name ?? "");
+  const [busy, setBusy] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const dirty = name.trim() !== (tag?.name ?? "") && name.trim() !== "";
+  const attemptClose = useDiscardGuard(
+    tag ? `tag ${tag.name}` : "this new tag",
+    dirty,
+    onClose,
+  );
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api(tag ? `/api/tags/${tag.id}` : "/api/tags", {
+        method: tag ? "PATCH" : "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      onSaved();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal">
+      <button
+        type="button"
+        className="mscrim"
+        aria-label="Cancel"
+        onClick={attemptClose}
+      />
+      <form
+        className="dialog narrow"
+        role="dialog"
+        aria-label={tag ? "Edit tag" : "Create tag"}
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+      >
+        <label className="field">
+          Name
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
+        </label>
+        <div className="actions">
+          <button type="submit" disabled={busy || !name.trim()}>
+            Save
+          </button>
+          <UnsavedNote dirty={dirty} />
+          {tag && (
+            <button
+              type="button"
+              className="danger"
+              disabled={busy}
+              onClick={() => setConfirmDel(true)}
+            >
+              Delete
+            </button>
+          )}
+        </div>
+      </form>
+      {confirmDel && tag && (
+        <ConfirmDialog
+          text={`Delete tag ${tag.name}? Bots keep running — the label is removed from them.`}
+          confirmLabel="Delete tag"
+          onCancel={() => setConfirmDel(false)}
+          onConfirm={() => {
+            api(`/api/tags/${tag.id}`, { method: "DELETE" })
+              .then(onSaved)
+              .catch((e) => alert(e.message));
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+export function BotTags({ botId }: { botId: string }) {
+  const [all, setAll] = useState<Tag[]>([]);
+  const [attached, setAttached] = useState<string[]>([]);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void api<Tag[]>("/api/tags")
+      .then(setAll)
+      .catch(() => setAll([]));
+    void api<{ tag_ids: string[] }>(`/api/bots/${botId}`)
+      .then((b) => setAttached(b.tag_ids ?? []))
+      .catch(() => undefined);
+  }, [botId]);
+
+  const save = (next: string[]) => {
+    setBusy(true);
+    api(`/api/bots/${botId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tag_ids: next }),
+    })
+      .then(() => setAttached(next))
+      .catch((e) => alert(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBusy(false));
+  };
+
+  const q = text.trim().toLowerCase();
+  const suggestions = all.filter(
+    (t) => !attached.includes(t.id) && t.name.toLowerCase().includes(q),
+  );
+
+  const commit = async () => {
+    const name = text.trim();
+    if (!name || busy) return;
+    const existing = all.find((t) => t.name.toLowerCase() === q);
+    if (existing) {
+      if (!attached.includes(existing.id)) save([...attached, existing.id]);
+      setText("");
+      return;
+    }
+    setBusy(true);
+    try {
+      const created = await api<Tag>("/api/tags", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      setAll((list) => [...list, created]);
+      save([...attached, created.id]);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+    setText("");
+  };
+
+  return (
+    <div className="bottags">
+      <span>Tags</span>
+      <div className="tagchips">
+        {attached.map((id) => {
+          const t = all.find((x) => x.id === id);
+          if (!t) return null;
+          return (
+            <span key={id} className="chip">
+              {t.name}
+              <button
+                type="button"
+                aria-label={`Remove ${t.name}`}
+                disabled={busy}
+                onClick={() => save(attached.filter((x) => x !== id))}
+              >
+                ×
+              </button>
+            </span>
+          );
+        })}
+      </div>
+      <input
+        className="tagadd"
+        placeholder="Add tag — Enter attaches or creates"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            void commit();
+          }
+        }}
+      />
+      {q !== "" && suggestions.length > 0 && (
+        <div className="tagsuggest">
+          {suggestions.slice(0, 8).map((t) => (
+            <button
+              type="button"
+              key={t.id}
+              disabled={busy}
+              onClick={() => {
+                save([...attached, t.id]);
+                setText("");
+              }}
+            >
+              {t.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function KeyIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+    </svg>
+  );
+}
+
+interface SecretMeta {
+  id: string;
+  name: string;
+  key: string;
+  created_at: number;
+}
+
+export function SecretsPanel() {
+  const [secrets, setSecrets] = useState<SecretMeta[]>([]);
+  const navGuard = useNavGuard();
+  const [creating, setCreating] = useState(false);
+  const [selSecret, setSelSecret] = useState<SecretMeta | null>(null);
+
+  const load = useCallback(async () => {
+    setSecrets(await api<SecretMeta[]>("/api/secrets").catch(() => []));
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <section>
+      <div className="viewhead">
+        <h2>Secrets</h2>
+        <button type="button" onClick={() => setCreating(true)}>
+          Add secret
+        </button>
+      </div>
+      {secrets.length === 0 && (
+        <p className="muted">
+          No secrets yet — env vars injected into sandboxes at start.
+        </p>
+      )}
+      <div className="cards">
+        {secrets.map((s) => (
+          <button
+            type="button"
+            key={s.id}
+            className="card"
+            onClick={() => navGuard(() => setSelSecret(s))}
+          >
+            <strong>{s.name}</strong>
+            <span className="preview">
+              <code>{s.key}</code>
+            </span>
+          </button>
+        ))}
+      </div>
+      {(creating || selSecret) && (
+        <SecretModal
+          secret={selSecret}
+          onClose={() => {
+            setCreating(false);
+            setSelSecret(null);
+          }}
+          onSaved={() => {
+            setCreating(false);
+            setSelSecret(null);
+            void load();
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+export function SecretModal({
+  secret,
+  onClose,
+  onSaved,
+}: {
+  secret: SecretMeta | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(secret?.name ?? "");
+  const [key, setKey] = useState(secret?.key ?? "");
+  const [value, setValue] = useState("");
+  const [revealed, setRevealed] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+  const dirty =
+    name.trim() !== (secret?.name ?? "") ||
+    key !== (secret?.key ?? "") ||
+    value !== "";
+
+  const reveal = async () => {
+    if (!secret) return;
+    if (revealed !== null) {
+      setRevealed(null);
+      return;
+    }
+    try {
+      const r = await api<{ value: string }>(`/api/secrets/${secret.id}/value`);
+      setRevealed(r.value);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      if (secret) {
+        await api(`/api/secrets/${secret.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            name: name.trim(),
+            key,
+            ...(value ? { value } : {}),
+          }),
+        });
+      } else {
+        await api("/api/secrets", {
+          method: "POST",
+          body: JSON.stringify({ name: name.trim(), key, value }),
+        });
+      }
+      onSaved();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal">
+      <button
+        type="button"
+        className="mscrim"
+        aria-label="Cancel"
+        onClick={onClose}
+      />
+      <form
+        className="dialog narrow"
+        role="dialog"
+        aria-label={secret ? "Edit secret" : "Create secret"}
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+      >
+        <label className="field">
+          Name
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
+        </label>
+        <label className="field">
+          Env var key
+          <input
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            pattern="[A-Za-z_][A-Za-z0-9_]*"
+            required
+          />
+        </label>
+        {secret ? (
+          <div className="field">
+            Value
+            <div className="row">
+              <input
+                value={revealed !== null ? revealed : ""}
+                onChange={(e) => {
+                  setRevealed(e.target.value);
+                  setValue(e.target.value);
+                }}
+                type={revealed === null ? "password" : "text"}
+                placeholder="•••••••• (unchanged unless typed)"
+              />
+              <button
+                type="button"
+                onClick={() => void reveal()}
+                title={revealed === null ? "Reveal saved value" : "Hide value"}
+              >
+                {revealed === null ? "Show" : "Hide"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <label className="field">
+            Value
+            <input
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              required
+            />
+          </label>
+        )}
+        <div className="actions">
+          <button
+            type="submit"
+            disabled={busy || !name.trim() || !KEY_RE.test(key)}
+          >
+            Save
+          </button>
+          {secret && (
+            <button
+              type="button"
+              className="danger"
+              disabled={busy}
+              onClick={() => setConfirmDel(true)}
+            >
+              Delete
+            </button>
+          )}
+        </div>
+      </form>
+      {confirmDel && secret && (
+        <ConfirmDialog
+          text={`Delete ${secret.name}? Sandboxes using it must be restarted to drop the variable.`}
+          confirmLabel="Delete secret"
+          onCancel={() => setConfirmDel(false)}
+          onConfirm={() => {
+            api(`/api/secrets/${secret.id}`, { method: "DELETE" })
+              .then(onSaved)
+              .catch((e) => alert(e instanceof Error ? e.message : String(e)));
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+export function BotSecrets({ botId }: { botId: string }) {
+  const [all, setAll] = useState<SecretMeta[]>([]);
+  const [attached, setAttached] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void api<SecretMeta[]>("/api/secrets")
+      .then(setAll)
+      .catch(() => setAll([]));
+    void api<{ secret_ids: string[] }>(`/api/bots/${botId}`)
+      .then((b) => setAttached(b.secret_ids ?? []))
+      .catch(() => undefined);
+  }, [botId]);
+
+  if (all.length === 0) return null;
+
+  const toggle = (id: string) => {
+    const next = attached.includes(id)
+      ? attached.filter((x) => x !== id)
+      : [...attached, id];
+    setBusy(true);
+    api(`/api/bots/${botId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ secret_ids: next }),
+    })
+      .then(() => setAttached(next))
+      .catch((e) => alert(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div className="botsecrets">
+      {all.map((s) => (
+        <label key={s.id}>
+          <input
+            type="checkbox"
+            disabled={busy}
+            checked={attached.includes(s.id)}
+            onChange={() => toggle(s.id)}
+          />{" "}
+          {s.name} <code>{s.key}</code>
+        </label>
+      ))}
+    </div>
   );
 }
