@@ -22,14 +22,12 @@ The API and UI are login-protected. Sessions live in an HttpOnly cookie for 7 da
 
 ## The console
 
-Open the web UI (default `http://localhost:8075`). The status bar up top shows totals at a glance and carries the global **Pause/Resume** toggle that holds or releases every bot at once; the sidebar switches between **Bots**, **Teams**, **Roles**, **Machines**, **Integrations**, **Skills**, **Templates**, **Projects**, **Tags** and **Settings**. Each tab owns a URL (`/bots`, `/teams`, `/roles`, `/machines`, `/integrations`, `/skills`, `/templates`, `/projects`, `/tags`, `/settings`) — links open the tab directly, reloading keeps it, and Back/Forward walk between tabs.
-
-Settings offers the theme as one segmented control — `Light | Dark | System`. The choice applies instantly, persists per device, and is applied before first paint; **System** follows your OS light/dark preference live while selected (dark when there is no saved choice).
+Open the web UI (default `http://localhost:8075`). The status bar up top shows totals at a glance and carries the global **Pause/Resume** toggle that holds or releases every bot at once. The sidebar switches between **Bots**, **Teams**, **Roles**, **Machines**, **Integrations**, **Skills**, **Templates**, **Projects**, **Tags** and **Settings**; each tab owns a URL (e.g. `/bots`, `/teams`), so links open it directly, reloads keep it, and Back/Forward walk between tabs. Settings offers the theme as one segmented control — `Light | Dark | System`; the choice applies instantly, persists per device, and **System** follows your OS preference live (dark when there is no saved choice).
 
 1. **Configure a model first** — Settings → LLM providers: add an OpenAI-compatible provider (base URL + API key) and pick a default model. Bots without their own model use the default; with none configured they show **Blocked**.
 2. **Add a bot** — "Add bot" suggests a random name (↻ reshuffles it). Instructions and role are optional.
 3. **Run it** — press **Run now**, or add a trigger (cron / `@every 10m`, or a webhook) so the bot fires itself.
-4. **Watch it work** — clicking a bot card opens its Chat sidebar; the gear in that sidebar opens General / Triggers / Logs tabs and actions. The colored dot on every card is its health level; it pulses only while a bot has an active run (thinking, LLM calls, or tools), out of sync with other cards. Stopped dots remain steady, including under reduced-motion settings.
+4. **Watch it work** — clicking a bot card opens its Chat sidebar; the gear in that sidebar opens General / Triggers / Logs tabs and actions. The colored dot on every card is its health level (table below); it pulses only while a run is active, each card independently.
 
 ## Health levels at a glance
 

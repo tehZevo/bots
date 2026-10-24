@@ -6,12 +6,13 @@ Self-hosted autonomous bots that run against any OpenAI-compatible LLM endpoint 
 
 ## Features
 
-- **Bots with persistent memory** — each bot keeps one growing conversation; long histories are summarized automatically. Clear it anytime (with confirmation).
-- **Roles** — reusable system prompts assignable to bots; the effective prompt is the bot's own text plus its role's instructions.
-- **Triggers** — run a message on cron expressions (`0 9 * * MON-FRI`) or intervals (`@every 30m`). Messages arriving while a bot is busy steer the active run instead of queueing.
-- **Manual control** — Run now, Stop (interrupts a running loop mid-flight), enable/disable, per-bot run history with output and errors in a tabbed detail view.
-- **Sandboxed tools** — `shell` runs bash inside the bot's own Docker container (only its workspace mounted at `/workspace`, no host env or secrets leak in); `web_fetch` does GET + HTML-to-text.
-- **Search & filter** — find bots by name and status; search roles.
+- **Bots with persistent memory** — each bot keeps one growing conversation; long histories are summarized automatically, and you can clear it anytime.
+- **Roles & capabilities** — reusable instructions plus granted skills and MCP tools; the effective prompt is the bot's own text plus its role's instructions and grants.
+- **Triggers** — run a message on cron expressions (`0 9 * * MON-FRI`) or intervals (`@every 30m`), or via webhook URLs with bearer secrets. Messages arriving while a bot is busy steer the active run instead of queueing.
+- **Manual control** — Run now, Stop (interrupts a running loop mid-flight), global pause, enable/disable, per-bot run history with output and errors in a tabbed detail view.
+- **Sandboxed tools** — `shell` runs bash inside the bot's own Docker container (only its workspace mounted at `/workspace`, no host env or secrets leak in); `web_fetch` does GET + HTML-to-text. Custom sandbox images ("machines") build from per-machine Dockerfiles.
+- **Teams, projects & tags** — group bots with leader designation and bot-to-bot DMs; attach shared markdown context to any number of bots; label and filter freely.
+- **Search & filter** — find bots by name, status, role, or tag; search roles.
 - **Clean UI** — light/dark/system themes, modals with keyboard/outside-tap handling, mobile-friendly layout.
 
 ## Run it
@@ -44,7 +45,7 @@ services:
     image: ghcr.io/tehzevo/bots:latest
     ports: ["8075:8075"]
     volumes:
-      - ./data:/app/data
+      - ./data:/data            # must be /data (DATA_DIR)
       - /var/run/docker.sock:/var/run/docker.sock
     # SANDBOX_IMAGE only needed to point at a custom sandbox build
 ```
