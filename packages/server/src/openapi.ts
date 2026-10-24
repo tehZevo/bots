@@ -127,6 +127,22 @@ export function openApiDoc(): Json {
     },
   );
   add("/api/bots/{id}/runs", "get", "Run history", { params: ["id"] });
+  add(
+    "/api/bots/{id}/usage",
+    "get",
+    "Lifetime and trailing-30-day token totals plus the configured budget",
+    {
+      params: ["id"],
+    },
+  );
+  add(
+    "/api/bots/{id}/context-usage",
+    "get",
+    "Estimated context split (system prompt, tools, conversation, free)",
+    {
+      params: ["id"],
+    },
+  );
   add("/api/bots/{id}/messages", "get", "Conversation memory", {
     params: ["id"],
   });
@@ -391,6 +407,7 @@ export function openApiDoc(): Json {
             machine_id: strOrNone,
             sound: strOrNone,
             enabled: { type: "integer" },
+            token_budget: { type: ["integer", "null"] },
             created_at: { type: "integer" },
             health: { enum: ["green", "blue", "yellow", "red", "gray"] },
             run_state: { enum: ["running", "enabled", "disabled"] },
@@ -407,6 +424,7 @@ export function openApiDoc(): Json {
             machine_id: strOrNone,
             sound: strOrNone,
             enabled: { type: "boolean" },
+            token_budget: { type: ["integer", "null"] },
           },
         },
         Tag: {

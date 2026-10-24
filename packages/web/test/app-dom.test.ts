@@ -128,6 +128,33 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     ]);
   }
   if (url === "/api/bots/b1/messages" && method === "POST") return json({});
+  if (url === "/api/bots/b1/context-usage") {
+    return json({
+      context_window: 32000,
+      categories: { system_prompt: 4000, tools: 2000, conversation: 800 },
+      used: 6800,
+      free: 25200,
+    });
+  }
+  if (url === "/api/bots/b1/usage") {
+    return json({
+      budget: 20000,
+      lifetime: {
+        input: 1200,
+        output: 340,
+        cache_read: 8100,
+        cache_write: 90,
+        total: 9730,
+      },
+      last30d: {
+        input: 400,
+        output: 90,
+        cache_read: 2000,
+        cache_write: 10,
+        total: 2500,
+      },
+    });
+  }
   if (url === "/api/bots/b1/runs") {
     return json([
       {
@@ -633,6 +660,22 @@ test("tag picker offers + Create when nothing matches and attaches on click", as
   }
 });
 
+test("stats tab shows budget progress and editing controls", async () => {
+  const root = await mount(React.createElement(App));
+  try {
+    await click(byLabel("Sable (null)"));
+    await click(byLabel("Sable settings"));
+    await click(button("Stats"));
+    assert.match(window.document.body.textContent ?? "", /of 20,000 tokens/);
+    assert.match(window.document.body.textContent ?? "", /30-day token budget/);
+    assert.ok(button("Save budget"));
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
 test("tag picker Enter attaches an exact existing tag without creating", async () => {
   const root = await mount(React.createElement(BotTags, { botId: "b1" }));
   try {
@@ -653,6 +696,26 @@ test("tag picker Enter attaches an exact existing tag without creating", async (
       postsBefore,
     );
     assert.ok(requests.includes("PATCH /api/bots/b1"), "attach PATCH expected");
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("stats tab shows lifetime and trailing-30-day token totals", async () => {
+  const root = await mount(React.createElement(App));
+  try {
+    await click(byLabel("Sable (null)"));
+    await click(byLabel("Sable settings"));
+    await click(button("Stats"));
+    assert.match(window.document.body.textContent ?? "", /Lifetime/);
+    assert.match(window.document.body.textContent ?? "", /Last 30 days/);
+    assert.match(window.document.body.textContent ?? "", /Cache read/);
+    assert.match(window.document.body.textContent ?? "", /9[,.]?730/);
+    assert.match(window.document.body.textContent ?? "", /Current context/);
+    assert.match(window.document.body.textContent ?? "", /System prompt/);
+    assert.match(window.document.body.textContent ?? "", /Free space/);
   } finally {
     await act(async () => {
       root.unmount();

@@ -22,6 +22,7 @@ The settings modal (opened from the chat sidebar's gear) holds:
 - **General** — name and instructions editing, role, machine, projects and tags pickers, with Save disabled until one of them changes (see [Editors & unsaved changes](/editors)); enable toggle switch, Stop while running, Restart machine, Clear memory, Delete.
 - **Triggers** — schedule and webhook triggers, each with its own pause switch ([details](/triggers-scheduling)).
 - **Logs** — run history: trigger source, status (ok/error), output, errors.
+- **Stats** — token usage totals per bot: input, output, cache read/write and total for the lifetime and the last 30 days, from every recorded run. A **Current context (estimated)** section shows the live context split as a stacked bar with counts and percentages for system prompt, tool definitions, conversation and free space against the model's context window — estimated with the same estimator compaction uses (never provider usage, never calls the model), refreshed when the modal opens and every few seconds while a run is active; without a model it shows only the estimated used total. An optional trailing-30-day **token budget** (total tokens; empty = unlimited) can be set or cleared here with a progress bar; once usage is at or above it, new runs are refused without calling the model (`token budget exhausted`, a Blocked cue — raising or clearing the budget lets the next run proceed), and a run that reaches it mid-flight stops after its current turn keeping completed requests' usage.
 
 ## Lifecycle
 
