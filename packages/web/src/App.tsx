@@ -803,6 +803,20 @@ export function App() {
   const [chatBot, setChatBot] = useState<string | null>(null);
   const [poking, setPoking] = useState<Record<string, boolean>>({});
   const [paused, setPausedState] = useState(false);
+  const [quickConfirm, setQuickConfirm] = useState<{
+    bot: Bot;
+    action: "clear" | "delete";
+  } | null>(null);
+
+  const runQuickAction = (bot: Bot, action: "clear" | "delete") => {
+    const path =
+      action === "clear"
+        ? `/api/bots/${bot.id}/messages`
+        : `/api/bots/${bot.id}`;
+    void api(path, { method: "DELETE" })
+      .then(() => void load())
+      .catch(() => undefined);
+  };
 
   const poke = (bot: Bot) => {
     if (!bot.enabled || paused || poking[bot.id]) return;
@@ -1302,16 +1316,10 @@ export function App() {
                         setDetailOpen(true);
                       }}
                       onClearMemory={() =>
-                        void api(`/api/bots/${bot.id}/messages`, {
-                          method: "DELETE",
-                        })
-                          .then(() => void load())
-                          .catch(() => undefined)
+                        setQuickConfirm({ bot, action: "clear" })
                       }
                       onDelete={() =>
-                        void api(`/api/bots/${bot.id}`, { method: "DELETE" })
-                          .then(() => void load())
-                          .catch(() => undefined)
+                        setQuickConfirm({ bot, action: "delete" })
                       }
                     />
                   ))}
@@ -1495,6 +1503,23 @@ export function App() {
               setPendingDiscard(null);
               clearAllDirty();
               p.fn();
+            }}
+          />
+        )}
+        {quickConfirm && (
+          <ConfirmDialog
+            text={
+              quickConfirm.action === "delete"
+                ? `Delete bot ${quickConfirm.bot.name}? This removes the bot, its triggers and run history.`
+                : `Clear the stored context of ${quickConfirm.bot.name}? The bot forgets its conversation history.`
+            }
+            confirmLabel={
+              quickConfirm.action === "delete" ? "Delete bot" : "Clear memory"
+            }
+            onCancel={() => setQuickConfirm(null)}
+            onConfirm={() => {
+              runQuickAction(quickConfirm.bot, quickConfirm.action);
+              setQuickConfirm(null);
             }}
           />
         )}

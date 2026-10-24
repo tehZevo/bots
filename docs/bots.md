@@ -41,7 +41,7 @@ Every bot card carries a small three-dot button in the card header at the top of
 - **Run now** — starts a loop with the default nudge; see [Lifecycle](#lifecycle).
 - **Stop** — interrupts the live loop; listed only while the bot is running.
 - **Settings** — opens this bot's settings modal.
-- **Clear memory** — drops stored context immediately, no confirmation.
+- **Clear memory** — drops stored context (confirmation required, like everywhere else).
 - **Delete** — removes the bot (confirmation required).
 
 The menu closes on selection, on outside click or on Escape, and is fully keyboard reachable: arrow keys plus Home/End move between items. Actions apply to that bot only; cards keep refreshing with the regular dashboard polling.
