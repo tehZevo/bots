@@ -230,3 +230,34 @@ test("raising the budget lets runs proceed again", async () => {
   ).length;
   assert.equal(refusalsAfter, refusalsBefore);
 });
+
+test("context breakdown estimates categories without a model", async () => {
+  const res = await authedRequest(`/api/bots/${BOT}/context-usage`);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as {
+    context_window: number | null;
+    categories: Record<string, number>;
+    used: number;
+    free: number | null;
+  };
+  assert.equal(body.context_window, null);
+  assert.equal(body.free, null);
+  assert.ok(
+    body.categories.system_prompt > 0,
+    "system prompt should estimate non-zero",
+  );
+  assert.ok(body.categories.tools > 0, "tool defs should estimate non-zero");
+  assert.equal(
+    body.used,
+    body.categories.system_prompt +
+      body.categories.tools +
+      body.categories.conversation,
+  );
+});
+
+test("unknown bot context breakdown is 404", async () => {
+  assert.equal(
+    (await authedRequest("/api/bots/nope/context-usage")).status,
+    404,
+  );
+});

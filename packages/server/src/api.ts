@@ -11,6 +11,7 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import {
+  estimateContext,
   injectMessage,
   interruptBot,
   isLoopActive,
@@ -1734,6 +1735,12 @@ export function createApp() {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
     return c.json({ ...botUsageTotals(bot.id), budget: bot.token_budget });
+  });
+
+  app.get("/api/bots/:id/context-usage", (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    return c.json(estimateContext(bot));
   });
 
   app.get("/api/bots/:id/messages", (c) => {

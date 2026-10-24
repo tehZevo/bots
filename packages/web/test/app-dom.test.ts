@@ -126,6 +126,14 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     ]);
   }
   if (url === "/api/bots/b1/messages" && method === "POST") return json({});
+  if (url === "/api/bots/b1/context-usage") {
+    return json({
+      context_window: 32000,
+      categories: { system_prompt: 4000, tools: 2000, conversation: 800 },
+      used: 6800,
+      free: 25200,
+    });
+  }
   if (url === "/api/bots/b1/usage") {
     return json({
       budget: 20000,
@@ -644,6 +652,9 @@ test("stats tab shows lifetime and trailing-30-day token totals", async () => {
     assert.match(window.document.body.textContent ?? "", /Last 30 days/);
     assert.match(window.document.body.textContent ?? "", /Cache read/);
     assert.match(window.document.body.textContent ?? "", /9[,.]?730/);
+    assert.match(window.document.body.textContent ?? "", /Current context/);
+    assert.match(window.document.body.textContent ?? "", /System prompt/);
+    assert.match(window.document.body.textContent ?? "", /Free space/);
   } finally {
     await act(async () => {
       root.unmount();

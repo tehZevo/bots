@@ -1480,7 +1480,11 @@ export function App() {
                     </>
                   )}
                   {modalTab === "stats" && (
-                    <BotStats key={openBotRow.id} botId={openBotRow.id} />
+                    <BotStats
+                      key={openBotRow.id}
+                      botId={openBotRow.id}
+                      running={openBotRow.run_state === "running"}
+                    />
                   )}
                 </div>
               </div>
@@ -3691,7 +3695,40 @@ interface UsageTotals {
   total: number;
 }
 
-export function BotStats({ botId }: { botId: string }) {
+function pctOf(tokens: number, window: number): number {
+  if (!window || window <= 0) return 0;
+  return Math.min(100, Math.round((tokens / window) * 100));
+}
+
+const CTX_ROWS: [
+  string,
+  "system_prompt" | "tools" | "conversation" | "free",
+  string,
+][] = [
+  ["System prompt", "system_prompt", "sys"],
+  ["Tool definitions", "tools", "tools"],
+  ["Conversation", "conversation", "conv"],
+  ["Free space", "free", "free"],
+];
+
+interface ContextBreakdownData {
+  context_window: number | null;
+  categories: {
+    system_prompt: number;
+    tools: number;
+    conversation: number;
+  };
+  used: number;
+  free: number | null;
+}
+
+export function BotStats({
+  botId,
+  running = false,
+}: {
+  botId: string;
+  running?: boolean;
+}) {
   const zero: UsageTotals = {
     input: 0,
     output: 0,
@@ -3707,6 +3744,8 @@ export function BotStats({ botId }: { botId: string }) {
   const [budgetText, setBudgetText] = useState("");
   const [budgetDirty, setBudgetDirty] = useState(false);
 
+  const [ctx, setCtx] = useState<ContextBreakdownData | null>(null);
+
   useEffect(() => {
     let active = true;
     api<{
@@ -3721,10 +3760,25 @@ export function BotStats({ botId }: { botId: string }) {
         setBudgetDirty(false);
       })
       .catch(() => undefined);
+    api<ContextBreakdownData>(`/api/bots/${botId}/context-usage`)
+      .then((data) => {
+        if (active) setCtx(data);
+      })
+      .catch(() => undefined);
     return () => {
       active = false;
     };
   }, [botId]);
+
+  useEffect(() => {
+    if (!running) return undefined;
+    const timer = setInterval(() => {
+      api<ContextBreakdownData>(`/api/bots/${botId}/context-usage`)
+        .then(setCtx)
+        .catch(() => undefined);
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [botId, running]);
 
   const saveBudget = async () => {
     const trimmed = budgetText.trim();
@@ -3821,6 +3875,53 @@ export function BotStats({ botId }: { botId: string }) {
         >
           Save budget
         </button>
+      </div>
+      <div className="ctxbox">
+        <h3>Current context (estimated)</h3>
+        {ctx && ctx.context_window != null ? (
+          <>
+            <div className="ctxbar" aria-hidden="true">
+              <div
+                className="seg seg-sys"
+                style={{
+                  width: `${pctOf(ctx.categories.system_prompt, ctx.context_window)}%`,
+                }}
+              />
+              <div
+                className="seg seg-tools"
+                style={{
+                  width: `${pctOf(ctx.categories.tools, ctx.context_window)}%`,
+                }}
+              />
+              <div
+                className="seg seg-conv"
+                style={{
+                  width: `${pctOf(ctx.categories.conversation, ctx.context_window)}%`,
+                }}
+              />
+            </div>
+            <ul className="ctxlegend">
+              {CTX_ROWS.map(([label, key, cls]) => {
+                const tokens =
+                  key === "free" ? (ctx.free ?? 0) : ctx.categories[key];
+                return (
+                  <li key={key}>
+                    <span className={`dot ${cls}`} aria-hidden="true" />
+                    <span>{label}</span>
+                    <span>{nf.format(tokens)}</span>
+                    <span>{pctOf(tokens, ctx.context_window ?? 0)}%</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        ) : (
+          <p className="muted">
+            {ctx
+              ? `~${nf.format(ctx.used)} tokens in use — no model configured`
+              : "Loading…"}
+          </p>
+        )}
       </div>
       <p className="muted">
         A run that reaches the budget stops after its current turn; raising or
