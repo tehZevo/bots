@@ -130,7 +130,7 @@ export function openApiDoc(): Json {
   add(
     "/api/bots/{id}/usage",
     "get",
-    "Lifetime and trailing-30-day token totals",
+    "Lifetime and trailing-30-day token totals plus the configured budget",
     {
       params: ["id"],
     },
@@ -399,6 +399,7 @@ export function openApiDoc(): Json {
             machine_id: strOrNone,
             sound: strOrNone,
             enabled: { type: "integer" },
+            token_budget: { type: ["integer", "null"] },
             created_at: { type: "integer" },
             health: { enum: ["green", "blue", "yellow", "red", "gray"] },
             run_state: { enum: ["running", "enabled", "disabled"] },
@@ -415,6 +416,7 @@ export function openApiDoc(): Json {
             machine_id: strOrNone,
             sound: strOrNone,
             enabled: { type: "boolean" },
+            token_budget: { type: ["integer", "null"] },
           },
         },
         Tag: {

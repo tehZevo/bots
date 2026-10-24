@@ -178,6 +178,46 @@ button {
   font-weight: 600;
 }
 
+.budgetbox {
+  margin-bottom: 0.9rem;
+}
+.budgetline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
+}
+.budgetbar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--hover);
+  overflow: hidden;
+}
+.budgetbar .fill {
+  height: 100%;
+  background: var(--info);
+  border-radius: 999px;
+}
+.budgetbar .fill.over {
+  background: var(--err);
+}
+.budgetedit {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+.budgetedit label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  flex: 1;
+}
+
 .mainhead {
   display: flex;
   align-items: center;

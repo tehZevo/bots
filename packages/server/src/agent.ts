@@ -31,6 +31,7 @@ import {
   recordRunUsage,
   replaceMessages,
   sharesTeamWith,
+  sumUsage,
   supersedeInterruptedRuns,
   teammatesOf,
 } from "./db.ts";
@@ -273,9 +274,11 @@ interface LiveLoop {
   agent: Agent;
   runId: string;
   stopped: boolean;
+  budgetHit: boolean;
 }
 
 const liveLoops = new Map<string, LiveLoop>();
+const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
 
 export interface InjectResult {
   runId: string | null;
@@ -375,10 +378,18 @@ async function startLoop(
     },
   });
 
-  const loop: LiveLoop = { agent, runId, stopped: false };
+  const loop: LiveLoop = {
+    agent,
+    runId,
+    stopped: false,
+    budgetHit: false,
+  };
   liveLoops.set(bot.id, loop);
 
   const usageTotals = { input: 0, output: 0, cache_read: 0, cache_write: 0 };
+  const budgetBaseline = bot.token_budget
+    ? sumUsage(bot.id, Date.now() - THIRTY_DAYS).total
+    : 0;
   const unsubscribeUsage = agent.subscribe((event) => {
     if (event.type !== "message_end") return;
     const msg = event.message as Message;
@@ -387,6 +398,17 @@ async function startLoop(
       usageTotals.output += msg.usage.output || 0;
       usageTotals.cache_read += msg.usage.cacheRead || 0;
       usageTotals.cache_write += msg.usage.cacheWrite || 0;
+      if (bot.token_budget && !loop.budgetHit) {
+        const spent =
+          usageTotals.input +
+          usageTotals.output +
+          usageTotals.cache_read +
+          usageTotals.cache_write;
+        if (budgetBaseline + spent >= bot.token_budget) {
+          loop.budgetHit = true;
+          agent.abort();
+        }
+      }
     }
   });
   const recordUsage = () => {
@@ -403,6 +425,15 @@ async function startLoop(
       while (!loop.stopped && !isPaused() && agent.hasQueuedMessages())
         await agent.continue();
       persistence.appendUnpersisted(agent.state.messages);
+      if (loop.budgetHit && !loop.stopped) {
+        finishRun(
+          runId,
+          "error",
+          lastAssistantText(agent.state.messages),
+          "token budget exhausted",
+        );
+        return;
+      }
       if (loop.stopped) {
         finishRun(
           runId,
@@ -435,11 +466,13 @@ async function startLoop(
         runId,
         "error",
         partial,
-        loop.stopped
-          ? "interrupted"
-          : err instanceof Error
-            ? err.message
-            : String(err),
+        loop.budgetHit
+          ? "token budget exhausted"
+          : loop.stopped
+            ? "interrupted"
+            : err instanceof Error
+              ? err.message
+              : String(err),
       );
     } finally {
       recordUsage();
@@ -493,6 +526,29 @@ export function injectMessage(
     return { runId: live.runId, steered: true };
   }
   const runId = randomUUID();
+  if (bot.token_budget && bot.token_budget > 0) {
+    const used = sumUsage(bot.id, Date.now() - THIRTY_DAYS).total;
+    if (used >= bot.token_budget) {
+      insertRun({
+        id: runId,
+        bot_id: bot.id,
+        status: "error",
+        trigger: kind,
+        started_at: Date.now(),
+        finished_at: Date.now(),
+        output: null,
+        error: "token budget exhausted",
+      });
+      createNotification({
+        kind: "run_error",
+        title: `${bot.name}: run failed`,
+        body: `Run ${kind} ended in error: token budget exhausted.`,
+        botId: bot.id,
+        dedupeKey: `run-error:${runId}`,
+      });
+      return { runId, steered: false };
+    }
+  }
   const llm = resolveDefault(bot.model_id);
   if (!llm) {
     insertRun({
