@@ -37,7 +37,9 @@ globalThis.alert = () => undefined;
 
 const React = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { App, BotCard, BotGeneral, Triggers } = await import("../src/App.tsx");
+const { App, BotCard, BotGeneral, BotTags, Triggers } = await import(
+  "../src/App.tsx"
+);
 const act = React.act;
 
 const now = Date.now();
@@ -215,7 +217,16 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       control_mcp_enabled: true,
     });
   }
-  if (url === "/api/tags") {
+  if (url === "/api/tags" && method === "POST") {
+    const name = String(JSON.parse(String(init?.body)).name);
+    if (name.startsWith("fail"))
+      return new Response(JSON.stringify({ error: "name already exists" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    return json({ id: "g3", name, created_at: now, bot_count: 0 });
+  }
+  if (url === "/api/tags" && method === "GET") {
     return json([
       { id: "g1", name: "prod", created_at: now, bot_count: 2 },
       { id: "g2", name: "experiments", created_at: now, bot_count: 0 },
@@ -626,6 +637,29 @@ test("quick menu destructive actions ask for confirmation first", async () => {
   }
 });
 
+test("tag picker offers + Create when nothing matches and attaches on click", async () => {
+  const root = await mount(React.createElement(BotTags, { botId: "b1" }));
+  try {
+    await typeInto(window.document.querySelector(".tagadd"), "stage");
+    assert.ok(button('+ Create "stage"'));
+    const postsBefore = requests.filter((r) => r === "POST /api/tags").length;
+    await click(button('+ Create "stage"'));
+    assert.equal(
+      requests.filter((r) => r === "POST /api/tags").length,
+      postsBefore + 1,
+    );
+    assert.ok(requests.includes("PATCH /api/bots/b1"), "attach PATCH expected");
+    const chips = [...window.document.querySelectorAll(".chip")].map(
+      (c) => c.textContent ?? "",
+    );
+    assert.ok(chips.some((c) => c.includes("stage")));
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
 test("stats tab shows budget progress and editing controls", async () => {
   const root = await mount(React.createElement(App));
   try {
@@ -635,6 +669,33 @@ test("stats tab shows budget progress and editing controls", async () => {
     assert.match(window.document.body.textContent ?? "", /of 20,000 tokens/);
     assert.match(window.document.body.textContent ?? "", /30-day token budget/);
     assert.ok(button("Save budget"));
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("tag picker Enter attaches an exact existing tag without creating", async () => {
+  const root = await mount(React.createElement(BotTags, { botId: "b1" }));
+  try {
+    await typeInto(window.document.querySelector(".tagadd"), "PROD");
+    const postsBefore = requests.filter((r) => r === "POST /api/tags").length;
+    await act(async () => {
+      window.document.querySelector(".tagadd")?.dispatchEvent(
+        new window.KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await flush();
+    assert.equal(
+      requests.filter((r) => r === "POST /api/tags").length,
+      postsBefore,
+    );
+    assert.ok(requests.includes("PATCH /api/bots/b1"), "attach PATCH expected");
   } finally {
     await act(async () => {
       root.unmount();
@@ -656,6 +717,29 @@ test("stats tab shows lifetime and trailing-30-day token totals", async () => {
     assert.match(window.document.body.textContent ?? "", /System prompt/);
     assert.match(window.document.body.textContent ?? "", /Free space/);
   } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("a failed tag create keeps the typed text", async () => {
+  const alerts: string[] = [];
+  const prevAlert = globalThis.alert;
+  globalThis.alert = (message?: unknown) => {
+    alerts.push(String(message));
+  };
+  const root = await mount(React.createElement(BotTags, { botId: "b1" }));
+  try {
+    await typeInto(window.document.querySelector(".tagadd"), "fail-tag");
+    await click(button('+ Create "fail-tag"'));
+    assert.equal(
+      (window.document.querySelector(".tagadd") as HTMLInputElement).value,
+      "fail-tag",
+    );
+    assert.ok(alerts.length > 0, "expected an alert on failure");
+  } finally {
+    globalThis.alert = prevAlert as typeof globalThis.alert;
     await act(async () => {
       root.unmount();
     });

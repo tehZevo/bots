@@ -2389,6 +2389,7 @@ main.scr-active,
   border-bottom: 1px solid var(--border);
   border-radius: 0;
   background: var(--panel);
+  color: var(--text);
   padding: 6px 10px;
   cursor: pointer;
 }
