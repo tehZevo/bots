@@ -599,18 +599,18 @@ article header {
   border-radius: 50%;
   flex-shrink: 0;
 }
+/* Plain horizontal ⋯ icon, no visually distinct container (specs/bots/quick-menu.md). */
 .quickbtn {
   width: 26px;
   height: 26px;
   flex-shrink: 0;
   padding: 0;
-  border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--panel);
+  background: none;
   color: var(--muted);
-  border: 1px solid var(--border);
+  border: none;
   cursor: pointer;
 }
 .quickbtn:hover,
