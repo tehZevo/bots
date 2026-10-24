@@ -1,6 +1,6 @@
 # Unsaved changes
 
-- Every editor with an explicit Save or Create action — modal forms, the bot detail `General` tab, the trigger editor, and the Settings idle-timeout field — tracks dirty state by comparing its saveable values with the snapshot loaded when it opened or last saved; create forms use their initial prefill as the snapshot. Fields that persist immediately, such as the bot enable toggle, are not dirty.
+- Every editor with an explicit Save or Create action — modal forms, the bot detail `General` tab, the Stats budget field, the trigger editor, and the Settings idle-timeout field — tracks dirty state by comparing its saveable values with the snapshot loaded when it opened or last saved; create forms use their initial prefill as the snapshot. Fields that persist immediately, such as the bot enable toggle, are not dirty.
 - While dirty, the form shows `Unsaved changes` in its action row beside the primary action. The label clears when every saveable value matches the snapshot again and after a successful save.
 - A save that fails validation or whose request fails keeps the form open and dirty with the error shown.
 - Leaving dirty state asks first: close button, Escape, outside tap, Cancel, switching main navigation tabs, opening another bot or resource, selecting another item in a master/detail editor, or browser back/forward.
