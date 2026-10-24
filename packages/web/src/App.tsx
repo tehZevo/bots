@@ -827,9 +827,9 @@ export function App() {
       .finally(() => setPoking((p) => ({ ...p, [bot.id]: false })));
   };
 
-  const [modalTab, setModalTab] = useState<"general" | "triggers" | "logs">(
-    "general",
-  );
+  const [modalTab, setModalTab] = useState<
+    "general" | "triggers" | "logs" | "stats"
+  >("general");
   const [detailOpen, setDetailOpen] = useState(false);
   const [avatarMenu, setAvatarMenu] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -1428,16 +1428,18 @@ export function App() {
                   </button>
                 </div>
                 <nav className="mtabs">
-                  {(["general", "triggers", "logs"] as const).map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      className={modalTab === t ? "sel" : ""}
-                      onClick={() => discardGuard(() => setModalTab(t))}
-                    >
-                      {t[0].toUpperCase() + t.slice(1)}
-                    </button>
-                  ))}
+                  {(["general", "triggers", "logs", "stats"] as const).map(
+                    (t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        className={modalTab === t ? "sel" : ""}
+                        onClick={() => discardGuard(() => setModalTab(t))}
+                      >
+                        {t[0].toUpperCase() + t.slice(1)}
+                      </button>
+                    ),
+                  )}
                 </nav>
                 <div className="tabbody">
                   {modalTab === "general" && (
@@ -1476,6 +1478,9 @@ export function App() {
                         </article>
                       ))}
                     </>
+                  )}
+                  {modalTab === "stats" && (
+                    <BotStats key={openBotRow.id} botId={openBotRow.id} />
                   )}
                 </div>
               </div>
@@ -3675,6 +3680,73 @@ export function RoleFormModal({
         />
       )}
     </div>
+  );
+}
+
+interface UsageTotals {
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+  total: number;
+}
+
+export function BotStats({ botId }: { botId: string }) {
+  const zero: UsageTotals = {
+    input: 0,
+    output: 0,
+    cache_read: 0,
+    cache_write: 0,
+    total: 0,
+  };
+  const [totals, setTotals] = useState<{
+    lifetime: UsageTotals;
+    last30d: UsageTotals;
+  }>({ lifetime: zero, last30d: zero });
+
+  useEffect(() => {
+    let active = true;
+    api<{ lifetime: UsageTotals; last30d: UsageTotals }>(
+      `/api/bots/${botId}/usage`,
+    )
+      .then((data) => {
+        if (active) setTotals(data);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [botId]);
+
+  const nf = new Intl.NumberFormat();
+  const rows: [string, keyof UsageTotals][] = [
+    ["Input", "input"],
+    ["Output", "output"],
+    ["Cache read", "cache_read"],
+    ["Cache write", "cache_write"],
+    ["Total", "total"],
+  ];
+  return (
+    <section className="stats">
+      <table className="usagetable">
+        <thead>
+          <tr>
+            <th>Tokens</th>
+            <th>Lifetime</th>
+            <th>Last 30 days</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([label, key]) => (
+            <tr key={key}>
+              <td>{label}</td>
+              <td>{nf.format(totals.lifetime[key])}</td>
+              <td>{nf.format(totals.last30d[key])}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
   );
 }
 

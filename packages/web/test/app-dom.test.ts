@@ -126,6 +126,24 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     ]);
   }
   if (url === "/api/bots/b1/messages" && method === "POST") return json({});
+  if (url === "/api/bots/b1/usage") {
+    return json({
+      lifetime: {
+        input: 1200,
+        output: 340,
+        cache_read: 8100,
+        cache_write: 90,
+        total: 9730,
+      },
+      last30d: {
+        input: 400,
+        output: 90,
+        cache_read: 2000,
+        cache_write: 10,
+        total: 2500,
+      },
+    });
+  }
   if (url === "/api/bots/b1/runs") {
     return json([
       {
@@ -592,6 +610,23 @@ test("quick menu destructive actions ask for confirmation first", async () => {
     await click(scrim as HTMLElement);
     await flush();
     assert.equal(delReqs(), clearBase, "outside tap cancels without sending");
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("stats tab shows lifetime and trailing-30-day token totals", async () => {
+  const root = await mount(React.createElement(App));
+  try {
+    await click(byLabel("Sable (null)"));
+    await click(byLabel("Sable settings"));
+    await click(button("Stats"));
+    assert.match(window.document.body.textContent ?? "", /Lifetime/);
+    assert.match(window.document.body.textContent ?? "", /Last 30 days/);
+    assert.match(window.document.body.textContent ?? "", /Cache read/);
+    assert.match(window.document.body.textContent ?? "", /9[,.]?730/);
   } finally {
     await act(async () => {
       root.unmount();

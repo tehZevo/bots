@@ -127,6 +127,14 @@ export function openApiDoc(): Json {
     },
   );
   add("/api/bots/{id}/runs", "get", "Run history", { params: ["id"] });
+  add(
+    "/api/bots/{id}/usage",
+    "get",
+    "Lifetime and trailing-30-day token totals",
+    {
+      params: ["id"],
+    },
+  );
   add("/api/bots/{id}/messages", "get", "Conversation memory", {
     params: ["id"],
   });

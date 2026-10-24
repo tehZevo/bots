@@ -22,6 +22,7 @@ The settings modal (opened from the chat sidebar's gear) holds:
 - **General** — name and instructions editing, role, machine, projects and tags pickers, with Save disabled until one of them changes (see [Editors & unsaved changes](/editors)); enable toggle switch, Stop while running, Restart machine, Clear memory, Delete.
 - **Triggers** — schedule and webhook triggers, each with its own pause switch ([details](/triggers-scheduling)).
 - **Logs** — run history: trigger source, status (ok/error), output, errors.
+- **Stats** — token usage totals per bot: input, output, cache read/write and total for the lifetime and the last 30 days, from every recorded run.
 
 ## Lifecycle
 
