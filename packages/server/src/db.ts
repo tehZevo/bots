@@ -25,6 +25,7 @@ export interface BotRow {
   current_task_updated_at: number | null;
   status: string | null;
   status_level: "ok" | "issue" | "blocked" | null;
+  token_budget: number | null;
   created_at: number;
 }
 
@@ -388,6 +389,9 @@ if (!botColumns.has("avatar_shape"))
 
 if (!botColumns.has("avatar_color"))
   db.prepare("ALTER TABLE bots ADD COLUMN avatar_color INTEGER").run();
+
+if (!botColumns.has("token_budget"))
+  db.prepare("ALTER TABLE bots ADD COLUMN token_budget INTEGER").run();
 
 if (!botColumns.has("sound"))
   db.prepare("ALTER TABLE bots ADD COLUMN sound TEXT").run();
@@ -1652,7 +1656,7 @@ export interface UsageTotals extends TokenUsage {
   total: number;
 }
 
-function sumUsage(botId: string, since?: number): UsageTotals {
+export function sumUsage(botId: string, since?: number): UsageTotals {
   const sql = `SELECT COALESCE(SUM(input), 0) AS input, COALESCE(SUM(output), 0) AS output,
        COALESCE(SUM(cache_read), 0) AS cache_read,
        COALESCE(SUM(cache_write), 0) AS cache_write

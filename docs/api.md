@@ -35,7 +35,7 @@ Create keys in **Settings → API keys**: each value is `bots_` + 40 hex chars, 
 | POST | `/api/bots/:id/run` | Run now — `{ message? }`, steers a live loop, returns `{ runId, steered }`; 409 while globally paused |
 | POST | `/api/bots/:id/interrupt` | Stop the live loop |
 | GET | `/api/bots/:id/runs` | Run history (status ok/error/interrupted, output, error) |
-| GET | `/api/bots/:id/usage` | Token totals for the bot: `{ lifetime, last30d }`, each with `input`, `output`, `cache_read`, `cache_write`, `total` |
+| GET | `/api/bots/:id/usage` | Token totals for the bot: `{ lifetime, last30d, budget }`; windows carry `input`, `output`, `cache_read`, `cache_write`, `total`, and `budget` is the trailing-30-day token cap (`null` = unlimited) |
 | GET/POST | `/api/bots/:id/messages` | Chat history / inject a chat turn (steers or starts; while globally paused `{ runId: null, held: true }`) |
 | DELETE | `/api/bots/:id/messages` | Clear stored context |
 

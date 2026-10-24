@@ -128,6 +128,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url === "/api/bots/b1/messages" && method === "POST") return json({});
   if (url === "/api/bots/b1/usage") {
     return json({
+      budget: 20000,
       lifetime: {
         input: 1200,
         output: 340,
@@ -610,6 +611,22 @@ test("quick menu destructive actions ask for confirmation first", async () => {
     await click(scrim as HTMLElement);
     await flush();
     assert.equal(delReqs(), clearBase, "outside tap cancels without sending");
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("stats tab shows budget progress and editing controls", async () => {
+  const root = await mount(React.createElement(App));
+  try {
+    await click(byLabel("Sable (null)"));
+    await click(byLabel("Sable settings"));
+    await click(button("Stats"));
+    assert.match(window.document.body.textContent ?? "", /of 20,000 tokens/);
+    assert.match(window.document.body.textContent ?? "", /30-day token budget/);
+    assert.ok(button("Save budget"));
   } finally {
     await act(async () => {
       root.unmount();

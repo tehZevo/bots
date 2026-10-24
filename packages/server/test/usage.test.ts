@@ -112,9 +112,121 @@ test("GET /api/bots/:id/usage serves both windows", async () => {
   const res = await authedRequest(`/api/bots/${BOT}/usage`);
   assert.equal(res.status, 200);
   const body = await json(res);
-  assert.deepEqual(Object.keys(body).sort(), ["last30d", "lifetime"]);
+  assert.deepEqual(Object.keys(body).sort(), ["budget", "last30d", "lifetime"]);
 });
 
 test("unknown bot is 404", async () => {
   assert.equal((await authedRequest("/api/bots/nope/usage")).status, 404);
+});
+
+const BUDGET_BOT = (
+  await json(
+    await authedRequest("/api/bots", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "budget-bot" }),
+    }),
+  )
+).id as string;
+
+function runRowOn(botId: string, id: string): void {
+  insertRun({
+    id,
+    bot_id: botId,
+    status: "ok",
+    trigger: "manual",
+    started_at: Date.now(),
+    finished_at: Date.now(),
+    output: null,
+    error: null,
+  });
+}
+
+test("token budget persists on the bot and can be cleared", async () => {
+  const set = await json(
+    await authedRequest(`/api/bots/${BUDGET_BOT}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token_budget: 250 }),
+    }),
+  );
+  assert.equal(set.token_budget, 250);
+
+  const usage = await json(
+    await authedRequest(`/api/bots/${BUDGET_BOT}/usage`),
+  );
+  assert.equal(usage.budget, 250);
+
+  const cleared = await json(
+    await authedRequest(`/api/bots/${BUDGET_BOT}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token_budget: null }),
+    }),
+  );
+  assert.equal(cleared.token_budget, null);
+
+  const bad = await authedRequest(`/api/bots/${BUDGET_BOT}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ token_budget: -3 }),
+  });
+  assert.equal(bad.status, 400);
+});
+
+test("a run is refused without calling the model once the budget is spent", async () => {
+  await authedRequest(`/api/bots/${BUDGET_BOT}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ token_budget: 100 }),
+  });
+  runRowOn(BUDGET_BOT, "b-used");
+  recordRunUsage("b-used", BUDGET_BOT, Date.now(), {
+    input: 60,
+    output: 20,
+    cache_read: 30,
+    cache_write: 5,
+  });
+
+  const res = await authedRequest(`/api/bots/${BUDGET_BOT}/run`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  assert.equal(res.status, 202);
+
+  const runs = (await json(
+    await authedRequest(`/api/bots/${BUDGET_BOT}/runs`),
+  )) as unknown as { status: string; error: string | null }[];
+  const row = runs.find((r) => r.error === "token budget exhausted");
+  assert.ok(row, "expected a token-budget-exhausted run row");
+  assert.equal(row.status, "error");
+});
+
+test("raising the budget lets runs proceed again", async () => {
+  const before = (await json(
+    await authedRequest(`/api/bots/${BUDGET_BOT}/runs`),
+  )) as unknown as { error: string | null }[];
+  const refusalsBefore = before.filter(
+    (r) => r.error === "token budget exhausted",
+  ).length;
+  await authedRequest(`/api/bots/${BUDGET_BOT}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ token_budget: 100000 }),
+  });
+  const res = await authedRequest(`/api/bots/${BUDGET_BOT}/run`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  assert.equal(res.status, 202);
+
+  const runs = (await json(
+    await authedRequest(`/api/bots/${BUDGET_BOT}/runs`),
+  )) as unknown as { error: string | null }[];
+  const refusalsAfter = runs.filter(
+    (r) => r.error === "token budget exhausted",
+  ).length;
+  assert.equal(refusalsAfter, refusalsBefore);
 });

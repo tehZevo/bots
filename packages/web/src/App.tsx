@@ -3702,21 +3702,50 @@ export function BotStats({ botId }: { botId: string }) {
   const [totals, setTotals] = useState<{
     lifetime: UsageTotals;
     last30d: UsageTotals;
-  }>({ lifetime: zero, last30d: zero });
+    budget: number | null;
+  }>({ lifetime: zero, last30d: zero, budget: null });
+  const [budgetText, setBudgetText] = useState("");
+  const [budgetDirty, setBudgetDirty] = useState(false);
 
   useEffect(() => {
     let active = true;
-    api<{ lifetime: UsageTotals; last30d: UsageTotals }>(
-      `/api/bots/${botId}/usage`,
-    )
+    api<{
+      lifetime: UsageTotals;
+      last30d: UsageTotals;
+      budget: number | null;
+    }>(`/api/bots/${botId}/usage`)
       .then((data) => {
-        if (active) setTotals(data);
+        if (!active) return;
+        setTotals(data);
+        setBudgetText(data.budget == null ? "" : String(data.budget));
+        setBudgetDirty(false);
       })
       .catch(() => undefined);
     return () => {
       active = false;
     };
   }, [botId]);
+
+  const saveBudget = async () => {
+    const trimmed = budgetText.trim();
+    const parsed = trimmed === "" ? null : Math.floor(Number(trimmed));
+    if (parsed !== null && (!Number.isFinite(parsed) || parsed < 1)) return;
+    await api(`/api/bots/${botId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token_budget: parsed }),
+    }).catch(() => undefined);
+    const data = await api<{
+      lifetime: UsageTotals;
+      last30d: UsageTotals;
+      budget: number | null;
+    }>(`/api/bots/${botId}/usage`).catch(() => null);
+    if (data) {
+      setTotals(data);
+      setBudgetText(data.budget == null ? "" : String(data.budget));
+    }
+    setBudgetDirty(false);
+  };
 
   const nf = new Intl.NumberFormat();
   const rows: [string, keyof UsageTotals][] = [
@@ -3726,8 +3755,32 @@ export function BotStats({ botId }: { botId: string }) {
     ["Cache write", "cache_write"],
     ["Total", "total"],
   ];
+  const budget = totals.budget;
+  const pct =
+    budget && budget > 0
+      ? Math.min(100, Math.round((totals.last30d.total / budget) * 100))
+      : 0;
   return (
     <section className="stats">
+      {budget != null && (
+        <div className="budgetbox">
+          <div className="budgetline">
+            <span>
+              {nf.format(totals.last30d.total)} of {nf.format(budget)} tokens in
+              the last 30 days ({pct}%)
+            </span>
+            {totals.last30d.total >= budget && (
+              <span className="status error">exhausted</span>
+            )}
+          </div>
+          <div className="budgetbar" aria-hidden="true">
+            <div
+              className={totals.last30d.total >= budget ? "fill over" : "fill"}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        </div>
+      )}
       <table className="usagetable">
         <thead>
           <tr>
@@ -3746,6 +3799,33 @@ export function BotStats({ botId }: { botId: string }) {
           ))}
         </tbody>
       </table>
+      <div className="budgetedit">
+        <label>
+          30-day token budget
+          <input
+            type="number"
+            min={1}
+            step={1}
+            value={budgetText}
+            placeholder="unlimited"
+            onChange={(e) => {
+              setBudgetText(e.target.value);
+              setBudgetDirty(true);
+            }}
+          />
+        </label>
+        <button
+          type="button"
+          disabled={!budgetDirty}
+          onClick={() => void saveBudget()}
+        >
+          Save budget
+        </button>
+      </div>
+      <p className="muted">
+        A run that reaches the budget stops after its current turn; raising or
+        clearing the budget lets the next run proceed.
+      </p>
     </section>
   );
 }

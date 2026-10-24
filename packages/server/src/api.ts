@@ -166,6 +166,7 @@ interface BotInput {
   avatar_color?: unknown;
   sound?: unknown;
   enabled?: unknown;
+  token_budget?: unknown;
 }
 
 const AVATAR_OPTIONS_COUNT = 12;
@@ -211,6 +212,16 @@ function toBotPayload(input: BotInput) {
     "warp",
     "thunk",
   ]);
+  let token_budget: number | null = null;
+  if (input.token_budget !== undefined && input.token_budget !== null) {
+    const n =
+      typeof input.token_budget === "number"
+        ? Math.floor(input.token_budget)
+        : NaN;
+    if (!Number.isFinite(n) || n < 1)
+      return { error: "token_budget must be a positive integer or null" };
+    token_budget = n;
+  }
   let sound: string | null = null;
   if (typeof input.sound === "string" && input.sound.trim()) {
     if (!SOUND_CHOICES.has(input.sound.trim()))
@@ -236,6 +247,7 @@ function toBotPayload(input: BotInput) {
         : 1,
     avatar_shape: shape,
     avatar_color: color,
+    token_budget,
   };
 }
 
@@ -1721,7 +1733,7 @@ export function createApp() {
   app.get("/api/bots/:id/usage", (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
-    return c.json(botUsageTotals(bot.id));
+    return c.json({ ...botUsageTotals(bot.id), budget: bot.token_budget });
   });
 
   app.get("/api/bots/:id/messages", (c) => {
