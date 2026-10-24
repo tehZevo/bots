@@ -92,6 +92,48 @@ export function effectiveSystemPrompt(bot: BotRow): string {
   return parts.join("\n\n");
 }
 
+export interface ContextBreakdown {
+  context_window: number | null;
+  categories: {
+    system_prompt: number;
+    tools: number;
+    conversation: number;
+  };
+  used: number;
+  free: number | null;
+}
+
+// specs/context/usage-breakdown.md — estimator-based split, never calls the model.
+export function estimateContext(bot: BotRow): ContextBreakdown {
+  const prompt = estimateTokens([
+    {
+      role: "system",
+      content: effectiveSystemPrompt(bot),
+      timestamp: 0,
+    } as unknown as AgentMessage,
+  ]);
+  const dm = teammatesOf(bot.id).length > 0 ? () => "ok" : undefined;
+  const toolDefs = buildTools(bot.id, dm).map((t) => ({
+    name: t.name,
+    description: t.description,
+    parameters: t.parameters,
+  }));
+  const tools = Math.floor(JSON.stringify(toolDefs).length / 4);
+  const history = loadMessages(bot.id)
+    .map((row) => JSON.parse(row.payload) as AgentMessage)
+    .filter((message) => LLM_ROLES.has((message as Message).role));
+  const conversation = estimateTokens(history);
+  const used = prompt + tools + conversation;
+  const llm = resolveDefault(bot.model_id);
+  const window = llm ? llm.model.contextWindow : null;
+  return {
+    context_window: window,
+    categories: { system_prompt: prompt, tools, conversation },
+    used,
+    free: window == null ? null : Math.max(0, window - used),
+  };
+}
+
 const MCP_NAME_SAFE = /[^a-zA-Z0-9_-]/g;
 
 async function connectRoleMcpTools(

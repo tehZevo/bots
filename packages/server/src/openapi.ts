@@ -135,6 +135,14 @@ export function openApiDoc(): Json {
       params: ["id"],
     },
   );
+  add(
+    "/api/bots/{id}/context-usage",
+    "get",
+    "Estimated context split (system prompt, tools, conversation, free)",
+    {
+      params: ["id"],
+    },
+  );
   add("/api/bots/{id}/messages", "get", "Conversation memory", {
     params: ["id"],
   });
