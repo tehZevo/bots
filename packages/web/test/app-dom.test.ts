@@ -558,6 +558,47 @@ test("status bar pause toggle flips the global pause state", async () => {
   });
 });
 
+test("quick menu destructive actions ask for confirmation first", async () => {
+  window.history.pushState({}, "", "/bots");
+  const delReqs = () =>
+    requests.filter((r) => r.startsWith("DELETE /api/bots/")).length;
+  const baseDel = delReqs();
+  const root = await mount(React.createElement(App));
+  try {
+    await click(window.document.querySelector(".quickbtn"));
+    const item = (label: string) =>
+      [...window.document.querySelectorAll(".quickpanel [role=menuitem]")].find(
+        (n) => n.textContent?.trim() === label,
+      );
+    await click(item("Delete") as HTMLElement);
+    await flush();
+    assert.match(window.document.body.textContent ?? "", /Delete bot Sable\?/);
+    assert.equal(delReqs(), baseDel, "nothing sent before confirm");
+
+    const danger = window.document.querySelector(".confirm button.danger");
+    await click(danger as HTMLElement);
+    assert.equal(delReqs(), baseDel + 1, "DELETE sent after confirm");
+
+    await click(window.document.querySelector(".quickbtn"));
+    await click(item("Clear memory") as HTMLElement);
+    await flush();
+    assert.match(
+      window.document.body.textContent ?? "",
+      /Clear the stored context of Sable\?/,
+    );
+    const clearBase = delReqs();
+
+    const scrim = window.document.querySelector(".confirm .mscrim");
+    await click(scrim as HTMLElement);
+    await flush();
+    assert.equal(delReqs(), clearBase, "outside tap cancels without sending");
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
 test("tags panel lists tags with bot counts", async () => {
   const { TagsPanel } = await import("../src/App.tsx");
   const root = await mount(React.createElement(TagsPanel));
