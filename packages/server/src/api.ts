@@ -21,6 +21,7 @@ import { repoRoot } from "./config.ts";
 import {
   botSecretIds,
   botsUsingMachine,
+  botUsageTotals,
   clearMessages,
   countUsers,
   createSession,
@@ -1715,6 +1716,12 @@ export function createApp() {
         : DEFAULT_MANUAL_MESSAGE;
     const { runId, steered } = injectMessage(bot, text, "manual");
     return c.json({ runId, steered }, 202);
+  });
+
+  app.get("/api/bots/:id/usage", (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    return c.json(botUsageTotals(bot.id));
   });
 
   app.get("/api/bots/:id/messages", (c) => {

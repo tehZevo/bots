@@ -157,6 +157,27 @@ button {
   border-bottom-color: var(--accent);
 }
 
+.usagetable {
+  width: 100%;
+  border-collapse: collapse;
+}
+.usagetable th,
+.usagetable td {
+  text-align: right;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.usagetable th:first-child,
+.usagetable td:first-child {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 400;
+}
+.usagetable thead th {
+  color: var(--text);
+  font-weight: 600;
+}
+
 .mainhead {
   display: flex;
   align-items: center;

@@ -5,7 +5,7 @@ import type {
   StreamFn,
 } from "@earendil-works/pi-agent-core";
 import { Agent } from "@earendil-works/pi-agent-core";
-import type { Message } from "@earendil-works/pi-ai";
+import type { Message, Usage } from "@earendil-works/pi-ai";
 import { normalizeContext } from "@earendil-works/pi-ai";
 import { streamSimple as openaiStreamSimple } from "@earendil-works/pi-ai/api/openai-completions";
 import { config } from "./config.ts";
@@ -28,6 +28,7 @@ import {
   pendingBotIds,
   projectsForBot,
   projectsInheritedByBot,
+  recordRunUsage,
   replaceMessages,
   sharesTeamWith,
   supersedeInterruptedRuns,
@@ -228,6 +229,7 @@ function makeStreamFn(llm: ResolvedLlm): StreamFn {
 async function summarize(
   messages: AgentMessage[],
   llm: ResolvedLlm,
+  onUsage?: (usage: Usage) => void,
 ): Promise<string> {
   const response = await openaiStreamSimple(
     llm.model,
@@ -248,6 +250,7 @@ async function summarize(
     )
     .map((block) => block.text)
     .join("\n");
+  if (response.usage && onUsage) onUsage(response.usage);
   if (response.stopReason === "error" || !text)
     throw new Error(response.errorMessage ?? "summarization failed");
   return text;
@@ -343,7 +346,12 @@ async function startLoop(
       const drop = body.slice(0, -config.compaction.keepRecent);
       if (drop.length === 0) return undefined;
       try {
-        const summary = await summarize(drop, llm);
+        const summary = await summarize(drop, llm, (u) => {
+          usageTotals.input += u.input || 0;
+          usageTotals.output += u.output || 0;
+          usageTotals.cache_read += u.cacheRead || 0;
+          usageTotals.cache_write += u.cacheWrite || 0;
+        });
         const compacted: AgentMessage[] = [
           systemMessage,
           {
@@ -369,6 +377,25 @@ async function startLoop(
 
   const loop: LiveLoop = { agent, runId, stopped: false };
   liveLoops.set(bot.id, loop);
+
+  const usageTotals = { input: 0, output: 0, cache_read: 0, cache_write: 0 };
+  const unsubscribeUsage = agent.subscribe((event) => {
+    if (event.type !== "message_end") return;
+    const msg = event.message as Message;
+    if (msg.role === "assistant" && msg.usage) {
+      usageTotals.input += msg.usage.input || 0;
+      usageTotals.output += msg.usage.output || 0;
+      usageTotals.cache_read += msg.usage.cacheRead || 0;
+      usageTotals.cache_write += msg.usage.cacheWrite || 0;
+    }
+  });
+  const recordUsage = () => {
+    try {
+      recordRunUsage(runId, bot.id, Date.now(), usageTotals);
+    } catch (err) {
+      console.error(`usage recording failed for run ${runId}:`, err);
+    }
+  };
 
   void (async () => {
     try {
@@ -415,6 +442,8 @@ async function startLoop(
             : String(err),
       );
     } finally {
+      recordUsage();
+      unsubscribeUsage();
       for (const session of mcp.sessions) session.close();
       liveLoops.delete(bot.id);
     }
