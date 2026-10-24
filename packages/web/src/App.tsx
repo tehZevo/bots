@@ -5826,11 +5826,11 @@ export function BotTags({ botId }: { botId: string }) {
       });
       setAll((list) => [...list, created]);
       save([...attached, created.id]);
+      setText("");
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e));
       setBusy(false);
     }
-    setText("");
   };
 
   return (
@@ -5867,7 +5867,7 @@ export function BotTags({ botId }: { botId: string }) {
           }
         }}
       />
-      {q !== "" && suggestions.length > 0 && (
+      {q !== "" && (
         <div className="tagsuggest">
           {suggestions.slice(0, 8).map((t) => (
             <button
@@ -5882,6 +5882,11 @@ export function BotTags({ botId }: { botId: string }) {
               {t.name}
             </button>
           ))}
+          {suggestions.length === 0 && (
+            <button type="button" disabled={busy} onClick={() => void commit()}>
+              {`+ Create "${text.trim()}"`}
+            </button>
+          )}
         </div>
       )}
     </div>
