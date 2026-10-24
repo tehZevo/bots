@@ -75,6 +75,23 @@ export function openApiDoc(): Json {
 
   add("/api/settings", "get", "Read app settings");
   add("/api/settings", "put", "Update app settings", { body: ref("Settings") });
+  add("/api/pause", "get", "Read the global pause state", {
+    res: {
+      type: "object",
+      properties: { paused: { type: "boolean" } },
+    },
+  });
+  add("/api/pause", "post", "Pause or resume all bots", {
+    body: {
+      type: "object",
+      required: ["paused"],
+      properties: { paused: { type: "boolean" } },
+    },
+    res: {
+      type: "object",
+      properties: { paused: { type: "boolean" } },
+    },
+  });
   add("/api/bots", "get", "List bots with health and run state", {
     res: { type: "array", items: ref("Bot") },
   });

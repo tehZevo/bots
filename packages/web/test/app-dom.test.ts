@@ -72,6 +72,7 @@ const trigger = {
 };
 
 const requests: string[] = [];
+let pausedFlag = false;
 
 function json(value: unknown): Response {
   return new Response(JSON.stringify(value), {
@@ -195,6 +196,12 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   }
   if (url === "/api/api-keys") return json([]);
   if (url === "/api/providers") return json([]);
+  if (url === "/api/pause" && method === "GET")
+    return json({ paused: pausedFlag });
+  if (url === "/api/pause" && method === "POST") {
+    pausedFlag = Boolean(JSON.parse(String(init?.body)).paused);
+    return json({ paused: pausedFlag });
+  }
   if (url === "/api/triggers/t1" && method === "PATCH") return json(trigger);
   if (url.startsWith("/api/triggers/") && method === "DELETE") return json({});
   return json([]);
@@ -532,6 +539,23 @@ test("quick menu opens anchored to the trigger and closes on Escape", async () =
     .forEach((node) => {
       node.remove();
     });
+});
+
+test("status bar pause toggle flips the global pause state", async () => {
+  pausedFlag = false;
+  const root = await mount(React.createElement(App));
+  await click(byLabel("Pause all bots"));
+  assert.ok(requests.includes("POST /api/pause"));
+  await flush();
+  assert.ok(byLabel("Resume all bots"), "expected the toggle to flip");
+  assert.match(window.document.body.textContent ?? "", /paused/);
+
+  await click(byLabel("Resume all bots"));
+  await flush();
+  assert.ok(byLabel("Pause all bots"));
+  await act(async () => {
+    root.unmount();
+  });
 });
 
 test("tags panel lists tags with bot counts", async () => {

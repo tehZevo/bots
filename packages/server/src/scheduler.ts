@@ -1,6 +1,6 @@
 import { CronExpressionParser } from "cron-parser";
 import { injectMessage } from "./agent.ts";
-import { dueTriggers, getBot, updateTrigger } from "./db.ts";
+import { dueTriggers, getBot, isPaused, updateTrigger } from "./db.ts";
 
 export function nextRunAt(
   schedule: string,
@@ -36,8 +36,10 @@ let timer: NodeJS.Timeout | null = null;
 
 export function startScheduler(tickMs = 15_000): void {
   const tick = () => {
+    const paused = isPaused();
     for (const trigger of dueTriggers(Date.now())) {
       updateTrigger(trigger.id, { next_run_at: nextRunAt(trigger.schedule) });
+      if (paused) continue;
       const bot = getBot(trigger.bot_id);
       if (!bot?.enabled) continue;
       injectMessage(bot, trigger.message, "schedule");

@@ -329,6 +329,29 @@ article header {
   flex: 1;
 }
 
+.statusbar .pausedcount {
+  color: var(--warn);
+}
+
+.pausetoggle {
+  min-height: 2rem;
+  padding: 0 0.85rem;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.pausetoggle:hover {
+  color: var(--text);
+}
+
+.pausetoggle.on {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
 .notifwrap {
   position: relative;
   display: flex;
