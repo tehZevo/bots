@@ -144,6 +144,21 @@ db.exec(`
     last_used_at INTEGER
   );
 
+  CREATE TABLE IF NOT EXISTS device_grants (
+    id TEXT PRIMARY KEY,
+    device_code_hash TEXT NOT NULL UNIQUE,
+    user_code TEXT NOT NULL,
+    client_name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    key_name TEXT,
+    api_key_id TEXT,
+    api_value TEXT,
+    owner_email TEXT,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    last_polled_at INTEGER
+  );
+
   CREATE TABLE IF NOT EXISTS runs (
     id TEXT PRIMARY KEY,
     bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
@@ -1940,6 +1955,117 @@ export function deleteApiKey(id: string, userId: string): boolean {
     )
     .run(id, userId);
   return res.changes > 0;
+}
+
+// --- device authorization grants (RFC 8628) ---------------------------------
+
+export interface DeviceGrantRow {
+  id: string;
+  device_code_hash: string;
+  user_code: string;
+  client_name: string;
+  status: "pending" | "approved" | "denied" | "claimed";
+  key_name: string | null;
+  api_key_id: string | null;
+  api_value: string | null;
+  owner_email: string | null;
+  created_at: number;
+  expires_at: number;
+  last_polled_at: number | null;
+}
+
+export function insertDeviceGrant(grant: {
+  id: string;
+  device_code_hash: string;
+  user_code: string;
+  client_name: string;
+  created_at: number;
+  expires_at: number;
+}): void {
+  db.prepare(
+    `INSERT INTO device_grants
+     (id, device_code_hash, user_code, client_name, status, created_at, expires_at)
+     VALUES (@id, @device_code_hash, @user_code, @client_name, 'pending', @created_at, @expires_at)`,
+  ).run(grant);
+}
+
+export function getLiveDeviceGrantByUserCode(
+  userCode: string,
+  now: number,
+): DeviceGrantRow | undefined {
+  return db
+    .prepare(
+      `SELECT * FROM device_grants
+       WHERE user_code = ? AND status = 'pending' AND expires_at > ?`,
+    )
+    .get(userCode, now) as DeviceGrantRow | undefined;
+}
+
+export function getDeviceGrantByDeviceHash(
+  hash: string,
+): DeviceGrantRow | undefined {
+  return db
+    .prepare("SELECT * FROM device_grants WHERE device_code_hash = ?")
+    .get(hash) as DeviceGrantRow | undefined;
+}
+
+export function approveDeviceGrant(
+  id: string,
+  decision: {
+    key_name: string;
+    api_key_id: string;
+    api_value: string;
+    owner_email: string;
+  },
+): boolean {
+  const res = db
+    .prepare(
+      `UPDATE device_grants
+       SET status = 'approved', key_name = @key_name, api_key_id = @api_key_id,
+           api_value = @api_value, owner_email = @owner_email
+       WHERE id = @id AND status = 'pending'`,
+    )
+    .run({ id, ...decision });
+  return res.changes > 0;
+}
+
+export function denyDeviceGrant(id: string): boolean {
+  const res = db
+    .prepare(
+      "UPDATE device_grants SET status = 'denied' WHERE id = ? AND status = 'pending'",
+    )
+    .run(id);
+  return res.changes > 0;
+}
+
+// Hands the plaintext key to exactly one poller: only an `approved` grant with
+// a value still stored transitions to `claimed`, and the value is dropped.
+export function claimDeviceGrant(id: string): { api_value: string } | null {
+  const row = db
+    .prepare(
+      "SELECT api_value FROM device_grants WHERE id = ? AND status = 'approved'",
+    )
+    .get(id) as { api_value: string | null } | undefined;
+  if (!row?.api_value) return null;
+  const res = db
+    .prepare(
+      `UPDATE device_grants SET status = 'claimed', api_value = NULL
+       WHERE id = ? AND status = 'approved'`,
+    )
+    .run(id);
+  return res.changes === 1 ? { api_value: row.api_value } : null;
+}
+
+export function touchDeviceGrantPoll(id: string, ts: number): void {
+  db.prepare("UPDATE device_grants SET last_polled_at = ? WHERE id = ?").run(
+    ts,
+    id,
+  );
+}
+
+// Pending grants never survive a restart (device-login.md).
+export function clearDeviceGrants(): number {
+  return db.prepare("DELETE FROM device_grants").run().changes;
 }
 
 export interface UserRow {

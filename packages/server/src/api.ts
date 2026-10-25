@@ -20,9 +20,12 @@ import {
 } from "./agent.ts";
 import { repoRoot } from "./config.ts";
 import {
+  approveDeviceGrant,
   botSecretIds,
   botsUsingMachine,
   botUsageTotals,
+  claimDeviceGrant,
+  clearDeviceGrants,
   clearMessages,
   countUsers,
   createSession,
@@ -42,9 +45,12 @@ import {
   deleteTeam,
   deleteTemplate,
   deleteTrigger,
+  denyDeviceGrant,
   findSecretByName,
   getApiKeyByHash,
   getBot,
+  getDeviceGrantByDeviceHash,
+  getLiveDeviceGrantByUserCode,
   getMachine,
   getMcpServer,
   getMcpServerByName,
@@ -64,6 +70,7 @@ import {
   hashPassword,
   insertApiKey,
   insertBot,
+  insertDeviceGrant,
   insertMachine,
   insertMcpServer,
   insertProject,
@@ -120,6 +127,7 @@ import {
   tagsForBot,
   teamSecretIds,
   touchApiKey,
+  touchDeviceGrantPoll,
   unreadNotificationCount,
   updateBot,
   updateMachine,
@@ -342,6 +350,65 @@ function toTriggerPayload(input: TriggerInput) {
 export interface AuthUser {
   id: string;
   email: string;
+  keyId?: string;
+}
+
+// --- device authorization (RFC 8628) ----------------------------------------
+
+const DEVICE_TTL_S = 600;
+const DEVICE_POLL_INTERVAL_S = 5;
+const USER_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+export function normalizeUserCode(raw: string): string {
+  return raw.toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function generateUserCode(): string {
+  let out = "";
+  while (out.length < 8) {
+    for (const b of randomBytes(8)) {
+      if (b < USER_CODE_ALPHABET.length * 4 && out.length < 8) {
+        out += USER_CODE_ALPHABET[b % USER_CODE_ALPHABET.length];
+      }
+    }
+  }
+  return `${out.slice(0, 4)}-${out.slice(4)}`;
+}
+
+// Fixed-window rate limiter per IP (and per device code for token polling);
+// device-login.md requires limits but not specific budgets.
+const DEVICE_RATE_LIMITS: { name: string; max: number; windowMs: number }[] = [
+  { name: "code", max: 30, windowMs: 3_600_000 },
+  { name: "pending", max: 300, windowMs: 60_000 },
+  { name: "approve", max: 120, windowMs: 60_000 },
+  { name: "token", max: 600, windowMs: 60_000 },
+  { name: "tokencode", max: 600, windowMs: 60_000 },
+];
+const rateWindows = new Map<string, { start: number; count: number }>();
+
+function limited(
+  kind: (typeof DEVICE_RATE_LIMITS)[number]["name"],
+  key: string,
+): boolean {
+  const rule = DEVICE_RATE_LIMITS.find((r) => r.name === kind)!;
+  const bucket = `${kind}:${key}`;
+  const now = Date.now();
+  const win = rateWindows.get(bucket);
+  if (!win || now - win.start > rule.windowMs) {
+    rateWindows.set(bucket, { start: now, count: 1 });
+    return false;
+  }
+  win.count += 1;
+  return win.count > rule.max;
+}
+
+function hashToken(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function clientIp(c: Context): string {
+  const fwd = c.req.header("x-forwarded-for");
+  return fwd?.split(",")[0]?.trim() || "local";
 }
 
 export function createApp() {
@@ -355,7 +422,9 @@ export function createApp() {
       path.startsWith("/api/webhooks/") ||
       path === "/api/auth/config" ||
       path === "/api/auth/login" ||
-      path === "/api/auth/signup"
+      path === "/api/auth/signup" ||
+      path === "/api/auth/device/code" ||
+      path === "/api/auth/device/token"
     )
       return next();
 
@@ -376,6 +445,7 @@ export function createApp() {
       c.set("user", {
         id: owner?.id ?? "",
         email: owner?.email ?? "api-key",
+        keyId: row.id,
       });
       return next();
     }
@@ -470,8 +540,12 @@ export function createApp() {
   });
 
   app.get("/api/auth/me", (c) => {
-    const user = c.get("user") as { id: string; email: string };
-    return c.json({ email: user.email });
+    const user = c.get("user") as AuthUser;
+    return c.json(
+      user.keyId
+        ? { email: user.email, key_id: user.keyId }
+        : { email: user.email },
+    );
   });
 
   app.post("/api/auth/logout", (c) => {
@@ -507,6 +581,148 @@ export function createApp() {
       token ? createHash("sha256").update(token).digest("hex") : undefined,
     );
     return c.json({ ok: true });
+  });
+
+  app.post("/api/auth/device/code", async (c) => {
+    if (limited("code", clientIp(c)))
+      return c.json({ error: "rate_limited" }, 429);
+    const body = (await c.req.json().catch(() => null)) as {
+      client_name?: unknown;
+    } | null;
+    const clientName =
+      typeof body?.client_name === "string"
+        ? body.client_name.trim().slice(0, 120)
+        : "";
+    const deviceCode = randomBytes(32).toString("hex");
+    let userCode = generateUserCode();
+    for (
+      let i = 0;
+      i < 5 &&
+      getLiveDeviceGrantByUserCode(normalizeUserCode(userCode), Date.now());
+      i++
+    ) {
+      userCode = generateUserCode();
+    }
+    const now = Date.now();
+    insertDeviceGrant({
+      id: randomUUID(),
+      device_code_hash: hashToken(deviceCode),
+      user_code: normalizeUserCode(userCode),
+      client_name: clientName,
+      created_at: now,
+      expires_at: now + DEVICE_TTL_S * 1000,
+    });
+    const origin = new URL(c.req.url).origin;
+    return c.json({
+      device_code: deviceCode,
+      user_code: userCode,
+      verification_uri: `${origin}/device`,
+      verification_uri_complete: `${origin}/device?user_code=${userCode}`,
+      expires_in: DEVICE_TTL_S,
+      interval: DEVICE_POLL_INTERVAL_S,
+    });
+  });
+
+  app.get("/api/auth/device/pending", (c) => {
+    if (limited("pending", clientIp(c)))
+      return c.json({ error: "rate_limited" }, 429);
+    const code = normalizeUserCode(c.req.query("user_code") ?? "");
+    if (code.length !== 8) return c.json({ error: "not found" }, 404);
+    const grant = getLiveDeviceGrantByUserCode(code, Date.now());
+    if (!grant) return c.json({ error: "not found" }, 404);
+    return c.json({
+      client_name: grant.client_name,
+      key_name: grant.key_name,
+      expires_at: grant.expires_at,
+    });
+  });
+
+  app.post("/api/auth/device/approve", async (c) => {
+    if (limited("approve", clientIp(c)))
+      return c.json({ error: "rate_limited" }, 429);
+    const user = c.get("user") as AuthUser;
+    const body = (await c.req.json().catch(() => null)) as {
+      user_code?: unknown;
+      decision?: unknown;
+      key_name?: unknown;
+    } | null;
+    const decision = body?.decision;
+    if (decision !== "approve" && decision !== "deny")
+      return c.json({ error: "decision must be approve or deny" }, 400);
+    const code = normalizeUserCode(
+      typeof body?.user_code === "string" ? body.user_code : "",
+    );
+    if (code.length !== 8) return c.json({ error: "not found" }, 404);
+    const grant = getLiveDeviceGrantByUserCode(code, Date.now());
+    if (!grant) return c.json({ error: "not found" }, 404);
+    if (decision === "deny") {
+      denyDeviceGrant(grant.id);
+      return c.json({ ok: true });
+    }
+    const requested =
+      typeof body?.key_name === "string" ? body.key_name.trim() : "";
+    const keyName = (
+      requested ||
+      `bots-cli ${grant.client_name} ${new Date().toISOString().slice(0, 10)}`
+    )
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 80);
+    const value = `bots_${randomBytes(20).toString("hex")}`;
+    const keyId = randomUUID();
+    insertApiKey({
+      id: keyId,
+      name: keyName,
+      hash: hashToken(value),
+      user_id: user.id || null,
+      created_at: Date.now(),
+    });
+    if (
+      !approveDeviceGrant(grant.id, {
+        key_name: keyName,
+        api_key_id: keyId,
+        api_value: value,
+        owner_email: user.email,
+      })
+    ) {
+      deleteApiKey(keyId, user.id);
+      return c.json({ error: "already decided" }, 409);
+    }
+    return c.json({ ok: true });
+  });
+
+  app.post("/api/auth/device/token", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      device_code?: unknown;
+    } | null;
+    if (typeof body?.device_code !== "string" || !body.device_code)
+      return c.json({ error: "invalid_request" }, 400);
+    const hash = hashToken(body.device_code);
+    if (limited("token", clientIp(c)) || limited("tokencode", hash))
+      return c.json({ error: "rate_limited" }, 429);
+    const grant = getDeviceGrantByDeviceHash(hash);
+    if (!grant) return c.json({ error: "access_denied" }, 400);
+    const now = Date.now();
+    if (grant.status === "denied" || grant.status === "claimed")
+      return c.json({ error: "access_denied" }, 400);
+    if (grant.expires_at <= now) return c.json({ error: "expired_token" }, 400);
+    if (grant.status === "approved") {
+      const claim = claimDeviceGrant(grant.id);
+      if (!claim) return c.json({ error: "access_denied" }, 400);
+      return c.json({
+        api_key: claim.api_value,
+        key_id: grant.api_key_id,
+        key_name: grant.key_name,
+        email: grant.owner_email,
+      });
+    }
+    if (
+      grant.last_polled_at !== null &&
+      now - grant.last_polled_at < DEVICE_POLL_INTERVAL_S * 1000
+    )
+      return c.json({ error: "slow_down" }, 400);
+    touchDeviceGrantPoll(grant.id, now);
+    return c.json({ error: "authorization_pending" }, 400);
   });
 
   app.get("/api/settings", (c) =>

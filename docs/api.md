@@ -13,7 +13,7 @@ Create keys in **Settings → API keys**: each value is `bots_` + 40 hex chars, 
 | GET | `/api/auth/config` | `{ allow_registration, has_users }` — drives the sign-in screen |
 | POST | `/api/auth/signup` | Create account — 403 unless `ALLOW_REGISTRATION=true`, weak password → 400, duplicate → 409; sets session cookie |
 | POST | `/api/auth/login` | Email + password → session cookie (7 days); wrong credentials → 401 |
-| GET | `/api/auth/me` | `{ email }` of the current caller |
+| GET | `/api/auth/me` | `{ email }` of the current caller — plus `key_id` when the request used an API key |
 | POST | `/api/auth/logout` | Drop this session |
 | POST | `/api/auth/password` | `{ current, new }` — 403 on wrong current; other sessions are invalidated |
 
@@ -24,6 +24,19 @@ Create keys in **Settings → API keys**: each value is `bots_` + 40 hex chars, 
 | GET | `/api/api-keys` | List `{ id, name, created_at, last_used_at }` — newest first |
 | POST | `/api/api-keys` | Create — `{ name }`; response includes the one-time `value` |
 | DELETE | `/api/api-keys/:keyId` | Revoke — 404 unknown id |
+
+## Device login (browser-approved CLI access)
+
+A terminal client requests a short code, the user approves it in the browser, and the client polls for a one-time API key (OAuth 2.0 device authorization, RFC 8628). Pending grants do not survive a server restart.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| POST | `/api/auth/device/code` | Public — `{ client_name }` → `{ device_code, user_code, verification_uri, verification_uri_complete, expires_in: 600, interval: 5 }`; rate-limited per IP |
+| GET | `/api/auth/device/pending?user_code=` | Session — resolve a live code for the approval page → `{ client_name, key_name, expires_at }`; unknown/expired/consumed → 404 |
+| POST | `/api/auth/device/approve` | Session + CSRF — `{ user_code, decision: "approve" \| "deny", key_name? }` → `{ ok: true }`; approval mints an API key named `bots-cli <client> <UTC date>` unless a name is given |
+| POST | `/api/auth/device/token` | Public — poll with `{ device_code }`. Errors carry an OAuth code: `authorization_pending`, `slow_down`, `expired_token`, `access_denied`; the first success returns `{ api_key, key_id, key_name, email }` exactly once and the plaintext key is not retained after claim |
+
+The approval page lives at `/device` (`verification_uri_complete` deep-links it with the code); it requires a login session, shows the client name and expiry before approval, and never displays the issued key.
 
 ## Bots
 
