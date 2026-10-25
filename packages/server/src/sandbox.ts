@@ -1,16 +1,25 @@
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { dataDir } from "./config.ts";
 import {
   getBot,
   getMachine,
   getSetting,
+  type SkillRow,
   secretEnvForBot,
   setMachineBuild,
   setSetting,
 } from "./db.ts";
+import {
+  bundleDir,
+  SKILLS_SANDBOX_ROOT,
+  skillContentHash,
+  skillDirName,
+  syntheticSkillMd,
+} from "./skillfiles.ts";
 
 const IMAGE =
   process.env.SANDBOX_IMAGE ?? "ghcr.io/tehzevo/bots-sandbox:latest";
@@ -366,4 +375,132 @@ export function startSandboxReaper(): void {
     );
   }, 60_000);
   timer.unref();
+}
+
+export async function containerExists(botId: string): Promise<boolean> {
+  const r = await spawnCapture([
+    "inspect",
+    "-f",
+    "{{.State.Running}}",
+    containerName(botId),
+  ]).catch(() => null);
+  return r?.code === 0 && r.stdout.trim() === "true";
+}
+
+// specs/skills/files.md — mirror granted bundles into /workspace/.skills at loop start:
+// refresh when stored content changed, remove directories whose grant went away.
+export async function syncSkillBundlesForBot(
+  botId: string,
+  skills: SkillRow[],
+): Promise<void> {
+  if (skills.length === 0) {
+    if (await containerExists(botId)) {
+      await spawnCapture([
+        "exec",
+        containerName(botId),
+        "rm",
+        "-rf",
+        SKILLS_SANDBOX_ROOT,
+      ]);
+    }
+    return;
+  }
+  const wsHost = join(dataDir, "workspaces", botId);
+  mkdirSync(wsHost, { recursive: true });
+  const name = await ensureContainer(botId, wsHost);
+  const staging = mkdtempSync(join(tmpdir(), "bots-skill-"));
+  try {
+    const taken = new Set<string>();
+    const desired = new Map<string, { hash: string; src: string }>();
+    for (const skill of skills) {
+      const dir = skillDirName(skill.name, taken);
+      let src = bundleDir(skill.id);
+      if (!src) {
+        src = join(staging, skill.id);
+        mkdirSync(src, { recursive: true });
+        writeFileSync(join(src, "SKILL.md"), syntheticSkillMd(skill));
+      }
+      desired.set(dir, { hash: skillContentHash(skill), src });
+    }
+    await spawnCapture(["exec", name, "mkdir", "-p", SKILLS_SANDBOX_ROOT]).then(
+      (r) => {
+        if (r.code !== 0)
+          throw new Error(`mkdir ${SKILLS_SANDBOX_ROOT}: ${r.stderr}`);
+      },
+    );
+    const stateRead = await spawnCapture([
+      "exec",
+      name,
+      "cat",
+      `${SKILLS_SANDBOX_ROOT}/.state.json`,
+    ]).catch(() => null);
+    let state: Record<string, string> = {};
+    try {
+      const parsed = JSON.parse(stateRead?.stdout ?? "");
+      if (parsed && typeof parsed === "object") state = parsed;
+    } catch {
+      state = {};
+    }
+    const listed = await spawnCapture([
+      "exec",
+      name,
+      "find",
+      SKILLS_SANDBOX_ROOT,
+      "-mindepth",
+      "1",
+      "-maxdepth",
+      "1",
+      "-type",
+      "d",
+      "-printf",
+      "%f\n",
+    ]).catch(() => null);
+    const present = new Set(
+      (listed?.stdout ?? "")
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean),
+    );
+    for (const dir of present) {
+      if (!desired.has(dir)) {
+        await spawnCapture([
+          "exec",
+          name,
+          "rm",
+          "-rf",
+          `${SKILLS_SANDBOX_ROOT}/${dir}`,
+        ]);
+        delete state[dir];
+      }
+    }
+    for (const [dir, entry] of desired) {
+      if (state[dir] === entry.hash && present.has(dir)) continue;
+      await spawnCapture([
+        "exec",
+        name,
+        "rm",
+        "-rf",
+        `${SKILLS_SANDBOX_ROOT}/${dir}`,
+      ]);
+      const copied = await spawnCapture([
+        "cp",
+        entry.src,
+        `${name}:${SKILLS_SANDBOX_ROOT}/${dir}`,
+      ]);
+      if (copied.code !== 0) {
+        throw new Error(`docker cp skills into ${name}: ${copied.stderr}`);
+      }
+      state[dir] = entry.hash;
+    }
+    const b64 = Buffer.from(JSON.stringify(state)).toString("base64");
+    await spawnCapture([
+      "exec",
+      name,
+      "sh",
+      "-c",
+      `echo ${sq(b64)} | base64 -d > ${sq(`${SKILLS_SANDBOX_ROOT}/.state.json`)}`,
+    ]);
+  } finally {
+    rmSync(staging, { recursive: true, force: true });
+  }
 }
