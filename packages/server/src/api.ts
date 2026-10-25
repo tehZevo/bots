@@ -4,8 +4,8 @@ import {
   randomUUID,
   timingSafeEqual,
 } from "node:crypto";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
 import type { Context } from "hono";
 import { Hono } from "hono";
@@ -146,6 +146,19 @@ import {
   restartSandbox,
 } from "./sandbox.ts";
 import { nextRunAt } from "./scheduler.ts";
+import {
+  type ClonedRepo,
+  cleanupClone,
+  cloneRepo,
+  MAX_BUNDLE_BYTES,
+  MAX_BUNDLE_FILES,
+  parseFrontmatter,
+  parseGitSource,
+  previewSkills,
+  removeBundle,
+  searchSkillsSh,
+  storeBundle,
+} from "./skillimport.ts";
 
 const DEFAULT_MANUAL_MESSAGE = "Continue with your current work.";
 
@@ -1995,6 +2008,7 @@ export function createApp() {
       description,
       instructions,
       created_at: Date.now(),
+      import_info: null,
     };
     insertSkill(skill);
     return c.json(skill, 201);
@@ -2022,7 +2036,162 @@ export function createApp() {
     const id = c.req.param("skillId");
     if (!getSkill(id)) return c.json({ error: "not found" }, 404);
     deleteSkill(id);
+    removeBundle(id);
     return c.json({ ok: true });
+  });
+
+  app.get("/api/skills/search", async (c) => {
+    const q = c.req.query("q")?.trim() ?? "";
+    if (!q) return c.json({ error: "q is required" }, 400);
+    try {
+      return c.json({ results: await searchSkillsSh(q) });
+    } catch (err) {
+      return c.json(
+        {
+          error: `skills.sh lookup failed: ${err instanceof Error ? err.message : String(err)}`,
+        },
+        502,
+      );
+    }
+  });
+
+  app.post("/api/skills/preview", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      source?: unknown;
+    } | null;
+    const raw = typeof body?.source === "string" ? body.source.trim() : "";
+    if (!raw) return c.json({ error: "source is required" }, 400);
+    const git = parseGitSource(raw);
+    if (!git)
+      return c.json(
+        { error: "unrecognized source — use owner/repo or a repository URL" },
+        400,
+      );
+    let cloned: ClonedRepo | null = null;
+    try {
+      cloned = await cloneRepo(git);
+    } catch (err) {
+      return c.json(
+        {
+          error: `source unavailable: ${err instanceof Error ? err.message : String(err)}`,
+        },
+        502,
+      );
+    }
+    try {
+      const previews = previewSkills((cloned as ClonedRepo).dir, git);
+      for (const p of previews) {
+        if (!p.name || !p.description)
+          return c.json(
+            {
+              error: `${p.folder}: SKILL.md needs a frontmatter name and description`,
+            },
+            400,
+          );
+      }
+      return c.json({
+        source: git.ownerRepo ?? git.cloneUrl,
+        requested_ref: git.ref,
+        resolved_commit: (cloned as ClonedRepo).resolvedCommit,
+        skills: previews,
+      });
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        400,
+      );
+    } finally {
+      cleanupClone(cloned.dir);
+    }
+  });
+
+  app.post("/api/skills/import", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      source?: unknown;
+      folders?: unknown;
+    } | null;
+    const raw = typeof body?.source === "string" ? body.source.trim() : "";
+    if (!raw) return c.json({ error: "source is required" }, 400);
+    const folders = Array.isArray(body?.folders)
+      ? (body.folders as unknown[]).filter(
+          (f): f is string => typeof f === "string",
+        )
+      : [];
+    if (!folders.length)
+      return c.json({ error: "folders must list the selected skills" }, 400);
+    const git = parseGitSource(raw);
+    if (!git)
+      return c.json(
+        { error: "unrecognized source — use owner/repo or a repository URL" },
+        400,
+      );
+    let cloned: ClonedRepo | null = null;
+    try {
+      cloned = await cloneRepo(git);
+    } catch (err) {
+      return c.json(
+        {
+          error: `source unavailable: ${err instanceof Error ? err.message : String(err)}`,
+        },
+        502,
+      );
+    }
+    try {
+      const all = previewSkills((cloned as ClonedRepo).dir, git);
+      const selected = all.filter((p) => folders.includes(p.folder));
+      if (selected.length !== new Set(folders).size)
+        return c.json({ error: "selection does not match the source" }, 400);
+      const bundles = selected.map((p) => {
+        const fm = parseFrontmatter(
+          readFileSync(join((cloned as ClonedRepo).dir, p.folder, "SKILL.md"), "utf8"),
+        );
+        if (!fm)
+          return {
+            error: `${p.folder}: SKILL.md needs a frontmatter name and description`,
+          };
+        if (p.file_count > MAX_BUNDLE_FILES || p.total_size > MAX_BUNDLE_BYTES)
+          return {
+            error: `${p.folder}: bundle exceeds ${MAX_BUNDLE_FILES} files or ${Math.floor(MAX_BUNDLE_BYTES / 1024 / 1024)} MB`,
+          };
+        return { preview: p, fm };
+      });
+      const bad = bundles.find((b) => "error" in b);
+      if (bad && "error" in bad) return c.json({ error: bad.error }, 400); // saves nothing
+      const now = Date.now();
+      const created = [];
+      for (const b of bundles) {
+        if ("error" in b) continue;
+        const id = randomUUID();
+        const info = {
+          origin: "git",
+          source: git.ownerRepo ?? git.cloneUrl,
+          requested_ref: git.ref,
+          resolved_commit: (cloned as ClonedRepo).resolvedCommit,
+          path: b.preview.folder,
+          content_hash: b.preview.content_hash,
+          installed_at: now,
+          updated_at: now,
+        };
+        insertSkill({
+          id,
+          name: b.fm.name,
+          description: b.fm.description,
+          instructions: b.fm.body,
+          created_at: now,
+          import_info: JSON.stringify(info),
+        });
+        storeBundle(id, cloned.dir, b.preview.folder);
+        created.push(getSkill(id));
+      }
+      return c.json({ skills: created }, 201);
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        400,
+      );
+    } finally {
+      cleanupClone(cloned.dir);
+    }
   });
 
   app.get("/api/mcp-servers", (c) => c.json(listMcpServers()));

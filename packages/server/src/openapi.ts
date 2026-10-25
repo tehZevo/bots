@@ -260,6 +260,118 @@ export function openApiDoc(): Json {
   add("/api/skills/{skillId}", "delete", "Delete a skill", {
     params: ["skillId"],
   });
+
+  paths["/api/skills/search"] = {
+    get: {
+      summary: "Look up skills.sh candidates by name or keyword (never writes)",
+      parameters: [{ name: "q", in: "query", required: true, schema: str }],
+      responses: {
+        "200": {
+          description: "ok",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  results: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        id: str,
+                        source: str,
+                        skill_id: str,
+                        name: str,
+                        installs: numOrNone,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        502: error4xx("skills.sh unreachable"),
+      },
+    },
+  };
+
+  const previewSchema = {
+    type: "object",
+    properties: {
+      folder: str,
+      name: str,
+      description: str,
+      license: strOrNone,
+      file_count: { type: "integer" },
+      total_size: { type: "integer" },
+      content_hash: str,
+    },
+  };
+
+  paths["/api/skills/preview"] = {
+    post: {
+      summary:
+        "Resolve a source (owner/repo, repo URL, /tree/ref/path, @skill filter, #ref) into previews (never writes)",
+      requestBody: {
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["source"],
+              properties: { source: str },
+            },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "ok",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  source: str,
+                  requested_ref: strOrNone,
+                  resolved_commit: str,
+                  skills: { type: "array", items: previewSchema },
+                },
+              },
+            },
+          },
+        },
+        400: error4xx("unrecognized source or nothing discoverable"),
+        502: error4xx("source unreachable or private"),
+      },
+    },
+  };
+
+  paths["/api/skills/import"] = {
+    post: {
+      summary:
+        "Store the selected bundles with immutable provenance; rejects over-limit or invalid bundles saving nothing",
+      requestBody: {
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["source", "folders"],
+              properties: {
+                source: str,
+                folders: { type: "array", items: str },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        201: error4xx("created skills"),
+        400: error4xx("invalid selection, frontmatter or oversized bundle"),
+        502: error4xx("source unreachable or private"),
+      },
+    },
+  };
   add("/api/mcp-servers", "get", "List MCP servers");
   add("/api/mcp-servers", "post", "Create an MCP server", {
     body: ref("McpServer"),

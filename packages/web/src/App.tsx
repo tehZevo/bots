@@ -4897,6 +4897,7 @@ interface Skill {
   description: string;
   instructions: string;
   created_at: number;
+  import_info?: string | null;
 }
 
 interface McpServer {
@@ -5027,6 +5028,7 @@ export function SkillsPanel() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [skillForm, setSkillForm] = useState<Skill | "new" | null>(null);
   const [removingSkill, setRemovingSkill] = useState<Skill | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   const reloadSkills = useCallback(
     () =>
@@ -5044,6 +5046,9 @@ export function SkillsPanel() {
     <section>
       <div className="viewhead">
         <h2>Skills</h2>
+        <button type="button" onClick={() => setImportOpen(true)}>
+          Import
+        </button>
         <button type="button" onClick={() => setSkillForm("new")}>
           Add skill
         </button>
@@ -5056,6 +5061,11 @@ export function SkillsPanel() {
           <div className="mcpsrv" key={sk.id}>
             <header>
               <strong>{sk.name}</strong>
+              {sk.import_info && (
+                <span className="srcbadge">
+                  {`${safeImportOrigin(sk.import_info) ?? "git"} skill`}
+                </span>
+              )}
               <button type="button" onClick={() => setSkillForm(sk)}>
                 Edit
               </button>
@@ -5091,6 +5101,15 @@ export function SkillsPanel() {
           onClose={() => setSkillForm(null)}
           onSaved={() => {
             setSkillForm(null);
+            void reloadSkills();
+          }}
+        />
+      )}
+      {importOpen && (
+        <ImportSkillModal
+          onClose={() => setImportOpen(false)}
+          onImported={() => {
+            setImportOpen(false);
             void reloadSkills();
           }}
         />
@@ -6434,6 +6453,221 @@ export function BotSecrets({ botId }: { botId: string }) {
           {s.name} <code>{s.key}</code>
         </label>
       ))}
+    </div>
+  );
+}
+
+function safeImportOrigin(raw: string): string | null {
+  try {
+    const info = JSON.parse(raw) as { origin?: string };
+    return typeof info.origin === "string" ? info.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+interface SearchHit {
+  id: string;
+  source: string;
+  skill_id: string;
+  name: string;
+  installs: number | null;
+}
+
+interface SkillPreviewRow {
+  folder: string;
+  name: string;
+  description: string;
+  license: string | null;
+  file_count: number;
+  total_size: number;
+  content_hash: string;
+}
+
+export function ImportSkillModal({
+  onClose,
+  onImported,
+}: {
+  onClose: () => void;
+  onImported: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [hits, setHits] = useState<SearchHit[] | null>(null);
+  const [source, setSource] = useState("");
+  const [previews, setPreviews] = useState<SkillPreviewRow[]>([]);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const search = async () => {
+    if (!query.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api<{ results: SearchHit[] }>(
+        `/api/skills/search?q=${encodeURIComponent(query.trim())}`,
+      );
+      setHits(r.results);
+    } catch (e) {
+      setHits([]);
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const preview = async () => {
+    if (!source.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api<{ skills: SkillPreviewRow[] }>(
+        "/api/skills/preview",
+        { method: "POST", body: JSON.stringify({ source: source.trim() }) },
+      );
+      setPreviews(r.skills);
+      setPicked(new Set());
+    } catch (e) {
+      setPreviews([]);
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doImport = async () => {
+    if (!picked.size || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api("/api/skills/import", {
+        method: "POST",
+        body: JSON.stringify({ source: source.trim(), folders: [...picked] }),
+      });
+      onImported();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal">
+      <button
+        type="button"
+        className="mscrim"
+        aria-label="Close"
+        onClick={onClose}
+      />
+      <div className="dialog" role="dialog" aria-label="Import skill">
+        <h2>Import skills</h2>
+        <label className="field">
+          Search skills.sh
+          <input
+            value={query}
+            placeholder="pdf, testing, ..."
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void search();
+              }
+            }}
+          />
+        </label>
+        <div className="actions">
+          <button
+            type="button"
+            disabled={busy || !query.trim()}
+            onClick={() => void search()}
+          >
+            Search
+          </button>
+        </div>
+        {hits && (
+          <ul className="srclist">
+            {hits.length === 0 && <li className="muted">No matches.</li>}
+            {hits.map((h) => (
+              <li key={h.id}>
+                <span>
+                  {h.name}{" "}
+                  <em className="muted">
+                    ({h.source}
+                    {h.installs !== null ? ` · ${h.installs} installs` : ""})
+                  </em>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSource(`${h.source}@${h.skill_id}`)}
+                >
+                  Use
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <label className="field">
+          Git source
+          <input
+            value={source}
+            placeholder="owner/repo, https://…/tree/main/skills/pdf@pdf#v1.2"
+            onChange={(e) => setSource(e.target.value)}
+          />
+        </label>
+        <div className="actions">
+          <button
+            type="button"
+            disabled={busy || !source.trim()}
+            onClick={() => void preview()}
+          >
+            Preview
+          </button>
+        </div>
+        {previews.length > 0 && (
+          <ul className="srclist">
+            {previews.map((p) => (
+              <li key={p.folder}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={picked.has(p.folder)}
+                    onChange={() =>
+                      setPicked((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(p.folder)) next.delete(p.folder);
+                        else next.add(p.folder);
+                        return next;
+                      })
+                    }
+                  />{" "}
+                  <strong>{p.name}</strong>{" "}
+                  <em className="muted">
+                    {p.folder} · {p.file_count} files ·{" "}
+                    {(p.total_size / 1024).toFixed(0)} KB
+                  </em>
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
+        {error && <p className="error">{error}</p>}
+        <div className="actions">
+          <button
+            type="button"
+            disabled={busy || picked.size === 0}
+            onClick={() => void doImport()}
+          >
+            Import{" "}
+            {picked.size > 0
+              ? `${picked.size} skill${picked.size > 1 ? "s" : ""}`
+              : ""}
+          </button>
+          <button type="button" onClick={onClose}>
+            Cancel
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

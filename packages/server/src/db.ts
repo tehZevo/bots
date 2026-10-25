@@ -1698,6 +1698,16 @@ db.prepare(
     created_at INTEGER NOT NULL
   )`,
 ).run();
+const skillCols = new Set(
+  (db.prepare("PRAGMA table_info(skills)").all() as { name: string }[]).map(
+    (c) => c.name,
+  ),
+);
+// Immutable JSON provenance for imported skills; null for hand-written ones.
+if (!skillCols.has("import_info")) {
+  db.prepare("ALTER TABLE skills ADD COLUMN import_info TEXT").run();
+}
+
 
 db.exec(
   `CREATE TABLE IF NOT EXISTS mcp_servers (
@@ -1728,6 +1738,7 @@ export interface SkillRow {
   description: string;
   instructions: string;
   created_at: number;
+  import_info: string | null;
 }
 
 export function listSkills(): SkillRow[] {
@@ -1744,13 +1755,14 @@ export function getSkill(id: string): SkillRow | undefined {
 
 export function insertSkill(skill: SkillRow): void {
   db.prepare(
-    "INSERT INTO skills (id, name, description, instructions, created_at) VALUES (?, ?, ?, ?, ?)",
+    "INSERT INTO skills (id, name, description, instructions, created_at, import_info) VALUES (?, ?, ?, ?, ?, ?)",
   ).run(
     skill.id,
     skill.name,
     skill.description,
     skill.instructions,
     skill.created_at,
+    skill.import_info ?? null,
   );
 }
 
