@@ -1,7 +1,7 @@
 # Navigation
 
 - A persistent left sidebar on desktop carries the tabs in this order — `Bots`, `Teams`, `Roles`, `Machines`, `Integrations`, `Skills`, `Templates`, `Projects`, `Tags`, `Secrets`, `Settings`; the main area shows the selected tab. Bot settings open as a modal over the main area (`../bots/detail.md`).
-- The sidebar and the mobile drawer hold exactly the tab list: each tab name appears there once, as a tab.
+- The sidebar and the mobile drawer hold exactly the tab list: each tab name appears there once, as a tab. Search (`search.md`) lives in the status bar — it is not a tab and never joins these lists.
 - Every tab carries a meaningful icon from a free source (open-licensed set or custom inline SVG): `Bots` a robot/cube mark, `Roles` a badge/mask mark, `Integrations` a plug/puzzle mark, `Settings` an unmistakable cogwheel — a closed circular rim with evenly spaced teeth and a hollow hub; radial-spoke or asterisk-like marks do not read as gears. Expanded tabs show icon + label; the drawer shows them too.
 - Every main screen titles itself with its tab name at the upper-left of the main pane, with that tab's actions aligned to the right on the same row.
 - The sidebar collapses via a toggle control: collapsed, it is a slim rail showing only each tab’s icon — no text other than tooltips — with the active one marked, and tapping any icon selects the tab or expands the labels; expanded, it shows full tab names beside their icons. The choice persists across sessions.
