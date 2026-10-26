@@ -8,3 +8,4 @@ Model turns, tool calls, and injected messages are committed to durable storage 
 - Side-effecting tools are not replayed. An interrupted tool call becomes an `interrupted` tool result; a run that cannot continue ends `error` with partial output kept (`lifecycle.md`).
 - MCP sessions are per-process: after resume they reconnect fresh; dead-process sessions are never restored.
 - Resume is silent: resumed runs appear in run history (`GET /api/bots/:id/runs`) like any other.
+- Waits are stored, not held open: provider retry backoffs and deferred polls survive restarts and continue at their deadline; a phase interrupted mid-flight never re-runs already-committed work (`../llm/retry-backoff.md`).
