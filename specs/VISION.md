@@ -19,3 +19,4 @@ A self-hosted orchestrator for autonomous agents that run unattended: scheduled,
 - **Costs stay visible and capped** — token usage is reported everywhere it matters and budgets stop runaway spend automatically.
 - **API-first** — the full product is available over REST with per-user keys; the web UI is one client of that API, not a requirement to get work done (CLI planned).
 - **Shared by a small team** — multiple users share one console equally, from web, PWA or API; it stays one server to run and back up.
+- **Fun to operate** — bots have visible personality: big expressive avatars and lively UI feedback; running your own agents should feel like a living crew, not an enterprise console.
