@@ -157,6 +157,128 @@ button {
   border-bottom-color: var(--accent);
 }
 
+.usagetable {
+  width: 100%;
+  border-collapse: collapse;
+}
+.usagetable th,
+.usagetable td {
+  text-align: right;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.usagetable th:first-child,
+.usagetable td:first-child {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 400;
+}
+.usagetable thead th {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.budgetbox {
+  margin-bottom: 0.9rem;
+}
+.budgetline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
+}
+.budgetbar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--hover);
+  overflow: hidden;
+}
+.budgetbar .fill {
+  height: 100%;
+  background: var(--info);
+  border-radius: 999px;
+}
+.budgetbar .fill.over {
+  background: var(--err);
+}
+.budgetedit {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+.ctxbox {
+  margin-top: 1.1rem;
+}
+.ctxbox h3 {
+  margin: 0 0 0.45rem;
+  font-size: 0.9rem;
+}
+.ctxbar {
+  display: flex;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--hover);
+  overflow: hidden;
+}
+.ctxbar .seg {
+  height: 100%;
+}
+.seg-sys {
+  background: #5b9bff;
+}
+.seg-tools {
+  background: #f59e0b;
+}
+.seg-conv {
+  background: #4ade80;
+}
+.ctxlegend {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+.ctxlegend li {
+  display: grid;
+  grid-template-columns: 12px 1fr auto auto;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.ctxlegend .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display: inline-block;
+}
+.ctxlegend .dot.sys {
+  background: #5b9bff;
+}
+.ctxlegend .dot.tools {
+  background: #f59e0b;
+}
+.ctxlegend .dot.conv {
+  background: #4ade80;
+}
+.ctxlegend .dot.free {
+  background: var(--hover);
+  border: 1px solid var(--border);
+}
+
+.budgetedit label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  flex: 1;
+}
+
 .mainhead {
   display: flex;
   align-items: center;
@@ -599,18 +721,18 @@ article header {
   border-radius: 50%;
   flex-shrink: 0;
 }
+/* Plain horizontal ⋯ icon, no visually distinct container (specs/bots/quick-menu.md). */
 .quickbtn {
   width: 26px;
   height: 26px;
   flex-shrink: 0;
   padding: 0;
-  border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--panel);
+  background: none;
   color: var(--muted);
-  border: 1px solid var(--border);
+  border: none;
   cursor: pointer;
 }
 .quickbtn:hover,
@@ -744,6 +866,11 @@ pre {
 
 .error {
   color: var(--err);
+}
+
+.mutedline {
+  color: var(--muted);
+  font-size: 0.85rem;
 }
 
 .topbar {
@@ -2267,6 +2394,7 @@ main.scr-active,
   border-bottom: 1px solid var(--border);
   border-radius: 0;
   background: var(--panel);
+  color: var(--text);
   padding: 6px 10px;
   cursor: pointer;
 }
@@ -2275,4 +2403,39 @@ main.scr-active,
 }
 .tagsuggest button:hover {
   background: var(--hover);
+}
+
+.srcbadge {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.srclist {
+  list-style: none;
+  margin: 0.4rem 0;
+  padding: 0;
+  max-height: 14rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.srclist li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.55rem;
+}
+
+.srclist li label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
 }

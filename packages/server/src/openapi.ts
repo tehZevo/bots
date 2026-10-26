@@ -73,6 +73,148 @@ export function openApiDoc(): Json {
   ] as const)
     add(p, m, d);
 
+  paths["/api/auth/me"].get = {
+    summary: "Current identity; key_id is present for API-key requests",
+    responses: {
+      "200": {
+        description: "ok",
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              properties: { email: str, key_id: strOrNone },
+            },
+          },
+        },
+      },
+    },
+  };
+
+  paths["/api/auth/device/code"] = {
+    post: {
+      summary:
+        "Start a device authorization grant (RFC 8628); public like login",
+      requestBody: {
+        content: {
+          "application/json": {
+            schema: { type: "object", properties: { client_name: str } },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "ok",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  device_code: str,
+                  user_code: str,
+                  verification_uri: str,
+                  verification_uri_complete: str,
+                  expires_in: { type: "integer" },
+                  interval: { type: "integer" },
+                },
+              },
+            },
+          },
+        },
+        429: error4xx("rate_limited"),
+      },
+    },
+  };
+  paths["/api/auth/device/pending"] = {
+    get: {
+      summary: "Resolve a live user_code for the approval page (session)",
+      parameters: [
+        { name: "user_code", in: "query", required: true, schema: str },
+      ],
+      responses: {
+        "200": {
+          description: "ok",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  client_name: str,
+                  key_name: strOrNone,
+                  expires_at: { type: "integer" },
+                },
+              },
+            },
+          },
+        },
+        404: error4xx("unknown, expired or consumed code"),
+      },
+    },
+  };
+  paths["/api/auth/device/approve"] = {
+    post: {
+      summary: "Approve or deny a pending grant (session, CSRF)",
+      requestBody: {
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["user_code", "decision"],
+              properties: {
+                user_code: str,
+                decision: { enum: ["approve", "deny"] },
+                key_name: strOrNone,
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: error4xx("ok"),
+        404: error4xx("unknown, expired or consumed code"),
+        409: error4xx("already decided"),
+      },
+    },
+  };
+  paths["/api/auth/device/token"] = {
+    post: {
+      summary:
+        "Poll for the one-time API key; public like login. Errors carry an OAuth error code",
+      requestBody: {
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["device_code"],
+              properties: { device_code: str },
+            },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "first successful poll only",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  api_key: str,
+                  key_id: str,
+                  key_name: str,
+                  email: str,
+                },
+              },
+            },
+          },
+        },
+        400: error4xx(
+          '{"error": "authorization_pending" | "slow_down" | "expired_token" | "access_denied"}',
+        ),
+        429: error4xx("rate_limited"),
+      },
+    },
+  };
+
   add("/api/settings", "get", "Read app settings");
   add("/api/settings", "put", "Update app settings", { body: ref("Settings") });
   add("/api/pause", "get", "Read the global pause state", {
@@ -127,6 +269,22 @@ export function openApiDoc(): Json {
     },
   );
   add("/api/bots/{id}/runs", "get", "Run history", { params: ["id"] });
+  add(
+    "/api/bots/{id}/usage",
+    "get",
+    "Lifetime and trailing-30-day token totals plus the configured budget",
+    {
+      params: ["id"],
+    },
+  );
+  add(
+    "/api/bots/{id}/context-usage",
+    "get",
+    "Estimated context split (system prompt, tools, conversation, free)",
+    {
+      params: ["id"],
+    },
+  );
   add("/api/bots/{id}/messages", "get", "Conversation memory", {
     params: ["id"],
   });
@@ -244,6 +402,118 @@ export function openApiDoc(): Json {
   add("/api/skills/{skillId}", "delete", "Delete a skill", {
     params: ["skillId"],
   });
+
+  paths["/api/skills/search"] = {
+    get: {
+      summary: "Look up skills.sh candidates by name or keyword (never writes)",
+      parameters: [{ name: "q", in: "query", required: true, schema: str }],
+      responses: {
+        "200": {
+          description: "ok",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  results: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        id: str,
+                        source: str,
+                        skill_id: str,
+                        name: str,
+                        installs: numOrNone,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        502: error4xx("skills.sh unreachable"),
+      },
+    },
+  };
+
+  const previewSchema = {
+    type: "object",
+    properties: {
+      folder: str,
+      name: str,
+      description: str,
+      license: strOrNone,
+      file_count: { type: "integer" },
+      total_size: { type: "integer" },
+      content_hash: str,
+    },
+  };
+
+  paths["/api/skills/preview"] = {
+    post: {
+      summary:
+        "Resolve a source (owner/repo, repo URL, /tree/ref/path, @skill filter, #ref) into previews (never writes)",
+      requestBody: {
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["source"],
+              properties: { source: str },
+            },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "ok",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  source: str,
+                  requested_ref: strOrNone,
+                  resolved_commit: str,
+                  skills: { type: "array", items: previewSchema },
+                },
+              },
+            },
+          },
+        },
+        400: error4xx("unrecognized source or nothing discoverable"),
+        502: error4xx("source unreachable or private"),
+      },
+    },
+  };
+
+  paths["/api/skills/import"] = {
+    post: {
+      summary:
+        "Store the selected bundles with immutable provenance; rejects over-limit or invalid bundles saving nothing",
+      requestBody: {
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["source", "folders"],
+              properties: {
+                source: str,
+                folders: { type: "array", items: str },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        201: error4xx("created skills"),
+        400: error4xx("invalid selection, frontmatter or oversized bundle"),
+        502: error4xx("source unreachable or private"),
+      },
+    },
+  };
   add("/api/mcp-servers", "get", "List MCP servers");
   add("/api/mcp-servers", "post", "Create an MCP server", {
     body: ref("McpServer"),
@@ -391,6 +661,7 @@ export function openApiDoc(): Json {
             machine_id: strOrNone,
             sound: strOrNone,
             enabled: { type: "integer" },
+            token_budget: { type: ["integer", "null"] },
             created_at: { type: "integer" },
             health: { enum: ["green", "blue", "yellow", "red", "gray"] },
             run_state: { enum: ["running", "enabled", "disabled"] },
@@ -407,6 +678,7 @@ export function openApiDoc(): Json {
             machine_id: strOrNone,
             sound: strOrNone,
             enabled: { type: "boolean" },
+            token_budget: { type: ["integer", "null"] },
           },
         },
         Tag: {
@@ -492,7 +764,7 @@ export function openApiDoc(): Json {
         TriggerInput: {
           type: "object",
           properties: {
-            kind: { enum: ["schedule", "webhook"] },
+            kind: { enum: ["schedule", "webhook", "continuous"] },
             message: str,
             schedule: str,
             enabled: { type: "boolean" },

@@ -25,6 +25,7 @@ export interface BotRow {
   current_task_updated_at: number | null;
   status: string | null;
   status_level: "ok" | "issue" | "blocked" | null;
+  token_budget: number | null;
   created_at: number;
 }
 
@@ -40,7 +41,7 @@ export interface RoleRow {
 export interface TriggerRow {
   id: string;
   bot_id: string;
-  kind: "schedule" | "webhook";
+  kind: "schedule" | "webhook" | "continuous";
   name: string | null;
   message: string;
   schedule: string;
@@ -54,7 +55,7 @@ export interface RunRow {
   id: string;
   bot_id: string;
   status: "running" | "ok" | "error";
-  trigger: "schedule" | "manual" | "chat" | "webhook" | "dm";
+  trigger: "schedule" | "manual" | "chat" | "webhook" | "dm" | "continuous";
   started_at: number;
   finished_at: number | null;
   output: string | null;
@@ -141,6 +142,21 @@ db.exec(`
     user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
     created_at INTEGER NOT NULL,
     last_used_at INTEGER
+  );
+
+  CREATE TABLE IF NOT EXISTS device_grants (
+    id TEXT PRIMARY KEY,
+    device_code_hash TEXT NOT NULL UNIQUE,
+    user_code TEXT NOT NULL,
+    client_name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    key_name TEXT,
+    api_key_id TEXT,
+    api_value TEXT,
+    owner_email TEXT,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    last_polled_at INTEGER
   );
 
   CREATE TABLE IF NOT EXISTS runs (
@@ -245,11 +261,22 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS run_usage (
+    run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+    bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    created_at INTEGER NOT NULL,
+    input INTEGER NOT NULL DEFAULT 0,
+    output INTEGER NOT NULL DEFAULT 0,
+    cache_read INTEGER NOT NULL DEFAULT 0,
+    cache_write INTEGER NOT NULL DEFAULT 0
+  );
+
   CREATE INDEX IF NOT EXISTS idx_messages_bot ON messages (bot_id, id);
   CREATE INDEX IF NOT EXISTS idx_runs_bot ON runs (bot_id, started_at DESC);
   CREATE INDEX IF NOT EXISTS idx_triggers_due ON triggers (next_run_at);
   CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications (created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_pending_bot ON pending_injections (bot_id, id);
+  CREATE INDEX IF NOT EXISTS idx_run_usage_bot ON run_usage (bot_id, created_at DESC);
 `);
 
 db.prepare(
@@ -377,6 +404,9 @@ if (!botColumns.has("avatar_shape"))
 
 if (!botColumns.has("avatar_color"))
   db.prepare("ALTER TABLE bots ADD COLUMN avatar_color INTEGER").run();
+
+if (!botColumns.has("token_budget"))
+  db.prepare("ALTER TABLE bots ADD COLUMN token_budget INTEGER").run();
 
 if (!botColumns.has("sound"))
   db.prepare("ALTER TABLE bots ADD COLUMN sound TEXT").run();
@@ -1297,6 +1327,33 @@ export function finishRun(
     });
   });
   tx();
+
+  const info = getInfo.get(id) as { bot_id: string | null } | undefined;
+  if (info?.bot_id) armContinuousTriggers(info.bot_id);
+}
+
+export function continuousIntervalMs(schedule: string): number | null {
+  const match = /^@every (\d+)\s*(s|m|h|d)$/i.exec(schedule.trim());
+  if (!match) return null;
+  const multiplier = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 }[
+    match[2].toLowerCase()
+  ];
+  if (!multiplier) return null;
+  return Number(match[1]) * multiplier;
+}
+
+// Continuous triggers arm only after a run finishes (specs/triggers/continuous.md).
+export function armContinuousTriggers(botId: string): void {
+  const armed = db.prepare(
+    "SELECT id, schedule FROM triggers WHERE bot_id = ? AND kind = 'continuous' AND enabled = 1",
+  );
+  const setNext = db.prepare(
+    "UPDATE triggers SET next_run_at = ? WHERE id = ?",
+  );
+  for (const row of armed.all(botId) as { id: string; schedule: string }[]) {
+    const ms = continuousIntervalMs(row.schedule);
+    if (ms !== null) setNext.run(Date.now() + ms, row.id);
+  }
 }
 
 // A crash leaves runs stuck in `running`; lifecycle requires every run to end
@@ -1608,6 +1665,61 @@ export function deletePendingInjections(ids: number[]): void {
   for (const id of ids) del.run(id);
 }
 
+// specs/usage/tokens.md — provider-reported usage per run, totals independent of run history.
+export interface TokenUsage {
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+}
+
+export function recordRunUsage(
+  runId: string,
+  botId: string,
+  createdAt: number,
+  usage: TokenUsage,
+): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO run_usage
+       (run_id, bot_id, created_at, input, output, cache_read, cache_write)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    runId,
+    botId,
+    createdAt,
+    usage.input,
+    usage.output,
+    usage.cache_read,
+    usage.cache_write,
+  );
+}
+
+export interface UsageTotals extends TokenUsage {
+  total: number;
+}
+
+export function sumUsage(botId: string, since?: number): UsageTotals {
+  const sql = `SELECT COALESCE(SUM(input), 0) AS input, COALESCE(SUM(output), 0) AS output,
+       COALESCE(SUM(cache_read), 0) AS cache_read,
+       COALESCE(SUM(cache_write), 0) AS cache_write
+   FROM run_usage WHERE bot_id = ?${since ? " AND created_at >= ?" : ""}`;
+  const row = (
+    since ? db.prepare(sql).get(botId, since) : db.prepare(sql).get(botId)
+  ) as TokenUsage;
+  return {
+    ...row,
+    total: row.input + row.output + row.cache_read + row.cache_write,
+  };
+}
+
+export function botUsageTotals(botId: string): {
+  lifetime: UsageTotals;
+  last30d: UsageTotals;
+} {
+  const since = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  return { lifetime: sumUsage(botId), last30d: sumUsage(botId, since) };
+}
+
 export interface McpServerRow {
   id: string;
   name: string;
@@ -1628,6 +1740,16 @@ db.prepare(
     created_at INTEGER NOT NULL
   )`,
 ).run();
+const skillCols = new Set(
+  (db.prepare("PRAGMA table_info(skills)").all() as { name: string }[]).map(
+    (c) => c.name,
+  ),
+);
+// Immutable JSON provenance for imported skills; null for hand-written ones.
+if (!skillCols.has("import_info")) {
+  db.prepare("ALTER TABLE skills ADD COLUMN import_info TEXT").run();
+}
+
 
 db.exec(
   `CREATE TABLE IF NOT EXISTS mcp_servers (
@@ -1658,6 +1780,7 @@ export interface SkillRow {
   description: string;
   instructions: string;
   created_at: number;
+  import_info: string | null;
 }
 
 export function listSkills(): SkillRow[] {
@@ -1674,13 +1797,14 @@ export function getSkill(id: string): SkillRow | undefined {
 
 export function insertSkill(skill: SkillRow): void {
   db.prepare(
-    "INSERT INTO skills (id, name, description, instructions, created_at) VALUES (?, ?, ?, ?, ?)",
+    "INSERT INTO skills (id, name, description, instructions, created_at, import_info) VALUES (?, ?, ?, ?, ?, ?)",
   ).run(
     skill.id,
     skill.name,
     skill.description,
     skill.instructions,
     skill.created_at,
+    skill.import_info ?? null,
   );
 }
 
@@ -1870,6 +1994,117 @@ export function deleteApiKey(id: string, userId: string): boolean {
     )
     .run(id, userId);
   return res.changes > 0;
+}
+
+// --- device authorization grants (RFC 8628) ---------------------------------
+
+export interface DeviceGrantRow {
+  id: string;
+  device_code_hash: string;
+  user_code: string;
+  client_name: string;
+  status: "pending" | "approved" | "denied" | "claimed";
+  key_name: string | null;
+  api_key_id: string | null;
+  api_value: string | null;
+  owner_email: string | null;
+  created_at: number;
+  expires_at: number;
+  last_polled_at: number | null;
+}
+
+export function insertDeviceGrant(grant: {
+  id: string;
+  device_code_hash: string;
+  user_code: string;
+  client_name: string;
+  created_at: number;
+  expires_at: number;
+}): void {
+  db.prepare(
+    `INSERT INTO device_grants
+     (id, device_code_hash, user_code, client_name, status, created_at, expires_at)
+     VALUES (@id, @device_code_hash, @user_code, @client_name, 'pending', @created_at, @expires_at)`,
+  ).run(grant);
+}
+
+export function getLiveDeviceGrantByUserCode(
+  userCode: string,
+  now: number,
+): DeviceGrantRow | undefined {
+  return db
+    .prepare(
+      `SELECT * FROM device_grants
+       WHERE user_code = ? AND status = 'pending' AND expires_at > ?`,
+    )
+    .get(userCode, now) as DeviceGrantRow | undefined;
+}
+
+export function getDeviceGrantByDeviceHash(
+  hash: string,
+): DeviceGrantRow | undefined {
+  return db
+    .prepare("SELECT * FROM device_grants WHERE device_code_hash = ?")
+    .get(hash) as DeviceGrantRow | undefined;
+}
+
+export function approveDeviceGrant(
+  id: string,
+  decision: {
+    key_name: string;
+    api_key_id: string;
+    api_value: string;
+    owner_email: string;
+  },
+): boolean {
+  const res = db
+    .prepare(
+      `UPDATE device_grants
+       SET status = 'approved', key_name = @key_name, api_key_id = @api_key_id,
+           api_value = @api_value, owner_email = @owner_email
+       WHERE id = @id AND status = 'pending'`,
+    )
+    .run({ id, ...decision });
+  return res.changes > 0;
+}
+
+export function denyDeviceGrant(id: string): boolean {
+  const res = db
+    .prepare(
+      "UPDATE device_grants SET status = 'denied' WHERE id = ? AND status = 'pending'",
+    )
+    .run(id);
+  return res.changes > 0;
+}
+
+// Hands the plaintext key to exactly one poller: only an `approved` grant with
+// a value still stored transitions to `claimed`, and the value is dropped.
+export function claimDeviceGrant(id: string): { api_value: string } | null {
+  const row = db
+    .prepare(
+      "SELECT api_value FROM device_grants WHERE id = ? AND status = 'approved'",
+    )
+    .get(id) as { api_value: string | null } | undefined;
+  if (!row?.api_value) return null;
+  const res = db
+    .prepare(
+      `UPDATE device_grants SET status = 'claimed', api_value = NULL
+       WHERE id = ? AND status = 'approved'`,
+    )
+    .run(id);
+  return res.changes === 1 ? { api_value: row.api_value } : null;
+}
+
+export function touchDeviceGrantPoll(id: string, ts: number): void {
+  db.prepare("UPDATE device_grants SET last_polled_at = ? WHERE id = ?").run(
+    ts,
+    id,
+  );
+}
+
+// Pending grants never survive a restart (device-login.md).
+export function clearDeviceGrants(): number {
+  return db.prepare("DELETE FROM device_grants").run().changes;
 }
 
 export interface UserRow {

@@ -13,7 +13,7 @@ Create keys in **Settings → API keys**: each value is `bots_` + 40 hex chars, 
 | GET | `/api/auth/config` | `{ allow_registration, has_users }` — drives the sign-in screen |
 | POST | `/api/auth/signup` | Create account — 403 unless `ALLOW_REGISTRATION=true`, weak password → 400, duplicate → 409; sets session cookie |
 | POST | `/api/auth/login` | Email + password → session cookie (7 days); wrong credentials → 401 |
-| GET | `/api/auth/me` | `{ email }` of the current caller |
+| GET | `/api/auth/me` | `{ email }` of the current caller — plus `key_id` when the request used an API key |
 | POST | `/api/auth/logout` | Drop this session |
 | POST | `/api/auth/password` | `{ current, new }` — 403 on wrong current; other sessions are invalidated |
 
@@ -25,6 +25,19 @@ Create keys in **Settings → API keys**: each value is `bots_` + 40 hex chars, 
 | POST | `/api/api-keys` | Create — `{ name }`; response includes the one-time `value` |
 | DELETE | `/api/api-keys/:keyId` | Revoke — 404 unknown id |
 
+## Device login (browser-approved CLI access)
+
+A terminal client requests a short code, the user approves it in the browser, and the client polls for a one-time API key (OAuth 2.0 device authorization, RFC 8628). Pending grants do not survive a server restart.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| POST | `/api/auth/device/code` | Public — `{ client_name }` → `{ device_code, user_code, verification_uri, verification_uri_complete, expires_in: 600, interval: 5 }`; rate-limited per IP |
+| GET | `/api/auth/device/pending?user_code=` | Session — resolve a live code for the approval page → `{ client_name, key_name, expires_at }`; unknown/expired/consumed → 404 |
+| POST | `/api/auth/device/approve` | Session + CSRF — `{ user_code, decision: "approve" \| "deny", key_name? }` → `{ ok: true }`; approval mints an API key named `bots-cli <client> <UTC date>` unless a name is given |
+| POST | `/api/auth/device/token` | Public — poll with `{ device_code }`. Errors carry an OAuth code: `authorization_pending`, `slow_down`, `expired_token`, `access_denied`; the first success returns `{ api_key, key_id, key_name, email }` exactly once and the plaintext key is not retained after claim |
+
+The approval page lives at `/device` (`verification_uri_complete` deep-links it with the code); it requires a login session, shows the client name and expiry before approval, and never displays the issued key.
+
 ## Bots
 
 | Method | Path | Purpose |
@@ -35,6 +48,8 @@ Create keys in **Settings → API keys**: each value is `bots_` + 40 hex chars, 
 | POST | `/api/bots/:id/run` | Run now — `{ message? }`, steers a live loop, returns `{ runId, steered }`; 409 while globally paused |
 | POST | `/api/bots/:id/interrupt` | Stop the live loop |
 | GET | `/api/bots/:id/runs` | Run history (status ok/error/interrupted, output, error) |
+| GET | `/api/bots/:id/usage` | Token totals for the bot: `{ lifetime, last30d, budget }`; windows carry `input`, `output`, `cache_read`, `cache_write`, `total`, and `budget` is the trailing-30-day token cap (`null` = unlimited) |
+| GET | `/api/bots/:id/context-usage` | Estimated context split: `{ context_window, categories: { system_prompt, tools, conversation }, used, free }`; `context_window`/`free` are `null` with no model configured |
 | GET/POST | `/api/bots/:id/messages` | Chat history / inject a chat turn (steers or starts; while globally paused `{ runId: null, held: true }`) |
 | DELETE | `/api/bots/:id/messages` | Clear stored context |
 
@@ -82,6 +97,8 @@ Created automatically when a run ends `error` (deduped per run). See [Notificati
 ## Roles, skills & MCP servers
 
 CRUD on `/api/roles`, `/api/skills`, `/api/mcp-servers`. Roles accept `instructions` plus capability grants `mcp_server_ids: []` and `skill_ids: []`; unknown ids → `400`. Skills require `name` + `instructions`; MCP servers require unique `name`, non-empty `command`, optional `args[]`, `env{}`; `POST /api/mcp-servers/:id/test` runs the handshake.
+
+Skill import (never writes until confirmed): `GET /api/skills/search?q=` proxies skills.sh candidates, `POST /api/skills/preview` resolves a source (`owner/repo`, repo URL with optional `/tree/<ref>/<path>`, `@<skill>` filter, `#<ref>` pin) into per-`SKILL.md` previews with commit, file count, size and content hash, and `POST /api/skills/import { source, folders[] }` stores the selected bundles byte-for-byte plus immutable provenance (`import_info` on the skill row) — rejecting unreachable sources, oversized bundles (>200 files or >5 MB) and invalid frontmatter with nothing saved.
 
 ## Webhooks
 

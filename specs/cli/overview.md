@@ -12,4 +12,3 @@
 - Update commands send only supplied fields; a repeatable collection flag replaces the stored collection when present and leaves it unchanged when omitted.
 - Global flags are `--url`, `--api-key`, `--config`, `--quiet`, `--no-color`, `--verbose`, `--yes`, `--help` and `--version`. There is no structured JSON output flag in this behavior; `--quiet` and `bots api` are the scripting paths.
 - `bots version` prints the CLI package version; `bots --version` is equivalent.
-- Every command maps to a documented route; `bots api` reaches routes that have no dedicated wrapper.

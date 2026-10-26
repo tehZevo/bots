@@ -8,3 +8,4 @@ A run records one working period of a bot's agent loop — from an injected mess
 - Success stores the final assistant reply as output; failure stores the error message (partial text kept if any).
 - Run rows include provider-reported token usage (`../usage/tokens.md`); failed runs keep usage from completed requests.
 - History: newest first, last 50 per bot.
+- Every persisted message row carries the run that produced it; selecting a history row replays those steps (`drill-down.md`).

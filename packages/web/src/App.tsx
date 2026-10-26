@@ -105,7 +105,7 @@ interface Tag {
 interface Run {
   id: string;
   status: "running" | "ok" | "error";
-  trigger: "schedule" | "manual" | "chat";
+  trigger: "schedule" | "manual" | "chat" | "webhook" | "dm" | "continuous";
   started_at: number;
   finished_at: number | null;
   output: string | null;
@@ -129,7 +129,7 @@ interface NotificationsResponse {
 
 interface Trigger {
   id: string;
-  kind: "schedule" | "webhook";
+  kind: "schedule" | "webhook" | "continuous";
   name: string | null;
   message: string;
   schedule: string;
@@ -803,6 +803,20 @@ export function App() {
   const [chatBot, setChatBot] = useState<string | null>(null);
   const [poking, setPoking] = useState<Record<string, boolean>>({});
   const [paused, setPausedState] = useState(false);
+  const [quickConfirm, setQuickConfirm] = useState<{
+    bot: Bot;
+    action: "clear" | "delete";
+  } | null>(null);
+
+  const runQuickAction = (bot: Bot, action: "clear" | "delete") => {
+    const path =
+      action === "clear"
+        ? `/api/bots/${bot.id}/messages`
+        : `/api/bots/${bot.id}`;
+    void api(path, { method: "DELETE" })
+      .then(() => void load())
+      .catch(() => undefined);
+  };
 
   const poke = (bot: Bot) => {
     if (!bot.enabled || paused || poking[bot.id]) return;
@@ -813,9 +827,9 @@ export function App() {
       .finally(() => setPoking((p) => ({ ...p, [bot.id]: false })));
   };
 
-  const [modalTab, setModalTab] = useState<"general" | "triggers" | "logs">(
-    "general",
-  );
+  const [modalTab, setModalTab] = useState<
+    "general" | "triggers" | "logs" | "stats"
+  >("general");
   const [detailOpen, setDetailOpen] = useState(false);
   const [avatarMenu, setAvatarMenu] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -1302,16 +1316,10 @@ export function App() {
                         setDetailOpen(true);
                       }}
                       onClearMemory={() =>
-                        void api(`/api/bots/${bot.id}/messages`, {
-                          method: "DELETE",
-                        })
-                          .then(() => void load())
-                          .catch(() => undefined)
+                        setQuickConfirm({ bot, action: "clear" })
                       }
                       onDelete={() =>
-                        void api(`/api/bots/${bot.id}`, { method: "DELETE" })
-                          .then(() => void load())
-                          .catch(() => undefined)
+                        setQuickConfirm({ bot, action: "delete" })
                       }
                     />
                   ))}
@@ -1420,16 +1428,18 @@ export function App() {
                   </button>
                 </div>
                 <nav className="mtabs">
-                  {(["general", "triggers", "logs"] as const).map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      className={modalTab === t ? "sel" : ""}
-                      onClick={() => discardGuard(() => setModalTab(t))}
-                    >
-                      {t[0].toUpperCase() + t.slice(1)}
-                    </button>
-                  ))}
+                  {(["general", "triggers", "logs", "stats"] as const).map(
+                    (t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        className={modalTab === t ? "sel" : ""}
+                        onClick={() => discardGuard(() => setModalTab(t))}
+                      >
+                        {t[0].toUpperCase() + t.slice(1)}
+                      </button>
+                    ),
+                  )}
                 </nav>
                 <div className="tabbody">
                   {modalTab === "general" && (
@@ -1469,6 +1479,13 @@ export function App() {
                       ))}
                     </>
                   )}
+                  {modalTab === "stats" && (
+                    <BotStats
+                      key={openBotRow.id}
+                      botId={openBotRow.id}
+                      running={openBotRow.run_state === "running"}
+                    />
+                  )}
                 </div>
               </div>
             </div>
@@ -1495,6 +1512,23 @@ export function App() {
               setPendingDiscard(null);
               clearAllDirty();
               p.fn();
+            }}
+          />
+        )}
+        {quickConfirm && (
+          <ConfirmDialog
+            text={
+              quickConfirm.action === "delete"
+                ? `Delete bot ${quickConfirm.bot.name}? This removes the bot, its triggers and run history.`
+                : `Clear the stored context of ${quickConfirm.bot.name}? The bot forgets its conversation history.`
+            }
+            confirmLabel={
+              quickConfirm.action === "delete" ? "Delete bot" : "Clear memory"
+            }
+            onCancel={() => setQuickConfirm(null)}
+            onConfirm={() => {
+              runQuickAction(quickConfirm.bot, quickConfirm.action);
+              setQuickConfirm(null);
             }}
           />
         )}
@@ -1843,9 +1877,9 @@ export function KebabIcon({ size = 14 }: { size?: number }) {
       fill="currentColor"
       aria-hidden="true"
     >
-      <circle cx="12" cy="5" r="2" />
+      <circle cx="5" cy="12" r="2" />
       <circle cx="12" cy="12" r="2" />
-      <circle cx="12" cy="19" r="2" />
+      <circle cx="19" cy="12" r="2" />
     </svg>
   );
 }
@@ -3653,6 +3687,250 @@ export function RoleFormModal({
   );
 }
 
+interface UsageTotals {
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+  total: number;
+}
+
+function pctOf(tokens: number, window: number): number {
+  if (!window || window <= 0) return 0;
+  return Math.min(100, Math.round((tokens / window) * 100));
+}
+
+const CTX_ROWS: [
+  string,
+  "system_prompt" | "tools" | "conversation" | "free",
+  string,
+][] = [
+  ["System prompt", "system_prompt", "sys"],
+  ["Tool definitions", "tools", "tools"],
+  ["Conversation", "conversation", "conv"],
+  ["Free space", "free", "free"],
+];
+
+interface ContextBreakdownData {
+  context_window: number | null;
+  categories: {
+    system_prompt: number;
+    tools: number;
+    conversation: number;
+  };
+  used: number;
+  free: number | null;
+}
+
+export function BotStats({
+  botId,
+  running = false,
+}: {
+  botId: string;
+  running?: boolean;
+}) {
+  const zero: UsageTotals = {
+    input: 0,
+    output: 0,
+    cache_read: 0,
+    cache_write: 0,
+    total: 0,
+  };
+  const [totals, setTotals] = useState<{
+    lifetime: UsageTotals;
+    last30d: UsageTotals;
+    budget: number | null;
+  }>({ lifetime: zero, last30d: zero, budget: null });
+  const [budgetText, setBudgetText] = useState("");
+  const [budgetDirty, setBudgetDirty] = useState(false);
+
+  const [ctx, setCtx] = useState<ContextBreakdownData | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    api<{
+      lifetime: UsageTotals;
+      last30d: UsageTotals;
+      budget: number | null;
+    }>(`/api/bots/${botId}/usage`)
+      .then((data) => {
+        if (!active) return;
+        setTotals(data);
+        setBudgetText(data.budget == null ? "" : String(data.budget));
+        setBudgetDirty(false);
+      })
+      .catch(() => undefined);
+    api<ContextBreakdownData>(`/api/bots/${botId}/context-usage`)
+      .then((data) => {
+        if (active) setCtx(data);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [botId]);
+
+  useEffect(() => {
+    if (!running) return undefined;
+    const timer = setInterval(() => {
+      api<ContextBreakdownData>(`/api/bots/${botId}/context-usage`)
+        .then(setCtx)
+        .catch(() => undefined);
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [botId, running]);
+
+  const saveBudget = async () => {
+    const trimmed = budgetText.trim();
+    const parsed = trimmed === "" ? null : Math.floor(Number(trimmed));
+    if (parsed !== null && (!Number.isFinite(parsed) || parsed < 1)) return;
+    await api(`/api/bots/${botId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token_budget: parsed }),
+    }).catch(() => undefined);
+    const data = await api<{
+      lifetime: UsageTotals;
+      last30d: UsageTotals;
+      budget: number | null;
+    }>(`/api/bots/${botId}/usage`).catch(() => null);
+    if (data) {
+      setTotals(data);
+      setBudgetText(data.budget == null ? "" : String(data.budget));
+    }
+    setBudgetDirty(false);
+  };
+
+  const nf = new Intl.NumberFormat();
+  const rows: [string, keyof UsageTotals][] = [
+    ["Input", "input"],
+    ["Output", "output"],
+    ["Cache read", "cache_read"],
+    ["Cache write", "cache_write"],
+    ["Total", "total"],
+  ];
+  const budget = totals.budget;
+  const pct =
+    budget && budget > 0
+      ? Math.min(100, Math.round((totals.last30d.total / budget) * 100))
+      : 0;
+  return (
+    <section className="stats">
+      {budget != null && (
+        <div className="budgetbox">
+          <div className="budgetline">
+            <span>
+              {nf.format(totals.last30d.total)} of {nf.format(budget)} tokens in
+              the last 30 days ({pct}%)
+            </span>
+            {totals.last30d.total >= budget && (
+              <span className="status error">exhausted</span>
+            )}
+          </div>
+          <div className="budgetbar" aria-hidden="true">
+            <div
+              className={totals.last30d.total >= budget ? "fill over" : "fill"}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        </div>
+      )}
+      <table className="usagetable">
+        <thead>
+          <tr>
+            <th>Tokens</th>
+            <th>Lifetime</th>
+            <th>Last 30 days</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([label, key]) => (
+            <tr key={key}>
+              <td>{label}</td>
+              <td>{nf.format(totals.lifetime[key])}</td>
+              <td>{nf.format(totals.last30d[key])}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="budgetedit">
+        <label>
+          30-day token budget
+          <input
+            type="number"
+            min={1}
+            step={1}
+            value={budgetText}
+            placeholder="unlimited"
+            onChange={(e) => {
+              setBudgetText(e.target.value);
+              setBudgetDirty(true);
+            }}
+          />
+        </label>
+        <button
+          type="button"
+          disabled={!budgetDirty}
+          onClick={() => void saveBudget()}
+        >
+          Save budget
+        </button>
+      </div>
+      <div className="ctxbox">
+        <h3>Current context (estimated)</h3>
+        {ctx && ctx.context_window != null ? (
+          <>
+            <div className="ctxbar" aria-hidden="true">
+              <div
+                className="seg seg-sys"
+                style={{
+                  width: `${pctOf(ctx.categories.system_prompt, ctx.context_window)}%`,
+                }}
+              />
+              <div
+                className="seg seg-tools"
+                style={{
+                  width: `${pctOf(ctx.categories.tools, ctx.context_window)}%`,
+                }}
+              />
+              <div
+                className="seg seg-conv"
+                style={{
+                  width: `${pctOf(ctx.categories.conversation, ctx.context_window)}%`,
+                }}
+              />
+            </div>
+            <ul className="ctxlegend">
+              {CTX_ROWS.map(([label, key, cls]) => {
+                const tokens =
+                  key === "free" ? (ctx.free ?? 0) : ctx.categories[key];
+                return (
+                  <li key={key}>
+                    <span className={`dot ${cls}`} aria-hidden="true" />
+                    <span>{label}</span>
+                    <span>{nf.format(tokens)}</span>
+                    <span>{pctOf(tokens, ctx.context_window ?? 0)}%</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        ) : (
+          <p className="muted">
+            {ctx
+              ? `~${nf.format(ctx.used)} tokens in use — no model configured`
+              : "Loading…"}
+          </p>
+        )}
+      </div>
+      <p className="muted">
+        A run that reaches the budget stops after its current turn; raising or
+        clearing the budget lets the next run proceed.
+      </p>
+    </section>
+  );
+}
+
 export function BotGeneral({
   bot,
   onChanged,
@@ -4042,7 +4320,9 @@ export function Triggers({ botId }: { botId: string }) {
   const [message, setMessage] = useState("");
   const [name, setName] = useState("");
   const [schedule, setSchedule] = useState("0 * * * *");
-  const [kind, setKind] = useState<"schedule" | "webhook">("schedule");
+  const [kind, setKind] = useState<"schedule" | "webhook" | "continuous">(
+    "schedule",
+  );
   const [created, setCreated] = useState<{ id: string; secret: string } | null>(
     null,
   );
@@ -4110,7 +4390,11 @@ export function Triggers({ botId }: { botId: string }) {
                     : t.schedule)}
               </span>
               <span className="trowsub">
-                {t.kind === "webhook" ? "Webhook" : "Schedule"}
+                {t.kind === "webhook"
+                  ? "Webhook"
+                  : t.kind === "continuous"
+                    ? "Continuous"
+                    : "Schedule"}
                 {t.enabled ? "" : " (paused)"}
               </span>
             </button>
@@ -4193,17 +4477,29 @@ export function Triggers({ botId }: { botId: string }) {
                 Type
                 <select
                   value={kind}
-                  onChange={(e) =>
-                    setKind(e.target.value as "schedule" | "webhook")
-                  }
+                  onChange={(e) => {
+                    const k = e.target.value as
+                      | "schedule"
+                      | "webhook"
+                      | "continuous";
+                    setKind(k);
+                    if (k === "continuous") setSchedule("@every 30m");
+                    else if (k !== "webhook" && schedule.startsWith("@"))
+                      setSchedule("0 * * * *");
+                  }}
                 >
                   <option value="schedule">Schedule</option>
                   <option value="webhook">Webhook</option>
+                  <option value="continuous">Continuous</option>
                 </select>
               </label>
-              {kind === "schedule" && (
+              {kind !== "webhook" && (
                 <input
-                  placeholder="cron or @every 30m"
+                  placeholder={
+                    kind === "continuous"
+                      ? "@every 30m (min 1m)"
+                      : "cron or @every 30m"
+                  }
                   value={schedule}
                   onChange={(e) => setSchedule(e.target.value)}
                   required
@@ -4339,9 +4635,13 @@ function TriggerEditor({
           onChange={(e) => setMessage(e.target.value)}
         />
       </label>
-      {trigger.kind === "schedule" && (
+      {(trigger.kind === "schedule" || trigger.kind === "continuous") && (
         <input
-          placeholder="cron or @every 30m"
+          placeholder={
+            trigger.kind === "continuous"
+              ? "@every 30m (min 1m)"
+              : "cron or @every 30m"
+          }
           value={schedule}
           onChange={(e) => setSchedule(e.target.value)}
         />
@@ -4355,7 +4655,7 @@ function TriggerEditor({
             void onPatch(trigger.id, {
               name: name.trim() || null,
               message,
-              ...(trigger.kind === "schedule" ? { schedule } : {}),
+              ...(trigger.kind === "webhook" ? {} : { schedule }),
             }).finally(() => setBusy(false));
           }}
         >
@@ -4619,6 +4919,7 @@ interface Skill {
   description: string;
   instructions: string;
   created_at: number;
+  import_info?: string | null;
 }
 
 interface McpServer {
@@ -4749,6 +5050,7 @@ export function SkillsPanel() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [skillForm, setSkillForm] = useState<Skill | "new" | null>(null);
   const [removingSkill, setRemovingSkill] = useState<Skill | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   const reloadSkills = useCallback(
     () =>
@@ -4766,6 +5068,9 @@ export function SkillsPanel() {
     <section>
       <div className="viewhead">
         <h2>Skills</h2>
+        <button type="button" onClick={() => setImportOpen(true)}>
+          Import
+        </button>
         <button type="button" onClick={() => setSkillForm("new")}>
           Add skill
         </button>
@@ -4778,6 +5083,11 @@ export function SkillsPanel() {
           <div className="mcpsrv" key={sk.id}>
             <header>
               <strong>{sk.name}</strong>
+              {sk.import_info && (
+                <span className="srcbadge">
+                  {`${safeImportOrigin(sk.import_info) ?? "git"} skill`}
+                </span>
+              )}
               <button type="button" onClick={() => setSkillForm(sk)}>
                 Edit
               </button>
@@ -4813,6 +5123,15 @@ export function SkillsPanel() {
           onClose={() => setSkillForm(null)}
           onSaved={() => {
             setSkillForm(null);
+            void reloadSkills();
+          }}
+        />
+      )}
+      {importOpen && (
+        <ImportSkillModal
+          onClose={() => setImportOpen(false)}
+          onImported={() => {
+            setImportOpen(false);
             void reloadSkills();
           }}
         />
@@ -5801,11 +6120,11 @@ export function BotTags({ botId }: { botId: string }) {
       });
       setAll((list) => [...list, created]);
       save([...attached, created.id]);
+      setText("");
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e));
       setBusy(false);
     }
-    setText("");
   };
 
   return (
@@ -5842,7 +6161,7 @@ export function BotTags({ botId }: { botId: string }) {
           }
         }}
       />
-      {q !== "" && suggestions.length > 0 && (
+      {q !== "" && (
         <div className="tagsuggest">
           {suggestions.slice(0, 8).map((t) => (
             <button
@@ -5857,6 +6176,11 @@ export function BotTags({ botId }: { botId: string }) {
               {t.name}
             </button>
           ))}
+          {suggestions.length === 0 && (
+            <button type="button" disabled={busy} onClick={() => void commit()}>
+              {`+ Create "${text.trim()}"`}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -6151,6 +6475,221 @@ export function BotSecrets({ botId }: { botId: string }) {
           {s.name} <code>{s.key}</code>
         </label>
       ))}
+    </div>
+  );
+}
+
+function safeImportOrigin(raw: string): string | null {
+  try {
+    const info = JSON.parse(raw) as { origin?: string };
+    return typeof info.origin === "string" ? info.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+interface SearchHit {
+  id: string;
+  source: string;
+  skill_id: string;
+  name: string;
+  installs: number | null;
+}
+
+interface SkillPreviewRow {
+  folder: string;
+  name: string;
+  description: string;
+  license: string | null;
+  file_count: number;
+  total_size: number;
+  content_hash: string;
+}
+
+export function ImportSkillModal({
+  onClose,
+  onImported,
+}: {
+  onClose: () => void;
+  onImported: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [hits, setHits] = useState<SearchHit[] | null>(null);
+  const [source, setSource] = useState("");
+  const [previews, setPreviews] = useState<SkillPreviewRow[]>([]);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const search = async () => {
+    if (!query.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api<{ results: SearchHit[] }>(
+        `/api/skills/search?q=${encodeURIComponent(query.trim())}`,
+      );
+      setHits(r.results);
+    } catch (e) {
+      setHits([]);
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const preview = async () => {
+    if (!source.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api<{ skills: SkillPreviewRow[] }>(
+        "/api/skills/preview",
+        { method: "POST", body: JSON.stringify({ source: source.trim() }) },
+      );
+      setPreviews(r.skills);
+      setPicked(new Set());
+    } catch (e) {
+      setPreviews([]);
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doImport = async () => {
+    if (!picked.size || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api("/api/skills/import", {
+        method: "POST",
+        body: JSON.stringify({ source: source.trim(), folders: [...picked] }),
+      });
+      onImported();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal">
+      <button
+        type="button"
+        className="mscrim"
+        aria-label="Close"
+        onClick={onClose}
+      />
+      <div className="dialog" role="dialog" aria-label="Import skill">
+        <h2>Import skills</h2>
+        <label className="field">
+          Search skills.sh
+          <input
+            value={query}
+            placeholder="pdf, testing, ..."
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void search();
+              }
+            }}
+          />
+        </label>
+        <div className="actions">
+          <button
+            type="button"
+            disabled={busy || !query.trim()}
+            onClick={() => void search()}
+          >
+            Search
+          </button>
+        </div>
+        {hits && (
+          <ul className="srclist">
+            {hits.length === 0 && <li className="muted">No matches.</li>}
+            {hits.map((h) => (
+              <li key={h.id}>
+                <span>
+                  {h.name}{" "}
+                  <em className="muted">
+                    ({h.source}
+                    {h.installs !== null ? ` · ${h.installs} installs` : ""})
+                  </em>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSource(`${h.source}@${h.skill_id}`)}
+                >
+                  Use
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <label className="field">
+          Git source
+          <input
+            value={source}
+            placeholder="owner/repo, https://…/tree/main/skills/pdf@pdf#v1.2"
+            onChange={(e) => setSource(e.target.value)}
+          />
+        </label>
+        <div className="actions">
+          <button
+            type="button"
+            disabled={busy || !source.trim()}
+            onClick={() => void preview()}
+          >
+            Preview
+          </button>
+        </div>
+        {previews.length > 0 && (
+          <ul className="srclist">
+            {previews.map((p) => (
+              <li key={p.folder}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={picked.has(p.folder)}
+                    onChange={() =>
+                      setPicked((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(p.folder)) next.delete(p.folder);
+                        else next.add(p.folder);
+                        return next;
+                      })
+                    }
+                  />{" "}
+                  <strong>{p.name}</strong>{" "}
+                  <em className="muted">
+                    {p.folder} · {p.file_count} files ·{" "}
+                    {(p.total_size / 1024).toFixed(0)} KB
+                  </em>
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
+        {error && <p className="error">{error}</p>}
+        <div className="actions">
+          <button
+            type="button"
+            disabled={busy || picked.size === 0}
+            onClick={() => void doImport()}
+          >
+            Import{" "}
+            {picked.size > 0
+              ? `${picked.size} skill${picked.size > 1 ? "s" : ""}`
+              : ""}
+          </button>
+          <button type="button" onClick={onClose}>
+            Cancel
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
