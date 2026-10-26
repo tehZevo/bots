@@ -85,6 +85,8 @@ Created automatically when a run ends `error` (deduped per run). See [Notificati
 
 CRUD on `/api/roles`, `/api/skills`, `/api/mcp-servers`. Roles accept `instructions` plus capability grants `mcp_server_ids: []` and `skill_ids: []`; unknown ids → `400`. Skills require `name` + `instructions`; MCP servers require unique `name`, non-empty `command`, optional `args[]`, `env{}`; `POST /api/mcp-servers/:id/test` runs the handshake.
 
+Skill import (never writes until confirmed): `GET /api/skills/search?q=` proxies skills.sh candidates, `POST /api/skills/preview` resolves a source (`owner/repo`, repo URL with optional `/tree/<ref>/<path>`, `@<skill>` filter, `#<ref>` pin) into per-`SKILL.md` previews with commit, file count, size and content hash, and `POST /api/skills/import { source, folders[] }` stores the selected bundles byte-for-byte plus immutable provenance (`import_info` on the skill row) — rejecting unreachable sources, oversized bundles (>200 files or >5 MB) and invalid frontmatter with nothing saved.
+
 ## Webhooks
 
 `POST /api/webhooks/:triggerId` with `Authorization: Bearer <secret>` — 401 bad token, 409 trigger/bot disabled or globally paused, 413 payload over 64 KB.
