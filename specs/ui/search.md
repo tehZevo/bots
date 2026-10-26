@@ -8,3 +8,4 @@
 - Keyboard-first: up/down move selection across groups, Enter opens, Tab cycles groups; the overlay traps focus while open and returns it on close.
 - API: `GET /api/search?q=...&types=bots,roles,...` returns grouped results `{ type, id, name, subtitle }`; any signed-in user may search (`../auth/multi-user.md`). Tags stay invisible to bots — search is a human surface only (`../tags/tags.md`).
 - Empty query and no-match states are single muted lines; runs and messages are out of scope for v1.
+- Command mode: a leading `>` switches the overlay from results to actions (`command-palette.md`).
