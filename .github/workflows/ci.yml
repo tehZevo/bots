@@ -60,14 +60,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # Coverage-free so failures isolate to logic, not the coverage gate.
       - name: Unit tests
-        run: |
-          node --import ./packages/server/node_modules/tsx/dist/loader.mjs \
-            --test packages/server/test/*.test.ts
-      - name: Web unit tests
-        run: |
-          cd packages/web
-          node --import ../../packages/server/node_modules/tsx/dist/loader.mjs \
-            --test test/*.test.ts
+        run: pnpm test
 
   coverage:
     name: ci / coverage
@@ -89,10 +82,7 @@ jobs:
       # Server floor 80% lines (specs/testing/ci.md); measured % prints via the reporter below.
       - name: Tests with V8 coverage
         id: cov
-        run: |
-          node --import ./packages/server/node_modules/tsx/dist/loader.mjs \
-            --experimental-test-coverage --test-coverage-include='packages/server/src/**' \
-            --test-coverage-lines=80 --test packages/server/test/*.test.ts 2>&1 | tee cov.log
+        run: pnpm coverage:server 2>&1 | tee cov.log
       - name: Report measured coverage
         if: always()
         run: |
@@ -102,10 +92,7 @@ jobs:
       - name: Web tests with V8 coverage
         if: always()
         run: |
-          cd packages/web
-          node --import ../../packages/server/node_modules/tsx/dist/loader.mjs \
-            --experimental-test-coverage --test-coverage-include='src/**' \
-            --test-coverage-lines=80 --test test/*.test.ts 2>&1 | tee "$GITHUB_WORKSPACE/cov-web.log"
+          pnpm coverage:web 2>&1 | tee "$GITHUB_WORKSPACE/cov-web.log"
           PCT=$(grep "all files" "$GITHUB_WORKSPACE/cov-web.log" | grep -oE "[0-9]+\.[0-9]+" | head -1)
           echo "measured line coverage (web): ${PCT:-unknown}%" >> "$GITHUB_STEP_SUMMARY"
 
