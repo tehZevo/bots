@@ -5,11 +5,12 @@
 - `packages/server` — Hono API, scheduler, agent loop (`src/agent.ts`), SQLite layer (`src/db.ts`), tools (`src/tools.ts`).
 - `packages/web` — React + Vite UI; talks to `/api` (dev proxy → `:8075`).
 - `specs/` — behavior specs: a directory per feature/behavior-set; each markdown file is named after the behavior it describes (e.g. `specs/tools/shell.md`) — never generic names like `spec.md`. Specs describe the **current target behavior** of the application, present tense, ~20 lines max; features not fully defined yet live in root `ROADMAP.md`, never in specs.
+- `specs/VISION.md` — high-level purpose and goals; owned by the human product owner, **agents never edit it** (suggest changes in prose instead).
 - `OPEN_QUESTIONS.md` — judgement calls baked into the implementation that need a deliberate decision, each with a recommended lean. Resolving one = update spec + code, then delete the entry.
 
 ## Specs workflow
 
-- Specs are the source of truth for behavior.
+- Specs are the source of truth for behavior. `specs/VISION.md` is not a spec: never edit or move it in an agent-authored PR.
 - Specs never reference PR/issue numbers — state behavior alone, present tense.
 - When a new behavior is agreed on, open a **spec-only PR** touching just `specs/**`.
 - Implementation happens in separate code PRs that reference the spec they implement.
