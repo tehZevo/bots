@@ -1070,6 +1070,24 @@ export function createApp() {
     const value = header?.startsWith("Bearer ") ? header.slice(7).trim() : "";
     if (!API_KEY_RE.test(value))
       return c.json({ error: "api key required" }, 401);
+    const apiKeyRow = getApiKeyByHash(
+      createHash("sha256").update(value).digest("hex"),
+    );
+    if (!apiKeyRow) return c.json({ error: "invalid api key" }, 401);
+    const now = Date.now();
+    if (
+      apiKeyRow.last_used_at === null ||
+      now - apiKeyRow.last_used_at >= 60_000
+    )
+      touchApiKey(apiKeyRow.id, now);
+    const owner = apiKeyRow.user_id
+      ? getUserById(apiKeyRow.user_id)
+      : undefined;
+    c.set("user", {
+      id: owner?.id ?? "",
+      email: owner?.email ?? "api-key",
+      keyId: apiKeyRow.id,
+    });
 
     const msg = (await c.req.json().catch(() => null)) as {
       jsonrpc?: string;
