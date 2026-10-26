@@ -868,6 +868,11 @@ pre {
   color: var(--err);
 }
 
+.mutedline {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 .topbar {
   display: none;
 }

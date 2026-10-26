@@ -73,6 +73,148 @@ export function openApiDoc(): Json {
   ] as const)
     add(p, m, d);
 
+  paths["/api/auth/me"].get = {
+    summary: "Current identity; key_id is present for API-key requests",
+    responses: {
+      "200": {
+        description: "ok",
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              properties: { email: str, key_id: strOrNone },
+            },
+          },
+        },
+      },
+    },
+  };
+
+  paths["/api/auth/device/code"] = {
+    post: {
+      summary:
+        "Start a device authorization grant (RFC 8628); public like login",
+      requestBody: {
+        content: {
+          "application/json": {
+            schema: { type: "object", properties: { client_name: str } },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "ok",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  device_code: str,
+                  user_code: str,
+                  verification_uri: str,
+                  verification_uri_complete: str,
+                  expires_in: { type: "integer" },
+                  interval: { type: "integer" },
+                },
+              },
+            },
+          },
+        },
+        429: error4xx("rate_limited"),
+      },
+    },
+  };
+  paths["/api/auth/device/pending"] = {
+    get: {
+      summary: "Resolve a live user_code for the approval page (session)",
+      parameters: [
+        { name: "user_code", in: "query", required: true, schema: str },
+      ],
+      responses: {
+        "200": {
+          description: "ok",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  client_name: str,
+                  key_name: strOrNone,
+                  expires_at: { type: "integer" },
+                },
+              },
+            },
+          },
+        },
+        404: error4xx("unknown, expired or consumed code"),
+      },
+    },
+  };
+  paths["/api/auth/device/approve"] = {
+    post: {
+      summary: "Approve or deny a pending grant (session, CSRF)",
+      requestBody: {
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["user_code", "decision"],
+              properties: {
+                user_code: str,
+                decision: { enum: ["approve", "deny"] },
+                key_name: strOrNone,
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: error4xx("ok"),
+        404: error4xx("unknown, expired or consumed code"),
+        409: error4xx("already decided"),
+      },
+    },
+  };
+  paths["/api/auth/device/token"] = {
+    post: {
+      summary:
+        "Poll for the one-time API key; public like login. Errors carry an OAuth error code",
+      requestBody: {
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["device_code"],
+              properties: { device_code: str },
+            },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "first successful poll only",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  api_key: str,
+                  key_id: str,
+                  key_name: str,
+                  email: str,
+                },
+              },
+            },
+          },
+        },
+        400: error4xx(
+          '{"error": "authorization_pending" | "slow_down" | "expired_token" | "access_denied"}',
+        ),
+        429: error4xx("rate_limited"),
+      },
+    },
+  };
+
   add("/api/settings", "get", "Read app settings");
   add("/api/settings", "put", "Update app settings", { body: ref("Settings") });
   add("/api/pause", "get", "Read the global pause state", {
