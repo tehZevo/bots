@@ -12,6 +12,6 @@ The Skills tab also imports ready-made skills. **Import** opens a dialog where y
 
 ## Capabilities (MCP servers)
 
-Baseline tools (`shell`, `web_fetch`) are always available. Anything richer comes from [MCP integrations](/integrations-mcp): tick the servers a role may use on its **Capabilities** tab. Granted servers' tools appear to the agent namespaced as `<server>_<tool>`; if one server is unreachable at loop start it's skipped without breaking the run, and failing tool calls return an error string instead of killing the loop.
+Baseline tools (`shell`, `web_fetch`) are always available. Anything richer comes from [MCP integrations](/integrations-mcp): tick the servers a role may use on its **MCP** tab, while skills are granted separately on its **Skills** tab — never in one combined list. Granted servers' tools appear to the agent namespaced as `<server>_<tool>`; if one server is unreachable at loop start it's skipped without breaking the run, and failing tool calls return an error string instead of killing the loop.
 
 Grants reference registry ids — delete a skill or server and dangling grants simply stop taking effect. Unknown ids are rejected with `400` on save.

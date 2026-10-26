@@ -3505,7 +3505,9 @@ export function RoleFormModal({
   const [instructions, setInstructions] = useState(role?.instructions ?? "");
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
-  const [roleTab, setRoleTab] = useState<"general" | "capabilities">("general");
+  const [roleTab, setRoleTab] = useState<"general" | "mcp" | "skills">(
+    "general",
+  );
   const [mcpOptions, setMcpOptions] = useState<GrantOption[]>([]);
   const [skillOptions, setSkillOptions] = useState<GrantOption[]>([]);
   const [mcpIds, setMcpIds] = useState<string[]>(role?.mcp_server_ids ?? []);
@@ -3607,14 +3609,20 @@ export function RoleFormModal({
           </button>
         </div>
         <nav className="mtabs">
-          {(["general", "capabilities"] as const).map((t) => (
+          {(
+            [
+              ["general", "General"],
+              ["mcp", "MCP"],
+              ["skills", "Skills"],
+            ] as const
+          ).map(([id, label]) => (
             <button
-              key={t}
+              key={id}
               type="button"
-              className={roleTab === t ? "sel" : ""}
-              onClick={() => setRoleTab(t)}
+              className={roleTab === id ? "sel" : ""}
+              onClick={() => setRoleTab(id)}
             >
-              {t === "general" ? "General" : "Capabilities"}
+              {label}
             </button>
           ))}
         </nav>
@@ -3636,9 +3644,8 @@ export function RoleFormModal({
             />
           </>
         )}
-        {roleTab === "capabilities" && (
+        {roleTab === "mcp" && (
           <div className="grantlist">
-            <h3>MCP servers</h3>
             {mcpOptions.length === 0 && (
               <p className="muted">No MCP servers — add one in Integrations.</p>
             )}
@@ -3652,7 +3659,10 @@ export function RoleFormModal({
                 {opt.name}
               </label>
             ))}
-            <h3>Skills</h3>
+          </div>
+        )}
+        {roleTab === "skills" && (
+          <div className="grantlist">
             {skillOptions.length === 0 && (
               <p className="muted">No skills — add one in Skills.</p>
             )}
