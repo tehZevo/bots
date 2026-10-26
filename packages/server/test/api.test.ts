@@ -732,3 +732,21 @@ test("trigger-injected turns are flagged with their source", async () => {
     ],
   );
 });
+
+test("POST /api/stop-all interrupts nothing and arms the pause", async () => {
+  const res = await authedRequest("/api/stop-all", { method: "POST" });
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { stopped: 0 });
+  const p = await authedRequest("/api/pause");
+  assert.equal((await p.json()).paused, true);
+  await authedRequest("/api/pause", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ paused: false }),
+  });
+});
+
+test("POST /api/stop-all requires auth", async () => {
+  const res = await app.request("/api/stop-all", { method: "POST" });
+  assert.equal(res.status, 401);
+});

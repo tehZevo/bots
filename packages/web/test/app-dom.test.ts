@@ -240,6 +240,10 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     pausedFlag = Boolean(JSON.parse(String(init?.body)).paused);
     return json({ paused: pausedFlag });
   }
+  if (url === "/api/stop-all" && method === "POST") {
+    pausedFlag = true;
+    return json({ stopped: 0 });
+  }
   if (url === "/api/triggers/t1" && method === "PATCH") return json(trigger);
   if (url.startsWith("/api/triggers/") && method === "DELETE") return json({});
   return json([]);
@@ -591,6 +595,28 @@ test("status bar pause toggle flips the global pause state", async () => {
   await click(byLabel("Resume all bots"));
   await flush();
   assert.ok(byLabel("Pause all bots"));
+  await act(async () => {
+    root.unmount();
+  });
+});
+
+test("stop-all panic button confirms then interrupts and arms the pause", async () => {
+  pausedFlag = false;
+  const root = await mount(React.createElement(App));
+  await flush();
+  assert.ok(byLabel("Stop all bots"), "panic button beside the pause toggle");
+  requests.length = 0;
+  await click(byLabel("Stop all bots"));
+  assert.ok(
+    window.document.querySelector(".confirm"),
+    "confirm dialog required before executing",
+  );
+  assert.equal(requests.length, 0);
+  await click(window.document.querySelector(".confirm button.danger"));
+  assert.ok(requests.includes("POST /api/stop-all"));
+  await flush();
+  assert.match(window.document.body.textContent ?? "", /paused/);
+  assert.ok(byLabel("Resume all bots"), "pause armed after stop-all");
   await act(async () => {
     root.unmount();
   });

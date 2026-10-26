@@ -59,6 +59,7 @@ The approval page lives at `/device` (`verification_uri_complete` deep-links it 
 | --- | --- | --- |
 | GET | `/api/pause` | `{ paused }` — the server-wide pause state |
 | POST | `/api/pause` | `{ paused: bool }` — hold or resume every bot; anything injected while held drains on resume |
+| POST | `/api/stop-all` | Panic button: interrupts every running loop and arms the pause — `{ stopped: <count> }`; idempotent (nothing running still pauses) |
 
 ## Triggers
 

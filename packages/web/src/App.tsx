@@ -803,6 +803,7 @@ export function App() {
   const [chatBot, setChatBot] = useState<string | null>(null);
   const [poking, setPoking] = useState<Record<string, boolean>>({});
   const [paused, setPausedState] = useState(false);
+  const [stopAllConfirm, setStopAllConfirm] = useState(false);
   const [quickConfirm, setQuickConfirm] = useState<{
     bot: Bot;
     action: "clear" | "delete";
@@ -1041,6 +1042,15 @@ export function App() {
             }
           >
             {paused ? "Resume" : "Pause"}
+          </button>
+          <button
+            type="button"
+            className="stopall"
+            aria-label="Stop all bots"
+            title="Interrupt every running bot and pause everything (panic button)"
+            onClick={() => setStopAllConfirm(true)}
+          >
+            Stop all
           </button>
           <div className="notifwrap">
             <button
@@ -1529,6 +1539,21 @@ export function App() {
             onConfirm={() => {
               runQuickAction(quickConfirm.bot, quickConfirm.action);
               setQuickConfirm(null);
+            }}
+          />
+        )}
+        {stopAllConfirm && (
+          <ConfirmDialog
+            text={`Stop every running bot and pause all bots? ${bots.filter((b) => b.run_state === "running").length} in flight; nothing resumes on its own.`}
+            confirmLabel="Stop all"
+            onCancel={() => setStopAllConfirm(false)}
+            onConfirm={() => {
+              setStopAllConfirm(false);
+              void api<{ stopped: number }>("/api/stop-all", {
+                method: "POST",
+              })
+                .then(() => void load())
+                .catch(() => undefined);
             }}
           />
         )}
