@@ -2522,6 +2522,7 @@ export function ProviderFormModal({
   const [manual, setManual] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmRotate, setConfirmRotate] = useState(false);
   const dirty =
     name !== (provider?.name ?? "") ||
     baseUrl !== (provider?.base_url ?? "") ||
@@ -2584,6 +2585,14 @@ export function ProviderFormModal({
       setError(e instanceof Error ? e.message : String(e));
       setBusy(false);
     }
+  };
+
+  const requestSave = () => {
+    if (provider?.has_key && apiKey !== "") {
+      setConfirmRotate(true);
+      return;
+    }
+    void save();
   };
 
   return (
@@ -2688,12 +2697,23 @@ export function ProviderFormModal({
           <button
             type="button"
             disabled={busy || !name || !baseUrl.startsWith("http")}
-            onClick={() => void save()}
+            onClick={requestSave}
           >
             Save provider
           </button>
         </div>
       </div>
+      {confirmRotate && provider && (
+        <ConfirmDialog
+          text={`Rotate the API key for ${provider.name}? The current key stops working immediately — existing integrations break until updated.`}
+          confirmLabel="Rotate key"
+          onCancel={() => setConfirmRotate(false)}
+          onConfirm={() => {
+            setConfirmRotate(false);
+            void save();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -4480,25 +4500,6 @@ export function Triggers({ botId }: { botId: string }) {
               }}
             >
               <label className="field">
-                Name (optional)
-                <input
-                  placeholder="e.g. nightly sweep"
-                  maxLength={120}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
-              </label>
-              <label className="field">
-                Message
-                <textarea
-                  placeholder="message to inject on trigger"
-                  rows={2}
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  required
-                />
-              </label>
-              <label className="field">
                 Type
                 <select
                   value={kind}
@@ -4517,6 +4518,25 @@ export function Triggers({ botId }: { botId: string }) {
                   <option value="webhook">Webhook</option>
                   <option value="continuous">Continuous</option>
                 </select>
+              </label>
+              <label className="field">
+                Name (optional)
+                <input
+                  placeholder="e.g. nightly sweep"
+                  maxLength={120}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </label>
+              <label className="field">
+                Message
+                <textarea
+                  placeholder="message to inject on trigger"
+                  rows={2}
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  required
+                />
               </label>
               {kind !== "webhook" && (
                 <input

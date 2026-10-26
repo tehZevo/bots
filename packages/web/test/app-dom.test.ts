@@ -44,6 +44,7 @@ const {
   BotTags,
   findDuplicateEnvKey,
   McpServerModal,
+  ProviderFormModal,
   Triggers,
 } = await import("../src/App.tsx");
 const act = React.act;
@@ -421,6 +422,13 @@ test("trigger editor creates and edits triggers", async () => {
   const root = await mount(React.createElement(Triggers, { botId: "b1" }));
 
   await click(button("+ Add trigger"));
+  const draftFields = [
+    ...window.document.querySelectorAll(".teditor form .field"),
+  ];
+  assert.deepEqual(
+    draftFields.map((field) => field.firstChild?.textContent?.trim()),
+    ["Type", "Name (optional)", "Message"],
+  );
   await typeInto(
     window.document.querySelector(
       'textarea[placeholder="message to inject on trigger"]',
@@ -844,6 +852,54 @@ test("MCP env duplicate keys show an inline error before saving", async () => {
       /duplicate environment variable key FOO/,
     );
     assert.ok(!requests.includes("POST /api/mcp-servers"));
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("provider API key rotation confirms before saving", async () => {
+  requests.length = 0;
+  const providerRequests = () =>
+    requests.filter((request) => request.startsWith("PUT /api/providers/p1"));
+  const root = await mount(
+    React.createElement(ProviderFormModal, {
+      provider: {
+        id: "p1",
+        name: "Ops",
+        base_url: "https://example.com/v1",
+        models: ["m"],
+        has_key: true,
+      },
+      onClose: () => undefined,
+      onSaved: () => undefined,
+    }),
+  );
+  try {
+    await typeInto(
+      window.document.querySelector('input[type="password"]'),
+      "sk-new",
+    );
+    await click(button("Save provider"));
+
+    assert.match(
+      window.document.body.textContent ?? "",
+      /Rotate the API key for Ops\?/,
+    );
+    assert.equal(providerRequests().length, 0);
+
+    await click(window.document.querySelector(".confirm .mscrim"));
+    assert.equal(
+      window.document.querySelector(".confirm"),
+      null,
+      "outside tap cancels rotation",
+    );
+    assert.equal(providerRequests().length, 0);
+
+    await click(button("Save provider"));
+    await click(window.document.querySelector(".confirm button.danger"));
+    assert.ok(requests.includes("PUT /api/providers/p1"));
   } finally {
     await act(async () => {
       root.unmount();

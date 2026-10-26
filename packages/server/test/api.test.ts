@@ -463,6 +463,16 @@ test("control mcp over json-rpc with api key auth", async () => {
     401,
   );
 
+  const unknownKey = await app.request("/mcp", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer bots_${"0".repeat(40)}`,
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 99, method: "ping" }),
+  });
+  assert.equal(unknownKey.status, 401);
+
   const init = await post({
     jsonrpc: "2.0",
     id: 1,
