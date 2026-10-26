@@ -12,7 +12,11 @@ export function redactionTargets(
       targets.set(s.name + "\u0000" + s.value, s);
   // Provider keys and MCP env values are redacted for every bot (spec).
   for (const p of listProviders())
-    if (p.api_key) targets.set(`PROVIDER\u0000${p.api_key}`, { name: p.name, value: p.api_key });
+    if (p.api_key)
+      targets.set(`PROVIDER\u0000${p.api_key}`, {
+        name: p.name,
+        value: p.api_key,
+      });
   for (const server of listMcpServers())
     for (const [key, value] of Object.entries(server.env ?? {}))
       if (value) targets.set(`${key}\u0000${value}`, { name: key, value });

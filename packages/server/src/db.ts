@@ -1762,7 +1762,6 @@ if (!skillCols.has("import_info")) {
   db.prepare("ALTER TABLE skills ADD COLUMN import_info TEXT").run();
 }
 
-
 db.exec(
   `CREATE TABLE IF NOT EXISTS mcp_servers (
     id TEXT PRIMARY KEY,
