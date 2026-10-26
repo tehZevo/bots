@@ -36,6 +36,7 @@ import {
 } from "./db.ts";
 import { type ResolvedLlm, resolveDefault } from "./llm.ts";
 import { connectMcpServer, type McpSession } from "./mcp.ts";
+import { redactMessageForBot } from "./redact.ts";
 import { retryFetch } from "./retry.ts";
 import { containerExists, syncSkillBundlesForBot } from "./sandbox.ts";
 import {
@@ -224,6 +225,7 @@ export function createMessagePersistence(botId: string, runId: string | null) {
         if (!LLM_ROLES.has(role) || persisted.has(message) || seen.has(message))
           continue;
         seen.add(message);
+        redactMessageForBot(botId, message);
         entries.push({ role, payload: message });
       }
       if (entries.length === 0) return;
@@ -238,6 +240,7 @@ export function createMessagePersistence(botId: string, runId: string | null) {
         const role = (message as Message).role;
         if (!LLM_ROLES.has(role) || replacement.has(message)) continue;
         replacement.add(message);
+        redactMessageForBot(botId, message);
         entries.push({ role, payload: message });
       }
       replaceMessages(botId, runId, entries);
@@ -464,6 +467,8 @@ async function startLoop(
   const unsubscribeUsage = agent.subscribe((event) => {
     if (event.type !== "message_end") return;
     const msg = event.message as Message;
+    // specs/secrets/redaction.md — redact before the message is replayed or persisted.
+    redactMessageForBot(bot.id, msg);
     if (msg.role === "assistant" && msg.usage) {
       usageTotals.input += msg.usage.input || 0;
       usageTotals.output += msg.usage.output || 0;
