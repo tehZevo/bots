@@ -37,9 +37,15 @@ globalThis.alert = () => undefined;
 
 const React = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { App, BotCard, BotGeneral, BotTags, Triggers } = await import(
-  "../src/App.tsx"
-);
+const {
+  App,
+  BotCard,
+  BotGeneral,
+  BotTags,
+  findDuplicateEnvKey,
+  McpServerModal,
+  Triggers,
+} = await import("../src/App.tsx");
 const act = React.act;
 
 const now = Date.now();
@@ -783,4 +789,64 @@ test("tags panel lists tags with bot counts", async () => {
   await act(async () => {
     root.unmount();
   });
+});
+
+test("findDuplicateEnvKey ignores blanks and trims keys", () => {
+  assert.equal(findDuplicateEnvKey([]), null);
+  assert.equal(
+    findDuplicateEnvKey([
+      ["FOO", "1"],
+      [" BAR ", "2"],
+    ]),
+    null,
+  );
+  assert.equal(
+    findDuplicateEnvKey([
+      ["FOO", "1"],
+      [" FOO ", "2"],
+    ]),
+    "FOO",
+  );
+});
+
+test("MCP env duplicate keys show an inline error before saving", async () => {
+  requests.length = 0;
+  const root = await mount(
+    React.createElement(McpServerModal, {
+      server: null,
+      onClose: () => undefined,
+      onSaved: () => undefined,
+    }),
+  );
+  try {
+    await typeInto(window.document.querySelector(".dialog input"), "test");
+    await typeInto(
+      window.document.querySelector('input[placeholder="npx"]'),
+      "echo",
+    );
+
+    const firstKeys = window.document.querySelectorAll(
+      '.envrows input[placeholder="KEY"]',
+    );
+    assert.equal(firstKeys.length, 1);
+    await typeInto(firstKeys[0], "FOO");
+
+    await click(button("+ Add variable"));
+    const secondKeys = window.document.querySelectorAll(
+      '.envrows input[placeholder="KEY"]',
+    );
+    assert.equal(secondKeys.length, 2);
+    await typeInto(secondKeys[1], " FOO ");
+
+    await click(button("Save"));
+    assert.match(
+      window.document.body.textContent ?? "",
+      /duplicate environment variable key FOO/,
+    );
+    assert.ok(!requests.includes("POST /api/mcp-servers"));
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
 });
