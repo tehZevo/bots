@@ -81,6 +81,7 @@ const trigger = {
 };
 
 const requests: string[] = [];
+const patchBodies: Record<string, unknown>[] = [];
 let pausedFlag = false;
 
 function json(value: unknown): Response {
@@ -99,6 +100,15 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
         : input.url;
   const method = init?.method ?? "GET";
   requests.push(`${method} ${url}`);
+  if (url === "/api/bots/b1" && method === "PATCH") {
+    try {
+      patchBodies.push(
+        JSON.parse(String(init?.body)) as Record<string, unknown>,
+      );
+    } catch {
+      patchBodies.push({});
+    }
+  }
   if (url === "/api/bots" && method === "GET") return json([bot]);
   if (url === "/api/notifications") {
     return json({
@@ -441,6 +451,27 @@ test("bot general actions update the bot", async () => {
   await click(button("Save as template…"));
   assert.match(window.document.body.textContent ?? "", /New template/);
   await click(button("Cancel"));
+
+  await act(async () => {
+    root.unmount();
+  });
+});
+
+test("bot general saves watchdog hours", async () => {
+  const root = await mount(
+    React.createElement(BotGeneral, {
+      bot: { ...bot, watchdog_hours: 24 },
+      onChanged: () => undefined,
+    }),
+  );
+
+  await typeInto(byLabel("Watchdog hours"), "30");
+  await click(button("Save"));
+  assert.equal(patchBodies.at(-1)?.watchdog_hours, 30);
+
+  await typeInto(byLabel("Watchdog hours"), "");
+  await click(button("Save"));
+  assert.equal(patchBodies.at(-1)?.watchdog_hours, null);
 
   await act(async () => {
     root.unmount();
