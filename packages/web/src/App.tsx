@@ -112,6 +112,115 @@ interface Run {
   error: string | null;
 }
 
+// specs/runs/drill-down.md — inline transcript replay under a Logs row.
+interface TranscriptStep {
+  kind: "user" | "assistant" | "tool_call" | "tool_result";
+  name?: string;
+  text?: string;
+  args?: string;
+  duration_ms?: number | null;
+  is_error?: boolean;
+  retry_wait_ms?: number;
+}
+
+function fmtMs(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const s = ms / 1000;
+  return s < 60
+    ? `${s.toFixed(1)}s`
+    : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
+}
+
+function ReplayStep({ step }: { step: TranscriptStep }) {
+  const [open, setOpen] = useState(false);
+  const clipped = step.kind === "tool_result" || step.kind === "tool_call";
+  const toggle = () => setOpen(!open);
+  const keyToggle = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggle();
+    }
+  };
+  const clipProps = clipped
+    ? {
+        role: "button" as const,
+        tabIndex: 0,
+        onClick: toggle,
+        onKeyDown: keyToggle,
+      }
+    : {};
+  return (
+    <div className={`rstep ${step.kind}${step.is_error ? " err" : ""}`}>
+      <div className="rmeta">
+        <span className={`rkind ${step.kind}`}>
+          {step.kind.replace("_", " ")}
+        </span>
+        {step.name && <span className="rname">{step.name}</span>}
+        {typeof step.duration_ms === "number" && (
+          <span className="rtiming">{fmtMs(step.duration_ms)}</span>
+        )}
+        {!!step.retry_wait_ms && (
+          <span className="rretry">retry wait {fmtMs(step.retry_wait_ms)}</span>
+        )}
+      </div>
+      {step.args && (
+        <pre
+          className={`rcode${clipped && !open ? " clip" : ""}`}
+          {...clipProps}
+        >
+          {step.args}
+        </pre>
+      )}
+      {step.text &&
+        (step.kind === "tool_result" ? (
+          <pre
+            className={`rcode${clipped && !open ? " clip" : ""}`}
+            {...clipProps}
+          >
+            {step.text}
+          </pre>
+        ) : (
+          <p className="rtext">{step.text}</p>
+        ))}
+    </div>
+  );
+}
+
+function ReplayPanel({ botId, run }: { botId: string; run: Run }) {
+  const [data, setData] = useState<{
+    usage: { total: number } | null;
+    steps: TranscriptStep[];
+  } | null>(null);
+  useEffect(() => {
+    let on = true;
+    api<{
+      usage: { total: number } | null;
+      steps: TranscriptStep[];
+    }>(`/api/bots/${botId}/runs/${run.id}/transcript`)
+      .then((d) => on && setData(d))
+      .catch(() => on && setData({ usage: null, steps: [] }));
+    return () => {
+      on = false;
+    };
+  }, [botId, run.id]);
+  if (!data) return <p className="muted replay">Loading transcript…</p>;
+  return (
+    <div className="replay">
+      <header>
+        <span className={`status ${run.status}`}>{run.status}</span>
+        <span>{run.trigger}</span>
+        {data.usage && <span>{data.usage.total.toLocaleString()} tokens</span>}
+      </header>
+      {data.steps.length === 0 ? (
+        <p className="muted">transcript not recorded</p>
+      ) : (
+        // biome-ignore lint/suspicious/noArrayIndexKey: transcript steps are append-only, position is their identity
+        data.steps.map((s, i) => <ReplayStep key={i} step={s} />)
+      )}
+    </div>
+  );
+}
+
 interface NotificationItem {
   id: string;
   kind: string;
@@ -841,6 +950,7 @@ export function App() {
   const [tags, setTags] = useState<Tag[]>([]);
   const [tagSel, setTagSel] = useState<string[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
+  const [replayRun, setReplayRun] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
@@ -1471,7 +1581,15 @@ export function App() {
                       )}
                       {runs.map((run) => (
                         <article key={run.id}>
-                          <header>
+                          <button
+                            type="button"
+                            className="runhead"
+                            aria-expanded={replayRun === run.id}
+                            title="Show the transcript replay for this run"
+                            onClick={() =>
+                              setReplayRun(replayRun === run.id ? null : run.id)
+                            }
+                          >
                             <span className={`status ${run.status}`}>
                               {run.status}
                             </span>
@@ -1480,10 +1598,13 @@ export function App() {
                             {run.finished_at && (
                               <span>→ {fmt(run.finished_at)}</span>
                             )}
-                          </header>
+                          </button>
                           {run.output && <pre>{run.output}</pre>}
                           {run.error && (
                             <pre className="error">{run.error}</pre>
+                          )}
+                          {replayRun === run.id && openBot && (
+                            <ReplayPanel botId={openBot} run={run} />
                           )}
                         </article>
                       ))}

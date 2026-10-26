@@ -2453,3 +2453,101 @@ main.scr-active,
   align-items: center;
   gap: 0.35rem;
 }
+
+/* specs/runs/drill-down.md — inline run transcript replay */
+.runhead {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.runhead:hover {
+  color: var(--text);
+}
+
+.replay {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0.35rem 0 0.25rem;
+  padding: 0.15rem 0 0.15rem 0.75rem;
+  border-left: 3px solid var(--border);
+}
+
+.replay > header {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.rstep .rmeta {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.rkind {
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  text-transform: capitalize;
+}
+
+.rkind.user {
+  color: var(--accent);
+}
+
+.rkind.tool_call {
+  color: var(--warn);
+}
+
+.rkind.tool_result.err {
+  color: var(--danger);
+}
+
+.rstep.err .rmeta,
+.rkind.tool_result + .rname {
+  color: inherit;
+}
+
+.rtiming,
+.rretry {
+  font-variant-numeric: tabular-nums;
+}
+
+.rretry {
+  color: var(--warn);
+}
+
+.rtext {
+  margin: 0.15rem 0 0;
+  white-space: pre-wrap;
+}
+
+.rcode {
+  margin: 0.2rem 0 0;
+  padding: 0.4rem 0.55rem;
+  border-radius: var(--radius-control);
+  background: var(--surface, rgba(127, 127, 127, 0.08));
+  overflow-x: auto;
+}
+
+.rcode.clip {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  cursor: pointer;
+}

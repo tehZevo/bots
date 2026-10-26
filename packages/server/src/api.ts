@@ -59,6 +59,8 @@ import {
   getProject,
   getProvider,
   getRole,
+  getRun,
+  getRunUsage,
   getSecret,
   getSessionUser,
   getSetting,
@@ -91,6 +93,7 @@ import {
   listBots,
   listMachines,
   listMcpServers,
+  listMessagesForRun,
   listNotifications,
   listProjects,
   listProviders,
@@ -147,6 +150,7 @@ import {
 import { testMcpConnection } from "./mcp.ts";
 import { openApiDoc } from "./openapi.ts";
 import { vapidPublicKey } from "./push.ts";
+import { getRetryWaits } from "./runwaits.ts";
 import {
   defaultImageRef,
   idleMinutes,
@@ -2116,6 +2120,104 @@ export function createApp() {
     );
   });
 
+  // specs/runs/drill-down.md — inline replay of one run's persisted messages.
+  app.get("/api/bots/:id/runs/:runId/transcript", (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    const run = getRun(c.req.param("runId"));
+    if (!run || run.bot_id !== bot.id)
+      return c.json({ error: "not found" }, 404);
+    type Step = {
+      kind: "user" | "assistant" | "tool_call" | "tool_result";
+      name?: string;
+      text?: string;
+      args?: string;
+      at: number;
+      duration_ms?: number | null;
+      is_error?: boolean;
+      retry_wait_ms?: number;
+    };
+    const steps: Step[] = [];
+    for (const row of listMessagesForRun(run.id)) {
+      let msg: {
+        role?: string;
+        content?: unknown;
+        toolName?: string;
+        isError?: boolean;
+        durationMs?: number;
+      };
+      try {
+        msg = JSON.parse(row.payload);
+      } catch {
+        continue;
+      }
+      const blocks = Array.isArray(msg.content)
+        ? (msg.content as {
+            type?: string;
+            text?: string;
+            name?: string;
+            arguments?: unknown;
+          }[])
+        : [];
+      const text = blocks
+        .filter((b) => b.type === "text" && typeof b.text === "string")
+        .map((b) => b.text as string)
+        .join("\n");
+      if (msg.role === "user") {
+        steps.push({
+          kind: "user",
+          text: typeof msg.content === "string" ? msg.content : text,
+          at: row.created_at,
+        });
+      } else if (msg.role === "assistant") {
+        steps.push({ kind: "assistant", text, at: row.created_at });
+        for (const b of blocks) {
+          if (b.type !== "toolCall") continue;
+          let args = "";
+          try {
+            args = JSON.stringify(b.arguments ?? {});
+          } catch {
+            args = "{}";
+          }
+          steps.push({
+            kind: "tool_call",
+            name: b.name,
+            args: args.length > 300 ? `${args.slice(0, 300)}…` : args,
+            at: row.created_at,
+          });
+        }
+      } else if (msg.role === "toolResult") {
+        steps.push({
+          kind: "tool_result",
+          name: msg.toolName,
+          text,
+          is_error: Boolean(msg.isError),
+          duration_ms:
+            typeof msg.durationMs === "number" ? msg.durationMs : null,
+          at: row.created_at,
+        });
+      }
+    }
+    // Mark retry waits on the first assistant step that completed after one began.
+    for (const w of getRetryWaits(run.id)) {
+      const step = steps.find(
+        (s) => s.kind === "assistant" && !s.retry_wait_ms && s.at >= w.at,
+      );
+      if (step) step.retry_wait_ms = (step.retry_wait_ms ?? 0) + w.ms;
+    }
+    return c.json({
+      run: {
+        id: run.id,
+        status: run.status,
+        trigger: run.trigger,
+        started_at: run.started_at,
+        finished_at: run.finished_at,
+      },
+      usage: getRunUsage(run.id),
+      steps,
+    });
+  });
+
   app.get("/api/bots/:id/messages", (c) => {
     const botId = c.req.param("id");
     if (!getBot(botId)) return c.json({ error: "not found" }, 404);
@@ -2395,7 +2497,10 @@ export function createApp() {
         return c.json({ error: "selection does not match the source" }, 400);
       const bundles = selected.map((p) => {
         const fm = parseFrontmatter(
-          readFileSync(join((cloned as ClonedRepo).dir, p.folder, "SKILL.md"), "utf8"),
+          readFileSync(
+            join((cloned as ClonedRepo).dir, p.folder, "SKILL.md"),
+            "utf8",
+          ),
         );
         if (!fm)
           return {

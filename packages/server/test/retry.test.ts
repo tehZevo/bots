@@ -144,3 +144,21 @@ test("abort during backoff stops waiting immediately", async () => {
     stub.restore();
   }
 });
+
+test("onWait reports each backoff before sleeping", async () => {
+  const stub = stubFetch([
+    new Response("gone", { status: 503 }),
+    new Response("ok", { status: 200 }),
+  ]);
+  try {
+    const waits: number[] = [];
+    const res = await retryFetch("http://example.com/v1/chat", undefined, {
+      onWait: (ms) => waits.push(ms),
+    });
+    assert.equal(res.status, 200);
+    assert.equal(waits.length, 1);
+    assert.ok(waits[0] >= 0);
+  } finally {
+    stub.restore();
+  }
+});

@@ -1436,6 +1436,33 @@ export function listRuns(botId: string, limit = 50): RunRow[] {
     .all(botId, limit) as RunRow[];
 }
 
+export function getRun(id: string): RunRow | undefined {
+  return db.prepare("SELECT * FROM runs WHERE id = ?").get(id) as
+    | RunRow
+    | undefined;
+}
+
+// specs/runs/drill-down.md — chronological replay rows for one run.
+export function listMessagesForRun(runId: string): MessageRow[] {
+  return db
+    .prepare(
+      "SELECT * FROM messages WHERE run_id = ? ORDER BY created_at ASC, id ASC",
+    )
+    .all(runId) as MessageRow[];
+}
+
+export function getRunUsage(runId: string): UsageTotals | null {
+  const row = db
+    .prepare(
+      `SELECT COALESCE(SUM(input), 0) AS input, COALESCE(SUM(output), 0) AS output,
+       COALESCE(SUM(cache_read), 0) AS cache_read, COALESCE(SUM(cache_write), 0) AS cache_write
+       FROM run_usage WHERE run_id = ?`,
+    )
+    .get(runId) as TokenUsage;
+  const total = row.input + row.output + row.cache_read + row.cache_write;
+  return total > 0 ? { ...row, total } : null;
+}
+
 export function appendMessage(
   botId: string,
   runId: string | null,

@@ -168,6 +168,35 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       },
     ]);
   }
+  if (url === "/api/bots/b1/runs/run1/transcript") {
+    return json({
+      run: { id: "run1", status: "ok", trigger: "manual" },
+      usage: { total: 3200 },
+      steps: [
+        { kind: "user", text: "check disk", at: now },
+        {
+          kind: "assistant",
+          text: "running shell",
+          at: now + 500,
+          retry_wait_ms: 4000,
+        },
+        {
+          kind: "tool_call",
+          name: "shell",
+          args: '{"command":"df -h"}',
+          at: now + 600,
+        },
+        {
+          kind: "tool_result",
+          name: "shell",
+          text: "exit 0\n/dev/root 92%",
+          duration_ms: 1234,
+          is_error: false,
+          at: now + 800,
+        },
+      ],
+    });
+  }
   if (url === "/api/bots/b1/triggers" && method === "GET") {
     return json([trigger]);
   }
@@ -742,6 +771,35 @@ test("stats tab shows lifetime and trailing-30-day token totals", async () => {
     assert.match(window.document.body.textContent ?? "", /Current context/);
     assert.match(window.document.body.textContent ?? "", /System prompt/);
     assert.match(window.document.body.textContent ?? "", /Free space/);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("logs rows expand inline into the run transcript replay", async () => {
+  const root = await mount(React.createElement(App));
+  try {
+    await click(byLabel("Sable (null)"));
+    await click(byLabel("Sable settings"));
+    await click(button("Logs"));
+    await flush();
+    await click(window.document.querySelector(".runhead"));
+    await flush();
+    const body = window.document.body.textContent ?? "";
+    assert.match(body, /3,200 tokens/);
+    assert.match(body, /check disk/);
+    assert.match(body, /retry wait 4.0s/);
+    assert.match(body, /1.2s/);
+    assert.ok(requests.includes("GET /api/bots/b1/runs/run1/transcript"));
+    await click(window.document.querySelector(".runhead"));
+    await flush();
+    assert.equal(
+      window.document.querySelector(".replay"),
+      null,
+      "second click collapses the replay",
+    );
   } finally {
     await act(async () => {
       root.unmount();
