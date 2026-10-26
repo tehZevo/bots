@@ -41,7 +41,7 @@ export interface RoleRow {
 export interface TriggerRow {
   id: string;
   bot_id: string;
-  kind: "schedule" | "webhook";
+  kind: "schedule" | "webhook" | "continuous";
   name: string | null;
   message: string;
   schedule: string;
@@ -55,7 +55,7 @@ export interface RunRow {
   id: string;
   bot_id: string;
   status: "running" | "ok" | "error";
-  trigger: "schedule" | "manual" | "chat" | "webhook" | "dm";
+  trigger: "schedule" | "manual" | "chat" | "webhook" | "dm" | "continuous";
   started_at: number;
   finished_at: number | null;
   output: string | null;
@@ -1327,6 +1327,33 @@ export function finishRun(
     });
   });
   tx();
+
+  const info = getInfo.get(id) as { bot_id: string | null } | undefined;
+  if (info?.bot_id) armContinuousTriggers(info.bot_id);
+}
+
+export function continuousIntervalMs(schedule: string): number | null {
+  const match = /^@every (\d+)\s*(s|m|h|d)$/i.exec(schedule.trim());
+  if (!match) return null;
+  const multiplier = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 }[
+    match[2].toLowerCase()
+  ];
+  if (!multiplier) return null;
+  return Number(match[1]) * multiplier;
+}
+
+// Continuous triggers arm only after a run finishes (specs/triggers/continuous.md).
+export function armContinuousTriggers(botId: string): void {
+  const armed = db.prepare(
+    "SELECT id, schedule FROM triggers WHERE bot_id = ? AND kind = 'continuous' AND enabled = 1",
+  );
+  const setNext = db.prepare(
+    "UPDATE triggers SET next_run_at = ? WHERE id = ?",
+  );
+  for (const row of armed.all(botId) as { id: string; schedule: string }[]) {
+    const ms = continuousIntervalMs(row.schedule);
+    if (ms !== null) setNext.run(Date.now() + ms, row.id);
+  }
 }
 
 // A crash leaves runs stuck in `running`; lifecycle requires every run to end
