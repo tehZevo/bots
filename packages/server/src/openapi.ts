@@ -272,6 +272,9 @@ export function openApiDoc(): Json {
     },
   );
   add("/api/bots/{id}/runs", "get", "Run history", { params: ["id"] });
+  add("/api/bots/{id}/runs/{runId}/transcript", "get", "Ordered replay steps for one run", {
+    params: ["id", "runId"],
+  });
   add(
     "/api/bots/{id}/usage",
     "get",

@@ -55,6 +55,7 @@ async function sleep(ms: number, signal?: AbortSignal | null): Promise<void> {
 export async function retryFetch(
   input: RequestInfo | URL,
   init?: RequestInit,
+  opts?: { onWait?: (ms: number) => void },
 ): Promise<Response> {
   let attempt = 0;
   for (;;) {
@@ -73,7 +74,9 @@ export async function retryFetch(
     }
     let headerWait: number | null = null;
     if (res?.status === 429) headerWait = retryAfterMs(res);
-    await sleep(headerWait ?? computedDelayMs(attempt), init?.signal);
+    const waitMs = headerWait ?? computedDelayMs(attempt);
+    opts?.onWait?.(waitMs);
+    await sleep(waitMs, init?.signal);
     attempt++;
   }
 }

@@ -38,6 +38,7 @@ import { type ResolvedLlm, resolveDefault } from "./llm.ts";
 import { connectMcpServer, type McpSession } from "./mcp.ts";
 import { redactMessageForBot } from "./redact.ts";
 import { retryFetch } from "./retry.ts";
+import { recordRetryWait } from "./runwaits.ts";
 import { containerExists, syncSkillBundlesForBot } from "./sandbox.ts";
 import {
   grantedSkills,
@@ -282,12 +283,17 @@ function toTranscriptText(messages: AgentMessage[]): string {
   return lines.join("\n").slice(0, 24_000);
 }
 
-function makeStreamFn(llm: ResolvedLlm): StreamFn {
+function makeStreamFn(llm: ResolvedLlm, runId?: string): StreamFn {
   return (model, context, options) =>
     openaiStreamSimple(model as never, context, {
       ...options,
       apiKey: llm.apiKey,
-      fetch: retryFetch,
+      fetch: runId
+        ? (input, init) =>
+            retryFetch(input, init, {
+              onWait: (ms) => recordRetryWait(runId, ms),
+            })
+        : retryFetch,
     });
 }
 
@@ -375,7 +381,7 @@ async function startLoop(
   persistence.markPersisted(history);
 
   const agent = new Agent({
-    streamFn: makeStreamFn(llm),
+    streamFn: makeStreamFn(llm, runId),
     getApiKey: () => llm.apiKey,
     steeringMode: "all",
     initialState: {

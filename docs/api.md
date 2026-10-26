@@ -48,6 +48,7 @@ The approval page lives at `/device` (`verification_uri_complete` deep-links it 
 | POST | `/api/bots/:id/run` | Run now — `{ message? }`, steers a live loop, returns `{ runId, steered }`; 409 while globally paused |
 | POST | `/api/bots/:id/interrupt` | Stop the live loop |
 | GET | `/api/bots/:id/runs` | Run history (status ok/error/interrupted, output, error) |
+| GET | `/api/bots/:id/runs/:runId/transcript` | Replay for one run: `{ run, usage, steps }`; steps are chronological `user`/`assistant`/`tool_call` (args summary)/`tool_result` (persisted output, `duration_ms`, `is_error`) with `retry_wait_ms` where recorded; `steps: []` when no messages are linked to the run |
 | GET | `/api/bots/:id/usage` | Token totals for the bot: `{ lifetime, last30d, budget }`; windows carry `input`, `output`, `cache_read`, `cache_write`, `total`, and `budget` is the trailing-30-day token cap (`null` = unlimited) |
 | GET | `/api/bots/:id/context-usage` | Estimated context split: `{ context_window, categories: { system_prompt, tools, conversation }, used, free }`; `context_window`/`free` are `null` with no model configured |
 | GET/POST | `/api/bots/:id/messages` | Chat history / inject a chat turn (steers or starts; while globally paused `{ runId: null, held: true }`) |
