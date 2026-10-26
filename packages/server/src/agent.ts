@@ -662,6 +662,13 @@ export function interruptBot(botId: string): boolean {
   return true;
 }
 
+// specs/bots/emergency-stop.md — interrupt every active loop at once.
+export function stopAllLoops(): number {
+  let stopped = 0;
+  for (const botId of [...liveLoops.keys()]) if (interruptBot(botId)) stopped++;
+  return stopped;
+}
+
 export function resumePendingInjections(): void {
   if (isPaused()) return;
   for (const botId of pendingBotIds()) {

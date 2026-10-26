@@ -17,6 +17,7 @@ import {
   isLoopActive,
   resetBotRuntime,
   resumePendingInjections,
+  stopAllLoops,
 } from "./agent.ts";
 import { repoRoot } from "./config.ts";
 import {
@@ -774,6 +775,13 @@ export function createApp() {
     setPaused(body.paused);
     if (!body.paused) resumePendingInjections();
     return c.json({ paused: body.paused });
+  });
+
+  // specs/bots/emergency-stop.md — panic button: interrupt everything, then arm the pause.
+  app.post("/api/stop-all", (c) => {
+    const stopped = stopAllLoops();
+    setPaused(true);
+    return c.json({ stopped });
   });
 
   app.put("/api/settings", async (c) => {

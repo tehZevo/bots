@@ -234,6 +234,9 @@ export function openApiDoc(): Json {
       properties: { paused: { type: "boolean" } },
     },
   });
+  add("/api/stop-all", "post", "Emergency stop: interrupt all running bots and arm the global pause", {
+    res: { type: "object", properties: { stopped: { type: "number" } } },
+  });
   add("/api/bots", "get", "List bots with health and run state", {
     res: { type: "array", items: ref("Bot") },
   });
