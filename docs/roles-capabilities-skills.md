@@ -4,7 +4,7 @@ A **role** is a reusable bundle: instructions appended to every assigned bot's p
 
 ## Skills
 
-Skills are markdown playbooks — "how the team writes commit messages", "our deploy runbook". Create them in the **Skills** tab (name + description + instructions). A skill granted to a role is appended to the prompt of every bot wearing that role, after the role's own instructions.
+Skills are markdown playbooks — "how the team writes commit messages", "our deploy runbook". Create them in the **Skills** tab (name + description + instructions). Granted skills are advertised rather than injected: a bot's system prompt only lists each granted skill by name, description and id (ordered by name), and the model loads a skill's text on demand with its `read_skill_file` tool (defaults to `SKILL.md`; other files inside the bundle work too). The tool exists whenever at least one skill is granted; ungranted ids, paths escaping the bundle and directories come back as tool errors. Bots also get each granted bundle copied into their sandbox at `/workspace/.skills/<skill-name>/` when a loop starts — refreshed when the skill changes, removed when the grant goes away — so instructions that reference bundled scripts just work. Skill text is untrusted: it guides the model and grants it nothing.
 
 ## Capabilities (MCP servers)
 
