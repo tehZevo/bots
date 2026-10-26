@@ -4966,6 +4966,7 @@ export function ChatSidebar({
         key={bot.id}
         botId={bot.id}
         botName={bot.name}
+        enabled={bot.enabled === 1}
         working={bot.run_state === "running"}
       />
     </aside>
@@ -4975,10 +4976,12 @@ export function ChatSidebar({
 export function Chat({
   botId,
   botName,
+  enabled = true,
   working = false,
 }: {
   botId: string;
   botName: string;
+  enabled?: boolean;
   working?: boolean;
 }) {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
@@ -5022,7 +5025,7 @@ export function Chat({
 
   const send = async () => {
     const text = draft.trim();
-    if (!text || sending) return;
+    if (!text || sending || !enabled) return;
     setSending(true);
     setErr(null);
     pendingRef.current = text;
@@ -5079,9 +5082,12 @@ export function Chat({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder="Message the bot…"
-          disabled={sending}
+          disabled={sending || !enabled}
         />
-        <button type="submit" disabled={sending || !draft.trim()}>
+        <button
+          type="submit"
+          disabled={sending || !enabled || !draft.trim()}
+        >
           {sending ? "Sending…" : "Send"}
         </button>
       </form>

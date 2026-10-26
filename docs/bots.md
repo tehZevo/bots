@@ -12,6 +12,7 @@ A bot is a persistent agent loop: instructions + model + tools + memory.
 
 - Clicking a bot card opens that bot's chat in a closeable sidebar pinned to the right edge — the cards stay visible behind it, and only one sidebar is open at a time; tapping another card switches it in place. On phones it spans the full screen.
 - Your message appears instantly; user messages, thinking and tool calls stream in as they become available rather than waiting for the full turn, with a working indicator at the bottom-left of the chat while the bot works. Chat turns enter the same persistent context as everything else.
+- While a bot is disabled, its composer and **Send** button are unavailable — opening a card's chat cannot submit a message that the server would reject.
 - Trigger-injected messages (schedule ticks, manual runs, webhook events) appear as full-width bars spanning the conversation, clearly set apart from your turns and the bot's.
 - Close with the × button, Escape, or clicking outside — nothing about the bot changes. The gear icon in the sidebar header opens that bot's settings modal.
 
