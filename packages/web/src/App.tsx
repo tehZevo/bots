@@ -4480,25 +4480,6 @@ export function Triggers({ botId }: { botId: string }) {
               }}
             >
               <label className="field">
-                Name (optional)
-                <input
-                  placeholder="e.g. nightly sweep"
-                  maxLength={120}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
-              </label>
-              <label className="field">
-                Message
-                <textarea
-                  placeholder="message to inject on trigger"
-                  rows={2}
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  required
-                />
-              </label>
-              <label className="field">
                 Type
                 <select
                   value={kind}
@@ -4517,6 +4498,25 @@ export function Triggers({ botId }: { botId: string }) {
                   <option value="webhook">Webhook</option>
                   <option value="continuous">Continuous</option>
                 </select>
+              </label>
+              <label className="field">
+                Name (optional)
+                <input
+                  placeholder="e.g. nightly sweep"
+                  maxLength={120}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </label>
+              <label className="field">
+                Message
+                <textarea
+                  placeholder="message to inject on trigger"
+                  rows={2}
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  required
+                />
               </label>
               {kind !== "webhook" && (
                 <input

@@ -415,6 +415,13 @@ test("trigger editor creates and edits triggers", async () => {
   const root = await mount(React.createElement(Triggers, { botId: "b1" }));
 
   await click(button("+ Add trigger"));
+  const draftFields = [
+    ...window.document.querySelectorAll(".teditor form .field"),
+  ];
+  assert.deepEqual(
+    draftFields.map((field) => field.firstChild?.textContent?.trim()),
+    ["Type", "Name (optional)", "Message"],
+  );
   await typeInto(
     window.document.querySelector(
       'textarea[placeholder="message to inject on trigger"]',
