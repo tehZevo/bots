@@ -37,6 +37,7 @@ import {
 import { type ResolvedLlm, resolveDefault } from "./llm.ts";
 import { connectMcpServer, type McpSession } from "./mcp.ts";
 import { redactMessageForBot } from "./redact.ts";
+import { retryFetch } from "./retry.ts";
 import { containerExists, syncSkillBundlesForBot } from "./sandbox.ts";
 import {
   grantedSkills,
@@ -286,6 +287,7 @@ function makeStreamFn(llm: ResolvedLlm): StreamFn {
     openaiStreamSimple(model as never, context, {
       ...options,
       apiKey: llm.apiKey,
+      fetch: retryFetch,
     });
 }
 
@@ -305,7 +307,7 @@ async function summarize(
         },
       ],
     }),
-    { apiKey: llm.apiKey },
+    { apiKey: llm.apiKey, fetch: retryFetch },
   ).result();
   const text = response.content
     .filter(
