@@ -1,0 +1,4 @@
+Auto-merging packages/web/src/App.tsx
+Auto-merging packages/web/test/app-dom.test.ts
+CONFLICT (content): Merge conflict in packages/web/test/app-dom.test.ts
+Automatic merge failed; fix conflicts and then commit the result.

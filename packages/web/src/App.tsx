@@ -5279,6 +5279,19 @@ export function SkillModal({
   );
 }
 
+export function findDuplicateEnvKey(
+  rows: [string, string][],
+): string | null {
+  const seen = new Set<string>();
+  for (const [key] of rows) {
+    const trimmed = key.trim();
+    if (!trimmed) continue;
+    if (seen.has(trimmed)) return trimmed;
+    seen.add(trimmed);
+  }
+  return null;
+}
+
 export function McpServerModal({
   server,
   onClose,
@@ -5330,6 +5343,11 @@ export function McpServerModal({
         <form
           onSubmit={async (e) => {
             e.preventDefault();
+            const duplicateKey = findDuplicateEnvKey(envRows);
+            if (duplicateKey !== null) {
+              setError(`duplicate environment variable key ${duplicateKey}`);
+              return;
+            }
             setBusy(true);
             setError(null);
             const envMap: Record<string, string> = {};
