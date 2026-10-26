@@ -1128,6 +1128,18 @@ export function secretEnvForBot(botId: string): Record<string, string> {
   return env;
 }
 
+// specs/secrets/redaction.md — assigned secret values, keyed by their name.
+export function redactionSecretsForBot(
+  botId: string,
+): { name: string; value: string }[] {
+  const byKey = new Map<string, { name: string; value: string }>();
+  for (const s of teamSecretRowsForBot(botId))
+    byKey.set(s.key, { name: s.key, value: s.value });
+  for (const s of botSecretRows(botId))
+    byKey.set(s.key, { name: s.key, value: s.value });
+  return [...byKey.values()];
+}
+
 function hasTable(name: string): boolean {
   return (
     db
