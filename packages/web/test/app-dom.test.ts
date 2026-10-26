@@ -37,9 +37,8 @@ globalThis.alert = () => undefined;
 
 const React = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { App, BotCard, BotGeneral, BotTags, Triggers } = await import(
-  "../src/App.tsx"
-);
+const { App, BotCard, BotGeneral, BotTags, ProviderFormModal, Triggers } =
+  await import("../src/App.tsx");
 const act = React.act;
 
 const now = Date.now();
@@ -790,4 +789,52 @@ test("tags panel lists tags with bot counts", async () => {
   await act(async () => {
     root.unmount();
   });
+});
+
+test("provider API key rotation confirms before saving", async () => {
+  requests.length = 0;
+  const providerRequests = () =>
+    requests.filter((request) => request.startsWith("PUT /api/providers/p1"));
+  const root = await mount(
+    React.createElement(ProviderFormModal, {
+      provider: {
+        id: "p1",
+        name: "Ops",
+        base_url: "https://example.com/v1",
+        models: ["m"],
+        has_key: true,
+      },
+      onClose: () => undefined,
+      onSaved: () => undefined,
+    }),
+  );
+  try {
+    await typeInto(
+      window.document.querySelector('input[type="password"]'),
+      "sk-new",
+    );
+    await click(button("Save provider"));
+
+    assert.match(
+      window.document.body.textContent ?? "",
+      /Rotate the API key for Ops\?/,
+    );
+    assert.equal(providerRequests().length, 0);
+
+    await click(window.document.querySelector(".confirm .mscrim"));
+    assert.equal(
+      window.document.querySelector(".confirm"),
+      null,
+      "outside tap cancels rotation",
+    );
+    assert.equal(providerRequests().length, 0);
+
+    await click(button("Save provider"));
+    await click(window.document.querySelector(".confirm button.danger"));
+    assert.ok(requests.includes("PUT /api/providers/p1"));
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
 });
