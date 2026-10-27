@@ -234,9 +234,14 @@ export function openApiDoc(): Json {
       properties: { paused: { type: "boolean" } },
     },
   });
-  add("/api/stop-all", "post", "Emergency stop: interrupt all running bots and arm the global pause", {
-    res: { type: "object", properties: { stopped: { type: "number" } } },
-  });
+  add(
+    "/api/stop-all",
+    "post",
+    "Emergency stop: interrupt all running bots and arm the global pause",
+    {
+      res: { type: "object", properties: { stopped: { type: "number" } } },
+    },
+  );
   add("/api/bots", "get", "List bots with health and run state", {
     res: { type: "array", items: ref("Bot") },
   });
@@ -272,9 +277,14 @@ export function openApiDoc(): Json {
     },
   );
   add("/api/bots/{id}/runs", "get", "Run history", { params: ["id"] });
-  add("/api/bots/{id}/runs/{runId}/transcript", "get", "Ordered replay steps for one run", {
-    params: ["id", "runId"],
-  });
+  add(
+    "/api/bots/{id}/runs/{runId}/transcript",
+    "get",
+    "Ordered replay steps for one run",
+    {
+      params: ["id", "runId"],
+    },
+  );
   add(
     "/api/bots/{id}/usage",
     "get",
@@ -398,6 +408,56 @@ export function openApiDoc(): Json {
   add("/api/tags/{tagId}", "delete", "Delete a tag and its attachments", {
     params: ["tagId"],
   });
+
+  paths["/api/search"] = {
+    get: {
+      summary:
+        "Search bots, roles, skills, projects, tags, teams and templates by substring",
+      parameters: [
+        { name: "q", in: "query", required: true, schema: str },
+        { name: "types", in: "query", required: false, schema: str },
+      ],
+      responses: {
+        "200": {
+          description: "ok",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  groups: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      required: ["type", "total", "matches"],
+                      properties: {
+                        type: str,
+                        total: { type: "integer" },
+                        matches: {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            required: ["type", "id", "name", "subtitle"],
+                            properties: {
+                              type: str,
+                              id: str,
+                              name: str,
+                              subtitle: strOrNone,
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        400: error4xx("unknown search type"),
+      },
+    },
+  };
 
   add("/api/skills", "get", "List skills");
   add("/api/skills", "post", "Create a skill", { body: ref("Skill") });

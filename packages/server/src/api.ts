@@ -162,6 +162,7 @@ import {
   restartSandbox,
 } from "./sandbox.ts";
 import { nextRunAt } from "./scheduler.ts";
+import { buildSearchResults, SEARCH_TYPES, type SearchType } from "./search.ts";
 import {
   type ClonedRepo,
   cleanupClone,
@@ -530,6 +531,40 @@ export function createApp() {
   app.get("/api/health", (c) => c.json({ ok: true }));
 
   app.get("/api/openapi.json", (c) => c.json(openApiDoc()));
+
+  app.get("/api/search", (c) => {
+    const q = c.req.query("q") ?? "";
+    const rawTypes = c.req.query("types");
+    let types: readonly SearchType[] = SEARCH_TYPES;
+    if (rawTypes !== undefined) {
+      const requested = [
+        ...new Set(
+          rawTypes
+            .split(",")
+            .map((type) => type.trim())
+            .filter(Boolean),
+        ),
+      ];
+      if (requested.some((type) => !SEARCH_TYPES.includes(type as SearchType)))
+        return c.json({ error: "unknown search type" }, 400);
+      types = requested as SearchType[];
+    }
+
+    const groups = buildSearchResults({
+      q,
+      types,
+      data: {
+        bots: listBots(),
+        roles: listRoles(),
+        skills: listSkills(),
+        projects: listProjects(),
+        tags: listTags(),
+        teams: listTeams(),
+        templates: listTemplates(),
+      },
+    });
+    return c.json({ groups });
+  });
 
   const cookieOpts = {
     httpOnly: true,
