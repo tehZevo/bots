@@ -440,6 +440,70 @@ test("app navigation, chat, and bot detail flows", async () => {
   });
 });
 
+test("settings tabs split controls and guard unsaved changes", async () => {
+  const root = await mount(React.createElement(App));
+  try {
+    const navButton = (label: string) =>
+      [...window.document.querySelectorAll(".sidetabs button")].find(
+        (item) =>
+          (item.getAttribute("title") ?? item.textContent?.trim()) === label,
+      );
+    const settingsTab = (label: string) =>
+      [...window.document.querySelectorAll(".mtabs button")].find(
+        (item) => item.textContent?.trim() === label,
+      );
+
+    await click(navButton("Settings"));
+    assert.match(window.document.body.textContent ?? "", /Notification sounds/);
+    assert.doesNotMatch(
+      window.document.body.textContent ?? "",
+      /LLM providers|API keys/,
+    );
+    assert.equal(window.location.pathname, "/settings");
+
+    await click(settingsTab("Providers"));
+    assert.match(window.document.body.textContent ?? "", /LLM providers/);
+    assert.doesNotMatch(
+      window.document.body.textContent ?? "",
+      /Notification sounds|API keys/,
+    );
+    assert.equal(window.location.search, "?tab=providers");
+
+    await click(settingsTab("System"));
+    assert.match(window.document.body.textContent ?? "", /API keys/);
+    assert.match(window.document.body.textContent ?? "", /Signed in as/);
+    assert.doesNotMatch(
+      window.document.body.textContent ?? "",
+      /Notification sounds|LLM providers/,
+    );
+    assert.equal(window.location.search, "?tab=system");
+
+    await click(settingsTab("General"));
+    const idle = byLabel("Sandbox idle timeout");
+    await typeInto(idle, "7");
+    assert.match(window.document.body.textContent ?? "", /Unsaved changes/);
+
+    await click(settingsTab("Providers"));
+    assert.match(
+      window.document.body.textContent ?? "",
+      /Discard unsaved changes to the sandbox idle timeout\?/,
+    );
+    await click(button("Keep editing"));
+    assert.equal(window.location.search, "");
+
+    await click(settingsTab("System"));
+    await click(button("Discard changes"));
+    assert.match(window.document.body.textContent ?? "", /API keys/);
+    assert.equal(window.location.search, "?tab=system");
+
+    await click(navButton("Bots"));
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
 test("bot general actions update the bot", async () => {
   const root = await mount(
     React.createElement(BotGeneral, {

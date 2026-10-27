@@ -122,12 +122,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-export function AccountSection() {
+function useSignedInEmail(): string {
   const [email, setEmail] = useState("");
-  const [current, setCurrent] = useState("");
-  const [next, setNext] = useState("");
-  const [msg, setMsg] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     void fetch("/api/auth/me")
@@ -135,6 +131,16 @@ export function AccountSection() {
       .then((m: { email?: string } | null) => setEmail(m?.email ?? ""))
       .catch(() => undefined);
   }, []);
+
+  return email;
+}
+
+export function PasswordSettings() {
+  const email = useSignedInEmail();
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const changePassword = async () => {
     setBusy(true);
@@ -146,11 +152,6 @@ export function AccountSection() {
       setNext("");
       setMsg("Password changed.");
     } else setMsg(res.error ?? "failed");
-  };
-
-  const logout = async () => {
-    await postJson("/api/auth/logout", {});
-    window.location.reload();
   };
 
   return (
@@ -182,11 +183,39 @@ export function AccountSection() {
         >
           Change password
         </button>
-        <button type="button" onClick={() => void logout()}>
-          Logout
-        </button>
       </div>
       {msg && <p className="muted">{msg}</p>}
     </section>
+  );
+}
+
+export function SessionSettings() {
+  const email = useSignedInEmail();
+  const [busy, setBusy] = useState(false);
+
+  const logout = async () => {
+    setBusy(true);
+    await postJson("/api/auth/logout", {});
+    window.location.reload();
+  };
+
+  return (
+    <section className="account">
+      <p className="muted">Signed in as {email}</p>
+      <div className="actions">
+        <button type="button" disabled={busy} onClick={() => void logout()}>
+          Logout
+        </button>
+      </div>
+    </section>
+  );
+}
+
+export function AccountSection() {
+  return (
+    <>
+      <PasswordSettings />
+      <SessionSettings />
+    </>
   );
 }

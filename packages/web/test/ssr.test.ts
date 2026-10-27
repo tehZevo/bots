@@ -41,6 +41,9 @@ const {
   formDirty,
   App,
   SettingsPanel,
+  SettingsGeneral,
+  SettingsProviders,
+  SettingsSystem,
   RolesPanel,
   TeamsPanel,
   BotTeams,
@@ -269,6 +272,31 @@ test("panels and tab bodies render with stubbed fetch", () => {
     assert.ok(
       renderToStaticMarkup(React.createElement(C, { botId: "x" })).length > 50,
     );
+});
+
+test("settings tabs separate preferences, providers, and system", () => {
+  const settings = renderToStaticMarkup(React.createElement(SettingsPanel));
+  assert.match(settings, /aria-label="Settings sections"/);
+  assert.match(settings, /Notification sounds/);
+  assert.doesNotMatch(settings, /LLM providers|API keys/);
+
+  const general = renderToStaticMarkup(React.createElement(SettingsGeneral));
+  assert.match(general, /Change password/);
+  assert.match(general, /Sandbox idle timeout/);
+  assert.doesNotMatch(general, /LLM providers|Logout/);
+
+  const providers = renderToStaticMarkup(
+    React.createElement(SettingsProviders),
+  );
+  assert.match(providers, /LLM providers/);
+  assert.match(providers, /Add provider/);
+  assert.doesNotMatch(providers, /Notification sounds|API keys/);
+
+  const system = renderToStaticMarkup(React.createElement(SettingsSystem));
+  assert.match(system, /Signed in as/);
+  assert.match(system, /Logout/);
+  assert.match(system, /API keys/);
+  assert.match(system, /Control MCP enabled/);
 });
 
 test("modals render", () => {
@@ -583,7 +611,10 @@ test("chat sidebar disables composer for a disabled bot", () => {
       onClose: () => undefined,
     }),
   );
-  assert.match(html, /<input[^>]+placeholder="Message the bot…"[^>]+disabled=""/);
+  assert.match(
+    html,
+    /<input[^>]+placeholder="Message the bot…"[^>]+disabled=""/,
+  );
   assert.match(
     html,
     /<button[^>]*type="submit"[^>]+disabled="">Send<\/button>/,
