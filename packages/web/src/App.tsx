@@ -132,8 +132,19 @@ function fmtMs(ms: number): string {
     : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
 }
 
-function ReplayStep({ step }: { step: TranscriptStep }) {
+function ReplayStep({
+  step,
+  running = false,
+  busy = false,
+  onRerun,
+}: {
+  step: TranscriptStep;
+  running?: boolean;
+  busy?: boolean;
+  onRerun?: (message: string) => Promise<void>;
+}) {
   const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
   const clipped = step.kind === "tool_result" || step.kind === "tool_call";
   const toggle = () => setOpen(!open);
   const keyToggle = (e: React.KeyboardEvent) => {
@@ -150,6 +161,22 @@ function ReplayStep({ step }: { step: TranscriptStep }) {
         onKeyDown: keyToggle,
       }
     : {};
+
+  async function copyText(): Promise<void> {
+    if (!step.text || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(step.text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      // clipboard access is best effort
+    }
+  }
+
+  const showRun = step.kind === "user" && onRerun !== undefined;
+  const showCopy =
+    (step.kind === "assistant" || step.kind === "tool_result") && !!step.text;
+
   return (
     <div className={`rstep ${step.kind}${step.is_error ? " err" : ""}`}>
       <div className="rmeta">
@@ -162,6 +189,25 @@ function ReplayStep({ step }: { step: TranscriptStep }) {
         )}
         {!!step.retry_wait_ms && (
           <span className="rretry">retry wait {fmtMs(step.retry_wait_ms)}</span>
+        )}
+        {(showRun || showCopy) && (
+          <span className="ractions">
+            {showCopy && (
+              <button type="button" onClick={() => void copyText()}>
+                {copied ? "Copied" : "Copy"}
+              </button>
+            )}
+            {showRun && (
+              <button
+                type="button"
+                disabled={running || busy}
+                title={running ? "The bot is already running" : undefined}
+                onClick={() => void onRerun(step.text ?? "")}
+              >
+                Run this
+              </button>
+            )}
+          </span>
         )}
       </div>
       {step.args && (
@@ -187,11 +233,22 @@ function ReplayStep({ step }: { step: TranscriptStep }) {
   );
 }
 
-function ReplayPanel({ botId, run }: { botId: string; run: Run }) {
+function ReplayPanel({
+  botId,
+  run,
+  running = false,
+  onRerun,
+}: {
+  botId: string;
+  run: Run;
+  running?: boolean;
+  onRerun?: (message: string) => Promise<void>;
+}) {
   const [data, setData] = useState<{
     usage: { total: number } | null;
     steps: TranscriptStep[];
   } | null>(null);
+  const [rerunning, setRerunning] = useState(false);
   useEffect(() => {
     let on = true;
     api<{
@@ -205,6 +262,17 @@ function ReplayPanel({ botId, run }: { botId: string; run: Run }) {
     };
   }, [botId, run.id]);
   if (!data) return <p className="muted replay">Loading transcript…</p>;
+
+  async function rerun(message: string): Promise<void> {
+    if (!onRerun || running || rerunning) return;
+    setRerunning(true);
+    try {
+      await onRerun(message);
+    } finally {
+      setRerunning(false);
+    }
+  }
+
   return (
     <div className="replay">
       <header>
@@ -216,7 +284,15 @@ function ReplayPanel({ botId, run }: { botId: string; run: Run }) {
         <p className="muted">transcript not recorded</p>
       ) : (
         // biome-ignore lint/suspicious/noArrayIndexKey: transcript steps are append-only, position is their identity
-        data.steps.map((s, i) => <ReplayStep key={i} step={s} />)
+        data.steps.map((s, i) => (
+          <ReplayStep
+            key={i}
+            step={s}
+            running={running}
+            busy={rerunning}
+            onRerun={onRerun ? rerun : undefined}
+          />
+        ))
       )}
     </div>
   );
@@ -943,6 +1019,25 @@ export function App() {
       .finally(() => setPoking((p) => ({ ...p, [bot.id]: false })));
   };
 
+  const rerunTranscriptMessage = async (
+    botId: string,
+    message: string,
+  ): Promise<void> => {
+    const target = bots.find((b) => b.id === botId);
+    if (!target || !target.enabled || paused || target.run_state === "running")
+      return;
+    try {
+      await api(`/api/bots/${botId}/run`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      await load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const [modalTab, setModalTab] = useState<
     "general" | "triggers" | "logs" | "stats"
   >("general");
@@ -1660,7 +1755,14 @@ export function App() {
                             <pre className="error">{run.error}</pre>
                           )}
                           {replayRun === run.id && openBot && (
-                            <ReplayPanel botId={openBot} run={run} />
+                            <ReplayPanel
+                              botId={openBot}
+                              run={run}
+                              running={openBotRow.run_state === "running"}
+                              onRerun={(message) =>
+                                rerunTranscriptMessage(openBot, message)
+                              }
+                            />
                           )}
                         </article>
                       ))}
