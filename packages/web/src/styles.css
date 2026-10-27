@@ -2003,75 +2003,113 @@ button.danger.ghost {
   transform-origin: center;
 }
 
-.avatar:not(.anim-gray) .eye {
-  animation: blink var(--blink-period, 5s) infinite both;
-  animation-delay: var(--blink-delay, 0s);
+.avatar.anim-green .eye,
+.avatar.anim-yellow .eye {
+  animation:
+    blink var(--blink-period, 5s) infinite both,
+    lookaround 7.3s ease-in-out infinite;
+  animation-delay:
+    var(--blink-delay, 0s), calc(var(--blink-delay, 0s) * -0.618);
+}
+
+.avatar.anim-blue .eye,
+.avatar.anim-gray .eye {
+  animation: none;
+  scale: 1 0.07;
 }
 
 @keyframes blink {
   0%,
   93%,
   100% {
-    transform: scaleY(1);
+    scale: 1 1;
   }
 
   95.5% {
-    transform: scaleY(0.08);
+    scale: 1 0.08;
+  }
+}
+
+@keyframes lookaround {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+
+  24% {
+    translate: 1.2px -0.3px;
+  }
+
+  48% {
+    translate: -1px 0.2px;
+  }
+
+  76% {
+    translate: 0.6px 0.4px;
   }
 }
 
 .avatar.anim-blue {
-  animation: floatidle 3s ease-in-out infinite;
+  animation: sleepfloat 3.8s ease-in-out infinite;
 }
 
-@keyframes floatidle {
+@keyframes sleepfloat {
+  0%,
+  100% {
+    transform: translateY(0) scaleY(1);
+  }
+
+  50% {
+    transform: translateY(-2px) scaleX(1.015) scaleY(0.965);
+  }
+}
+
+.avatar.anim-green {
+  animation: roamactive 1.9s ease-in-out infinite;
+}
+
+@keyframes roamactive {
   0%,
   100% {
     transform: translate(0, 0) rotate(0deg);
   }
 
   25% {
-    transform: translate(4px, -3px) rotate(4deg);
+    transform: translate(9px, -5px) rotate(3.5deg);
+  }
+
+  45% {
+    transform: translate(5px, -9px) rotate(2deg);
+  }
+
+  68% {
+    transform: translate(-8px, -4px) rotate(-3.5deg);
+  }
+
+  87% {
+    transform: translate(-5px, 3px) rotate(-2deg);
+  }
+}
+
+.avatar.anim-green .avatar-svg {
+  animation: glowpulse 2.6s ease-in-out infinite;
+}
+
+@keyframes glowpulse {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 5px var(--avatar-glow, transparent));
   }
 
   50% {
-    transform: translate(0, -5px) rotate(0deg);
-  }
-
-  75% {
-    transform: translate(-4px, -3px) rotate(-4deg);
-  }
-}
-
-.avatar.anim-green {
-  animation: floatactive 2.2s ease-in-out infinite;
-}
-
-@keyframes floatactive {
-  0%,
-  100% {
-    transform: translate(0, 0) rotate(0deg);
-  }
-
-  20% {
-    transform: translate(7px, -4px) rotate(6deg);
-  }
-
-  40% {
-    transform: translate(4px, -8px) rotate(3deg);
-  }
-
-  60% {
-    transform: translate(-7px, -4px) rotate(-6deg);
-  }
-
-  80% {
-    transform: translate(-4px, 3px) rotate(-3deg);
+    filter: drop-shadow(0 0 9px var(--avatar-glow-strong, transparent));
   }
 }
 
 .avatar.anim-yellow {
-  animation: sway 3.4s ease-in-out infinite;
+  animation:
+    sway 3.4s ease-in-out infinite,
+    worriedflicker 6.7s ease-in-out infinite;
 }
 
 @keyframes sway {
@@ -2089,38 +2127,55 @@ button.danger.ghost {
   }
 }
 
-.avatar.anim-red {
-  animation: shake 2.4s ease-in-out infinite;
+@keyframes worriedflicker {
+  0%,
+  82%,
+  100% {
+    opacity: 1;
+  }
+
+  85% {
+    opacity: 0.46;
+  }
+
+  87% {
+    opacity: 0.92;
+  }
+
+  89% {
+    opacity: 0.62;
+  }
 }
 
-@keyframes shake {
-  0%,
-  8%,
-  100% {
-    transform: translateX(0);
-  }
+.avatar.anim-red {
+  animation: none;
+}
 
-  1.5% {
-    transform: translateX(-1.6px) rotate(-1deg);
-  }
+.avatar.anim-red .avatar-svg {
+  filter: saturate(0.25) drop-shadow(0 0 4px transparent);
+}
 
-  3% {
-    transform: translateX(1.6px) rotate(1deg);
-  }
+.avatar.anim-gray {
+  color: #6b7280;
+  animation: none;
+}
 
-  4.5% {
-    transform: translateX(-1.2px);
-  }
-
-  6% {
-    transform: translateX(1px);
-  }
+.avatar.anim-gray .avatar-svg {
+  filter: grayscale(1) drop-shadow(0 0 4px transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .avatar,
+  .avatar-svg,
   .avatar .eye {
     animation: none !important;
+  }
+
+  .avatar.anim-blue .eye,
+  .avatar.anim-green .eye,
+  .avatar.anim-yellow .eye,
+  .avatar.anim-gray .eye {
+    scale: 1 0.07;
   }
 }
 
