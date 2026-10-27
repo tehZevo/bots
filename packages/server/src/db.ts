@@ -26,6 +26,9 @@ export interface BotRow {
   status: string | null;
   status_level: "ok" | "issue" | "blocked" | null;
   token_budget: number | null;
+  watchdog_hours: number | null;
+  watchdog_tripped: number;
+  watchdog_run_started_at: number | null;
   created_at: number;
 }
 
@@ -55,7 +58,14 @@ export interface RunRow {
   id: string;
   bot_id: string;
   status: "running" | "ok" | "error";
-  trigger: "schedule" | "manual" | "chat" | "webhook" | "dm" | "continuous";
+  trigger:
+    | "schedule"
+    | "manual"
+    | "chat"
+    | "webhook"
+    | "dm"
+    | "continuous"
+    | "watchdog";
   started_at: number;
   finished_at: number | null;
   output: string | null;
@@ -475,6 +485,17 @@ if (!botColumns.has("machine_id"))
     "ALTER TABLE bots ADD COLUMN machine_id TEXT REFERENCES machines(id)",
   ).run();
 
+if (!botColumns.has("watchdog_hours"))
+  db.prepare("ALTER TABLE bots ADD COLUMN watchdog_hours INTEGER").run();
+if (!botColumns.has("watchdog_tripped"))
+  db.prepare(
+    "ALTER TABLE bots ADD COLUMN watchdog_tripped INTEGER NOT NULL DEFAULT 0",
+  ).run();
+if (!botColumns.has("watchdog_run_started_at"))
+  db.prepare(
+    "ALTER TABLE bots ADD COLUMN watchdog_run_started_at INTEGER",
+  ).run();
+
 export function listBots(): BotRow[] {
   return db.prepare("SELECT * FROM bots ORDER BY created_at").all() as BotRow[];
 }
@@ -493,6 +514,9 @@ type NewBot = Omit<
   | "avatar_shape"
   | "avatar_color"
   | "sound"
+  | "watchdog_hours"
+  | "watchdog_tripped"
+  | "watchdog_run_started_at"
 > &
   Partial<
     Pick<
@@ -503,13 +527,14 @@ type NewBot = Omit<
       | "avatar_shape"
       | "avatar_color"
       | "sound"
+      | "watchdog_hours"
     >
   >;
 
 export function insertBot(bot: NewBot): void {
   db.prepare(
-    `INSERT INTO bots (id, name, instructions, model_id, role_id, machine_id, avatar_shape, avatar_color, sound, enabled, created_at)
-     VALUES (@id, @name, @instructions, @model_id, @role_id, @machine_id, @avatar_shape, @avatar_color, @sound, @enabled, @created_at)`,
+    `INSERT INTO bots (id, name, instructions, model_id, role_id, machine_id, avatar_shape, avatar_color, sound, watchdog_hours, enabled, created_at)
+     VALUES (@id, @name, @instructions, @model_id, @role_id, @machine_id, @avatar_shape, @avatar_color, @sound, @watchdog_hours, @enabled, @created_at)`,
   ).run({
     model_id: null,
     role_id: null,
@@ -517,6 +542,7 @@ export function insertBot(bot: NewBot): void {
     avatar_shape: null,
     avatar_color: null,
     sound: null,
+    watchdog_hours: null,
     ...bot,
   });
 }
@@ -593,8 +619,25 @@ export function botsUsingMachine(
 export function updateBot(id: string, patch: Partial<BotRow>): void {
   const keys = Object.keys(patch).filter((k) => k !== "id");
   if (keys.length === 0) return;
+  let needsWatchdogReset = false;
+  if (keys.includes("enabled") || keys.includes("watchdog_hours")) {
+    const current = getBot(id);
+    if (current) {
+      if (
+        patch.enabled !== undefined &&
+        Number(patch.enabled) !== Number(current.enabled)
+      )
+        needsWatchdogReset = true;
+      if (
+        patch.watchdog_hours !== undefined &&
+        patch.watchdog_hours !== current.watchdog_hours
+      )
+        needsWatchdogReset = true;
+    }
+  }
   const sets = keys.map((k) => `${k} = @${k}`).join(", ");
   db.prepare(`UPDATE bots SET ${sets} WHERE id = @id`).run({ ...patch, id });
+  if (needsWatchdogReset) resetWatchdog(id);
 }
 
 export function deleteBot(id: string): void {
@@ -1211,11 +1254,31 @@ export function dueTriggers(now: number): TriggerRow[] {
     .all(now) as TriggerRow[];
 }
 
+function setWatchdogActivity(botId: string, startedAt: number | null): void {
+  const current = db
+    .prepare("SELECT watchdog_tripped FROM bots WHERE id = ?")
+    .get(botId) as { watchdog_tripped?: number } | undefined;
+  db.prepare(
+    "UPDATE bots SET watchdog_run_started_at = ?, watchdog_tripped = 0 WHERE id = ?",
+  ).run(startedAt, botId);
+  if (current?.watchdog_tripped) setBotStatus(botId, null);
+}
+
+export function markWatchdogActivity(botId: string, startedAt: number): void {
+  setWatchdogActivity(botId, startedAt);
+}
+
+export function resetWatchdog(botId: string): void {
+  setWatchdogActivity(botId, null);
+}
+
 export function insertRun(run: RunRow): void {
   db.prepare(
     `INSERT INTO runs (id, bot_id, status, trigger, started_at, finished_at, output, error)
      VALUES (@id, @bot_id, @status, @trigger, @started_at, @finished_at, @output, @error)`,
   ).run(run);
+  if (run.trigger !== "watchdog")
+    markWatchdogActivity(run.bot_id, run.started_at);
 }
 
 let onNewNotification: ((n: NotificationRow) => void) | null = null;
@@ -1315,6 +1378,7 @@ export function finishRun(
   output: string | null,
   error: string | null,
 ): void {
+  const finishedAt = Date.now();
   const update = db.prepare(
     "UPDATE runs SET status = ?, finished_at = ?, output = ?, error = ? WHERE id = ?",
   );
@@ -1323,12 +1387,14 @@ export function finishRun(
      LEFT JOIN bots b ON b.id = r.bot_id WHERE r.id = ?`,
   );
   const tx = db.transaction(() => {
-    update.run(status, Date.now(), output, error, id);
-    if (status !== "error") return;
-
+    update.run(status, finishedAt, output, error, id);
     const info = getInfo.get(id) as
       | { bot_id: string | null; trigger: string | null; name: string | null }
       | undefined;
+    if (info?.bot_id && info.trigger !== "watchdog")
+      markWatchdogActivity(info.bot_id, finishedAt);
+    if (status !== "error") return;
+
     createNotification({
       kind: "run_error",
       title: `${info?.name ?? "Bot"}: run failed`,
@@ -1342,6 +1408,49 @@ export function finishRun(
 
   const info = getInfo.get(id) as { bot_id: string | null } | undefined;
   if (info?.bot_id) armContinuousTriggers(info.bot_id);
+}
+
+export function tripWatchdog(
+  botId: string,
+  name: string,
+  hours: number,
+  now = Date.now(),
+): void {
+  const runId = randomUUID();
+  const message = `watchdog: no completed run in ${hours}h`;
+  insertRun({
+    id: runId,
+    bot_id: botId,
+    status: "error",
+    trigger: "watchdog",
+    started_at: now,
+    finished_at: now,
+    output: null,
+    error: message,
+  });
+  db.prepare("UPDATE bots SET watchdog_tripped = 1 WHERE id = ?").run(botId);
+  setBotStatus(botId, message, "blocked");
+  createNotification({
+    kind: "watchdog",
+    title: `${name}: watchdog tripped`,
+    body: message,
+    botId,
+    dedupeKey: `watchdog:${runId}`,
+  });
+}
+
+export function evaluateWatchdogs(now = Date.now()): void {
+  if (isPaused()) return;
+  const due = db
+    .prepare(
+      `SELECT id, name, watchdog_hours FROM bots
+       WHERE enabled = 1 AND watchdog_hours IS NOT NULL AND watchdog_tripped = 0
+         AND watchdog_run_started_at IS NOT NULL
+         AND ? > watchdog_run_started_at + (watchdog_hours * 3600000)`,
+    )
+    .all(now) as { id: string; name: string; watchdog_hours: number }[];
+  for (const bot of due)
+    tripWatchdog(bot.id, bot.name, bot.watchdog_hours, now);
 }
 
 export function continuousIntervalMs(schedule: string): number | null {

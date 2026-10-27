@@ -75,8 +75,14 @@ export async function retryFetch(
     let headerWait: number | null = null;
     if (res?.status === 429) headerWait = retryAfterMs(res);
     const waitMs = headerWait ?? computedDelayMs(attempt);
-    opts?.onWait?.(waitMs);
-    await sleep(waitMs, init?.signal);
+    const startedAt = Date.now();
+    try {
+      await sleep(waitMs, init?.signal);
+    } catch (err) {
+      opts?.onWait?.(Date.now() - startedAt);
+      throw err;
+    }
+    opts?.onWait?.(Date.now() - startedAt);
     attempt++;
   }
 }

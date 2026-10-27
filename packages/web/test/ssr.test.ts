@@ -559,6 +559,39 @@ test("chat sidebar renders header, gear and close", () => {
   assert.match(html, /aria-label="Close"/);
 });
 
+test("chat sidebar disables composer for a disabled bot", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(ChatSidebar, {
+      bot: {
+        id: "b1",
+        name: "Alpha",
+        instructions: "",
+        model_id: null,
+        role_id: null,
+        machine_id: null,
+        avatar_shape: null,
+        avatar_color: null,
+        sound: null,
+        enabled: 0,
+        created_at: 0,
+        run_state: "disabled",
+        health: "red",
+        status: null,
+        status_level: null,
+        current_task: null,
+        current_task_updated_at: null,
+      },
+      onSettings: () => undefined,
+      onClose: () => undefined,
+    }),
+  );
+  assert.match(html, /<input[^>]+placeholder="Message the bot…"[^>]+disabled=""/);
+  assert.match(
+    html,
+    /<button[^>]*type="submit"[^>]+disabled="">Send<\/button>/,
+  );
+});
+
 test("chat shows a working indicator bottom-left while the bot runs", () => {
   const on = renderToStaticMarkup(
     React.createElement(Chat, { botId: "b1", botName: "Alpha", working: true }),

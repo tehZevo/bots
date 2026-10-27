@@ -81,6 +81,8 @@ const trigger = {
 };
 
 const requests: string[] = [];
+const patchBodies: Record<string, unknown>[] = [];
+const botPatchBodies: Record<string, unknown>[] = [];
 let pausedFlag = false;
 
 function json(value: unknown): Response {
@@ -99,6 +101,15 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
         : input.url;
   const method = init?.method ?? "GET";
   requests.push(`${method} ${url}`);
+  if (url === "/api/bots/b1" && method === "PATCH") {
+    try {
+      patchBodies.push(
+        JSON.parse(String(init?.body)) as Record<string, unknown>,
+      );
+    } catch {
+      patchBodies.push({});
+    }
+  }
   if (url === "/api/bots" && method === "GET") return json([bot]);
   if (url === "/api/notifications") {
     return json({
@@ -248,8 +259,8 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url === "/api/settings") {
     return json({
       sandbox_idle_minutes: 5,
-      default_provider_id: null,
-      default_model: null,
+      default_provider_id: "p1",
+      default_model: "alpha",
       control_mcp_enabled: true,
     });
   }
@@ -268,8 +279,23 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       { id: "g2", name: "experiments", created_at: now, bot_count: 0 },
     ]);
   }
+  if (url === "/api/bots/b1" && method === "PATCH") {
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    botPatchBodies.push(body);
+    return json({ ...bot, ...body });
+  }
   if (url === "/api/api-keys") return json([]);
-  if (url === "/api/providers") return json([]);
+  if (url === "/api/providers") {
+    return json([
+      {
+        id: "p1",
+        name: "Ops",
+        base_url: "https://example.com/v1",
+        models: ["alpha", "beta", "gamma"],
+        has_key: true,
+      },
+    ]);
+  }
   if (url === "/api/pause" && method === "GET")
     return json({ paused: pausedFlag });
   if (url === "/api/pause" && method === "POST") {
@@ -486,6 +512,67 @@ test("bot detail header carries enable/Stop and General pins its action row", as
     bot.run_state = previousState;
     await act(async () => {
       root.unmount();
+    });
+  }
+});
+
+test("bot general saves watchdog hours", async () => {
+  const root = await mount(
+    React.createElement(BotGeneral, {
+      bot: { ...bot, watchdog_hours: 24 },
+      onChanged: () => undefined,
+    }),
+  );
+
+  await typeInto(byLabel("Watchdog hours"), "30");
+  await click(button("Save"));
+  assert.equal(patchBodies.at(-1)?.watchdog_hours, 30);
+
+  await typeInto(byLabel("Watchdog hours"), "");
+  await click(button("Save"));
+  assert.equal(patchBodies.at(-1)?.watchdog_hours, null);
+
+  await act(async () => {
+    root.unmount();
+  });
+});
+
+test("bot General model override saves and clears", async () => {
+  requests.length = 0;
+  botPatchBodies.length = 0;
+  const rootDefault = await mount(
+    React.createElement(BotGeneral, {
+      bot: { ...bot, model_id: null },
+      onChanged: () => undefined,
+    }),
+  );
+  try {
+    assert.match(window.document.body.textContent ?? "", /Server default/);
+    assert.ok(byLabel("Bot model"));
+    await typeInto(byLabel("Bot model"), "beta");
+    await click(button("Save"));
+    assert.equal(botPatchBodies.at(-1)?.model_id, "beta");
+  } finally {
+    await act(async () => {
+      rootDefault.unmount();
+    });
+  }
+
+  botPatchBodies.length = 0;
+  const rootOverride = await mount(
+    React.createElement(BotGeneral, {
+      bot: { ...bot, model_id: "beta" },
+      onChanged: () => undefined,
+    }),
+  );
+  try {
+    assert.equal((byLabel("Bot model") as HTMLSelectElement).value, "beta");
+    await typeInto(byLabel("Bot model"), "");
+    await click(button("Save"));
+    assert.equal(botPatchBodies.at(-1)?.model_id, null);
+  } finally {
+    await act(async () => {
+      rootOverride.unmount();
     });
   }
 });

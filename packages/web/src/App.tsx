@@ -41,6 +41,7 @@ interface Bot {
   status_level: "ok" | "issue" | "blocked" | null;
   current_task: string | null;
   current_task_updated_at: number | null;
+  watchdog_hours?: number | null;
 }
 
 interface GrantOption {
@@ -2305,6 +2306,11 @@ interface Provider {
   has_key: boolean;
 }
 
+interface BotGeneralSettings {
+  default_provider_id: string | null;
+  default_model: string | null;
+}
+
 export function SettingsPanel() {
   const [theme, setTheme] = useState<Theme>(readStoredTheme);
   const [idle, setIdle] = useState(5);
@@ -4157,6 +4163,15 @@ export function BotStats({
   );
 }
 
+function parseWatchdogHours(value: string): number | null | "invalid" {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 720
+    ? parsed
+    : "invalid";
+}
+
 export function BotGeneral({
   bot,
   onChanged,
@@ -4171,7 +4186,16 @@ export function BotGeneral({
   const [instructions, setInstructions] = useState(bot?.instructions ?? "");
   const [roleId, setRoleId] = useState(bot?.role_id ?? "");
   const [machineId, setMachineId] = useState(bot?.machine_id ?? "");
+  const [watchdogHours, setWatchdogHours] = useState(
+    bot?.watchdog_hours == null ? "" : String(bot.watchdog_hours),
+  );
+  const [modelId, setModelId] = useState(bot?.model_id ?? "");
   const [machines, setMachines] = useState<Machine[]>([]);
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [defaultProviderId, setDefaultProviderId] = useState<string | null>(
+    null,
+  );
+  const [defaultModel, setDefaultModel] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<"delete" | "clear" | "restart" | null>(
     null,
@@ -4202,14 +4226,38 @@ export function BotGeneral({
     void api<Machine[]>("/api/machines")
       .then((ms) => setMachines(ms.filter((m) => !m.builtin)))
       .catch(() => setMachines([]));
+    void api<Provider[]>("/api/providers").then(setProviders, () =>
+      setProviders([]),
+    );
+    void api<BotGeneralSettings>("/api/settings")
+      .then((settings) => {
+        setDefaultProviderId(settings.default_provider_id);
+        setDefaultModel(settings.default_model);
+      })
+      .catch(() => undefined);
   }, []);
+
+  const parsedWatchdog = parseWatchdogHours(watchdogHours);
+
+  const modelOptions = Array.from(
+    new Set([
+      ...(bot?.model_id ? [bot.model_id] : []),
+      ...(defaultProviderId
+        ? (providers.find((p) => p.id === defaultProviderId)?.models ?? [])
+        : []),
+      ...(defaultModel ? [defaultModel] : []),
+    ]),
+  );
 
   const dirty =
     !!bot &&
     (name.trim() !== bot.name ||
       instructions !== bot.instructions ||
       roleId !== (bot.role_id ?? "") ||
-      machineId !== (bot.machine_id ?? ""));
+      machineId !== (bot.machine_id ?? "") ||
+      modelId !== (bot.model_id ?? "") ||
+      parsedWatchdog === "invalid" ||
+      parsedWatchdog !== (bot.watchdog_hours ?? null));
   useDirtyGuard(bot ? `the bot ${bot.name}` : "this bot", dirty);
 
   if (!bot) return null;
@@ -4235,6 +4283,25 @@ export function BotGeneral({
           value={instructions}
           onChange={(e) => setInstructions(e.target.value)}
         />
+        <p className="rolepick">
+          Watchdog hours{" "}
+          <input
+            type="number"
+            aria-label="Watchdog hours"
+            placeholder="off"
+            min={1}
+            max={720}
+            step={1}
+            value={watchdogHours}
+            onChange={(e) => setWatchdogHours(e.target.value)}
+          />
+        </p>
+        {parsedWatchdog === "invalid" && (
+          <p className="muted">
+            Watchdog must be a whole number from 1 to 720 hours, or empty for
+            off.
+          </p>
+        )}
       </div>
       <p className="statusline">
         Status:{" "}
@@ -4280,6 +4347,21 @@ export function BotGeneral({
         </select>
       </p>
       <p className="rolepick">
+        Model{" "}
+        <select
+          value={modelId}
+          aria-label="Bot model"
+          onChange={(e) => setModelId(e.target.value)}
+        >
+          <option value="">Server default</option>
+          {modelOptions.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+      </p>
+      <p className="rolepick">
         Sound{" "}
         <select
           value={bot.sound ?? ""}
@@ -4318,8 +4400,11 @@ export function BotGeneral({
             patchBot({
               name: name.trim(),
               instructions,
+              model_id: modelId || null,
               role_id: roleId || null,
               machine_id: machineId || null,
+              watchdog_hours:
+                parsedWatchdog === "invalid" ? watchdogHours : parsedWatchdog,
             })
               .then(onChanged)
               .catch((e) => alert(e.message))
@@ -4989,6 +5074,7 @@ export function ChatSidebar({
         key={bot.id}
         botId={bot.id}
         botName={bot.name}
+        enabled={bot.enabled === 1}
         working={bot.run_state === "running"}
       />
     </aside>
@@ -4998,10 +5084,12 @@ export function ChatSidebar({
 export function Chat({
   botId,
   botName,
+  enabled = true,
   working = false,
 }: {
   botId: string;
   botName: string;
+  enabled?: boolean;
   working?: boolean;
 }) {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
@@ -5045,7 +5133,7 @@ export function Chat({
 
   const send = async () => {
     const text = draft.trim();
-    if (!text || sending) return;
+    if (!text || sending || !enabled) return;
     setSending(true);
     setErr(null);
     pendingRef.current = text;
@@ -5102,9 +5190,12 @@ export function Chat({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder="Message the bot…"
-          disabled={sending}
+          disabled={sending || !enabled}
         />
-        <button type="submit" disabled={sending || !draft.trim()}>
+        <button
+          type="submit"
+          disabled={sending || !enabled || !draft.trim()}
+        >
           {sending ? "Sending…" : "Send"}
         </button>
       </form>
