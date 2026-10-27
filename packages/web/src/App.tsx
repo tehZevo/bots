@@ -5390,9 +5390,9 @@ export function IntegrationsPanel() {
 
 export function SkillsPanel() {
   const [skills, setSkills] = useState<Skill[]>([]);
-  const [skillForm, setSkillForm] = useState<Skill | "new" | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
   const [removingSkill, setRemovingSkill] = useState<Skill | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
 
   const reloadSkills = useCallback(
     () =>
@@ -5410,11 +5410,8 @@ export function SkillsPanel() {
     <section>
       <div className="viewhead">
         <h2>Skills</h2>
-        <button type="button" onClick={() => setImportOpen(true)}>
-          Import
-        </button>
-        <button type="button" onClick={() => setSkillForm("new")}>
-          Add skill
+        <button type="button" onClick={() => setAddOpen(true)}>
+          + Add skill
         </button>
       </div>
       <div className="mcpsection">
@@ -5430,7 +5427,7 @@ export function SkillsPanel() {
                   {`${safeImportOrigin(sk.import_info) ?? "git"} skill`}
                 </span>
               )}
-              <button type="button" onClick={() => setSkillForm(sk)}>
+              <button type="button" onClick={() => setEditingSkill(sk)}>
                 Edit
               </button>
               <button
@@ -5459,21 +5456,21 @@ export function SkillsPanel() {
           }}
         />
       )}
-      {skillForm && (
-        <SkillModal
-          skill={skillForm === "new" ? null : skillForm}
-          onClose={() => setSkillForm(null)}
+      {addOpen && (
+        <AddSkillModal
+          onClose={() => setAddOpen(false)}
           onSaved={() => {
-            setSkillForm(null);
+            setAddOpen(false);
             void reloadSkills();
           }}
         />
       )}
-      {importOpen && (
-        <ImportSkillModal
-          onClose={() => setImportOpen(false)}
-          onImported={() => {
-            setImportOpen(false);
+      {editingSkill && (
+        <SkillModal
+          skill={editingSkill}
+          onClose={() => setEditingSkill(null)}
+          onSaved={() => {
+            setEditingSkill(null);
             void reloadSkills();
           }}
         />
@@ -5487,24 +5484,20 @@ export function SkillModal({
   onClose,
   onSaved,
 }: {
-  skill: Skill | null;
+  skill: Skill;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [name, setName] = useState(skill?.name ?? "");
-  const [description, setDescription] = useState(skill?.description ?? "");
-  const [instructions, setInstructions] = useState(skill?.instructions ?? "");
+  const [name, setName] = useState(skill.name);
+  const [description, setDescription] = useState(skill.description);
+  const [instructions, setInstructions] = useState(skill.instructions);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const dirty =
-    name !== (skill?.name ?? "") ||
-    description !== (skill?.description ?? "") ||
-    instructions !== (skill?.instructions ?? "");
-  const attemptClose = useDiscardGuard(
-    skill ? `skill ${skill.name}` : "this new skill",
-    dirty,
-    onClose,
-  );
+    name !== skill.name ||
+    description !== skill.description ||
+    instructions !== skill.instructions;
+  const attemptClose = useDiscardGuard(`skill ${skill.name}`, dirty, onClose);
 
   return (
     <div className="modal">
@@ -5515,15 +5508,15 @@ export function SkillModal({
         onClick={attemptClose}
       />
       <div className="dialog" role="dialog" aria-label="Skill">
-        <h2>{skill ? "Edit skill" : "Add skill"}</h2>
+        <h2>Edit skill</h2>
         <form
           onSubmit={async (e) => {
             e.preventDefault();
             setBusy(true);
             setError(null);
             try {
-              await api(skill ? `/api/skills/${skill.id}` : "/api/skills", {
-                method: skill ? "PATCH" : "POST",
+              await api(`/api/skills/${skill.id}`, {
+                method: "PATCH",
                 headers: { "content-type": "application/json" },
                 body: JSON.stringify({ name, description, instructions }),
               });
@@ -5563,7 +5556,7 @@ export function SkillModal({
           {error && <p className="error">{error}</p>}
           <div className="actions">
             <button type="submit" disabled={busy}>
-              {busy ? "Saving…" : skill ? "Save" : "Create"}
+              {busy ? "Saving…" : "Save"}
             </button>
             <UnsavedNote dirty={dirty} />
             <button type="button" onClick={attemptClose}>
@@ -5571,6 +5564,154 @@ export function SkillModal({
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function CreateSkillForm({
+  onSaved,
+  onDirtyChange,
+}: {
+  onSaved: () => void;
+  onDirtyChange: (dirty: boolean) => void;
+}) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [instructions, setInstructions] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const dirty = name !== "" || description !== "" || instructions !== "";
+
+  useEffect(() => {
+    onDirtyChange(dirty);
+  }, [dirty, onDirtyChange]);
+
+  return (
+    <form
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        setError(null);
+        try {
+          await api("/api/skills", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ name, description, instructions }),
+          });
+          onSaved();
+        } catch (err) {
+          setError(err instanceof Error ? err.message : String(err));
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <label>
+        Name
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
+      </label>
+      <label>
+        Description (optional)
+        <input
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </label>
+      <label>
+        Instructions (markdown)
+        <textarea
+          className="fixed"
+          rows={12}
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
+          required
+        />
+      </label>
+      {error && <p className="error">{error}</p>}
+      <div className="actions">
+        <button type="submit" disabled={busy}>
+          {busy ? "Creating…" : "Create"}
+        </button>
+        <UnsavedNote dirty={dirty} />
+      </div>
+    </form>
+  );
+}
+
+export function AddSkillModal({
+  onClose,
+  onSaved,
+}: {
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [tab, setTab] = useState<"create" | "import">("create");
+  const [formKey, setFormKey] = useState(0);
+  const [createDirty, setCreateDirty] = useState(false);
+  const attemptClose = useDiscardGuard("this new skill", createDirty, onClose);
+  const guard = useNavGuard();
+
+  function switchTab(next: "create" | "import") {
+    if (next === tab) return;
+    guard(() => {
+      setCreateDirty(false);
+      if (tab === "create") setFormKey((key) => key + 1);
+      setTab(next);
+    });
+  }
+
+  return (
+    <div className="modal">
+      <button
+        type="button"
+        className="mscrim"
+        aria-label="Close"
+        onClick={attemptClose}
+      />
+      <div className="dialog tabs" role="dialog" aria-label="Add skill">
+        <div className="viewhead">
+          <h2>Add skill</h2>
+          <button
+            type="button"
+            className="close"
+            aria-label="Cancel"
+            onClick={attemptClose}
+          >
+            ×
+          </button>
+        </div>
+        <nav className="mtabs">
+          {(
+            [
+              ["create", "Create"],
+              ["import", "Import"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              className={tab === id ? "sel" : ""}
+              onClick={() => switchTab(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+        <div className="tabbody">
+          {tab === "create" && (
+            <CreateSkillForm
+              key={formKey}
+              onSaved={onSaved}
+              onDirtyChange={setCreateDirty}
+            />
+          )}
+          {tab === "import" && <ImportSkillsPane onImported={onSaved} />}
+        </div>
       </div>
     </div>
   );
@@ -6945,13 +7086,7 @@ interface SkillPreviewRow {
   content_hash: string;
 }
 
-export function ImportSkillModal({
-  onClose,
-  onImported,
-}: {
-  onClose: () => void;
-  onImported: () => void;
-}) {
+function ImportSkillsPane({ onImported }: { onImported: () => void }) {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [source, setSource] = useState("");
@@ -7014,121 +7149,109 @@ export function ImportSkillModal({
   };
 
   return (
-    <div className="modal">
-      <button
-        type="button"
-        className="mscrim"
-        aria-label="Close"
-        onClick={onClose}
-      />
-      <div className="dialog" role="dialog" aria-label="Import skill">
-        <h2>Import skills</h2>
-        <label className="field">
-          Search skills.sh
-          <input
-            value={query}
-            placeholder="pdf, testing, ..."
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                void search();
-              }
-            }}
-          />
-        </label>
-        <div className="actions">
-          <button
-            type="button"
-            disabled={busy || !query.trim()}
-            onClick={() => void search()}
-          >
-            Search
-          </button>
-        </div>
-        {hits && (
-          <ul className="srclist">
-            {hits.length === 0 && <li className="muted">No matches.</li>}
-            {hits.map((h) => (
-              <li key={h.id}>
-                <span>
-                  {h.name}{" "}
-                  <em className="muted">
-                    ({h.source}
-                    {h.installs !== null ? ` · ${h.installs} installs` : ""})
-                  </em>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setSource(`${h.source}@${h.skill_id}`)}
-                >
-                  Use
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <label className="field">
-          Git source
-          <input
-            value={source}
-            placeholder="owner/repo, https://…/tree/main/skills/pdf@pdf#v1.2"
-            onChange={(e) => setSource(e.target.value)}
-          />
-        </label>
-        <div className="actions">
-          <button
-            type="button"
-            disabled={busy || !source.trim()}
-            onClick={() => void preview()}
-          >
-            Preview
-          </button>
-        </div>
-        {previews.length > 0 && (
-          <ul className="srclist">
-            {previews.map((p) => (
-              <li key={p.folder}>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={picked.has(p.folder)}
-                    onChange={() =>
-                      setPicked((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(p.folder)) next.delete(p.folder);
-                        else next.add(p.folder);
-                        return next;
-                      })
-                    }
-                  />{" "}
-                  <strong>{p.name}</strong>{" "}
-                  <em className="muted">
-                    {p.folder} · {p.file_count} files ·{" "}
-                    {(p.total_size / 1024).toFixed(0)} KB
-                  </em>
-                </label>
-              </li>
-            ))}
-          </ul>
-        )}
-        {error && <p className="error">{error}</p>}
-        <div className="actions">
-          <button
-            type="button"
-            disabled={busy || picked.size === 0}
-            onClick={() => void doImport()}
-          >
-            Import{" "}
-            {picked.size > 0
-              ? `${picked.size} skill${picked.size > 1 ? "s" : ""}`
-              : ""}
-          </button>
-          <button type="button" onClick={onClose}>
-            Cancel
-          </button>
-        </div>
+    <>
+      <label className="field">
+        Search skills.sh
+        <input
+          value={query}
+          placeholder="pdf, testing, ..."
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void search();
+            }
+          }}
+        />
+      </label>
+      <div className="actions">
+        <button
+          type="button"
+          disabled={busy || !query.trim()}
+          onClick={() => void search()}
+        >
+          Search
+        </button>
       </div>
-    </div>
+      {hits && (
+        <ul className="srclist">
+          {hits.length === 0 && <li className="muted">No matches.</li>}
+          {hits.map((h) => (
+            <li key={h.id}>
+              <span>
+                {h.name}{" "}
+                <em className="muted">
+                  ({h.source}
+                  {h.installs !== null ? ` · ${h.installs} installs` : ""})
+                </em>
+              </span>
+              <button
+                type="button"
+                onClick={() => setSource(`${h.source}@${h.skill_id}`)}
+              >
+                Use
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <label className="field">
+        Git source
+        <input
+          value={source}
+          placeholder="owner/repo, https://…/tree/main/skills/pdf@pdf#v1.2"
+          onChange={(e) => setSource(e.target.value)}
+        />
+      </label>
+      <div className="actions">
+        <button
+          type="button"
+          disabled={busy || !source.trim()}
+          onClick={() => void preview()}
+        >
+          Preview
+        </button>
+      </div>
+      {previews.length > 0 && (
+        <ul className="srclist">
+          {previews.map((p) => (
+            <li key={p.folder}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={picked.has(p.folder)}
+                  onChange={() =>
+                    setPicked((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(p.folder)) next.delete(p.folder);
+                      else next.add(p.folder);
+                      return next;
+                    })
+                  }
+                />{" "}
+                <strong>{p.name}</strong>{" "}
+                <em className="muted">
+                  {p.folder} · {p.file_count} files ·{" "}
+                  {(p.total_size / 1024).toFixed(0)} KB
+                </em>
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
+      {error && <p className="error">{error}</p>}
+      <div className="actions">
+        <button
+          type="button"
+          disabled={busy || picked.size === 0}
+          onClick={() => void doImport()}
+        >
+          Import{" "}
+          {picked.size > 0
+            ? `${picked.size} skill${picked.size > 1 ? "s" : ""}`
+            : ""}
+        </button>
+      </div>
+    </>
   );
 }

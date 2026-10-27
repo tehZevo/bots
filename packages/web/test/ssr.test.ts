@@ -53,6 +53,7 @@ const {
   BotProjects,
   MachinesPanel,
   SkillsPanel,
+  AddSkillModal,
   IntegrationsPanel,
   BotGeneral,
   ChatSidebar,
@@ -296,7 +297,21 @@ test("modals render", () => {
   const modals: [unknown, Record<string, unknown>][] = [
     [AddBotModal, { usedNames: ["A"], onClose: noop, onCreated: noop }],
     [RoleFormModal, { role: null, onClose: noop, onSaved: noop }],
-    [SkillModal, { skill: null, onClose: noop, onSaved: noop }],
+    [AddSkillModal, { onClose: noop, onSaved: noop }],
+    [
+      SkillModal,
+      {
+        skill: {
+          id: "s1",
+          name: "Existing",
+          description: "",
+          instructions: "body",
+          created_at: 0,
+        },
+        onClose: noop,
+        onSaved: noop,
+      },
+    ],
     [McpServerModal, { server: null, onClose: noop, onSaved: noop }],
     [MachineModal, { machine: null, onClose: noop, onSaved: noop }],
     [ProviderFormModal, { provider: null, onClose: noop, onSaved: noop }],
