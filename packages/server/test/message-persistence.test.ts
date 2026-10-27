@@ -37,6 +37,17 @@ test("new runs persist only messages added after the loaded history", () => {
     created_at: Date.now(),
   });
 
+  db.insertRun({
+    id: "run-1",
+    bot_id: botId,
+    status: "running",
+    trigger: "manual",
+    started_at: Date.now(),
+    finished_at: null,
+    output: null,
+    error: null,
+  });
+
   const firstRun = createMessagePersistence(botId, "run-1");
   const firstUser = message("user", "first prompt");
   const firstAssistant = message("assistant", "first reply");
@@ -47,6 +58,17 @@ test("new runs persist only messages added after the loaded history", () => {
     .map((row) => JSON.parse(row.payload));
   const secondRun = createMessagePersistence(botId, "run-2");
   secondRun.markPersisted(loadedHistory);
+
+  db.insertRun({
+    id: "run-2",
+    bot_id: botId,
+    status: "running",
+    trigger: "manual",
+    started_at: Date.now(),
+    finished_at: null,
+    output: null,
+    error: null,
+  });
 
   const secondUser = message("user", "second prompt");
   const secondAssistant = message("assistant", "second reply");
@@ -88,6 +110,17 @@ test("replacement persistence preserves the current task and status", () => {
 
   db.setCurrentTask(botId, "working");
   db.setBotStatus(botId, "blocked", "issue");
+
+  db.insertRun({
+    id: "run-compact",
+    bot_id: botId,
+    status: "running",
+    trigger: "manual",
+    started_at: Date.now(),
+    finished_at: null,
+    output: null,
+    error: null,
+  });
 
   const persistence = createMessagePersistence(botId, "run-compact");
   persistence.replacePersisted([message("assistant", "summary")]);

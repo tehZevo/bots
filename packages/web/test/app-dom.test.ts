@@ -467,18 +467,13 @@ test("bot general actions update the bot", async () => {
     React.createElement(BotGeneral, {
       bot,
       onChanged: () => undefined,
+      onCancel: () => undefined,
     }),
   );
 
   await typeInto(byLabel("Bot name"), "Sable 2");
   await click(button("Save"));
   assert.ok(requests.includes("PATCH /api/bots/b1"));
-
-  const enabled = byLabel("Bot enabled") as HTMLInputElement;
-  await act(async () => {
-    enabled.click();
-  });
-  await flush();
 
   await click(button("Restart machine"));
   await click(button("Restart machine"));
@@ -488,11 +483,59 @@ test("bot general actions update the bot", async () => {
   await click(button("Delete bot"));
   await click(button("Save as template…"));
   assert.match(window.document.body.textContent ?? "", /New template/);
-  await click(button("Cancel"));
+  const templateCancel = [
+    ...window.document.querySelectorAll(".dialog.narrow button"),
+  ].find((item) => item.textContent?.trim() === "Cancel");
+  await click(templateCancel);
 
   await act(async () => {
     root.unmount();
   });
+});
+
+test("bot detail header carries enable/Stop and General pins its action row", async () => {
+  requests.length = 0;
+  const previousState = bot.run_state;
+  bot.run_state = "running";
+  const root = await mount(React.createElement(App));
+  try {
+    await click(byLabel("Sable (null)"));
+    await click(byLabel("Sable settings"));
+
+    const header = window.document.querySelector(".dialog.tabs > .viewhead");
+    assert.ok(header?.querySelector('[aria-label="Bot enabled"]'));
+    assert.ok(
+      window.document.querySelector(
+        ".detailhead-actions [aria-label='Stop while running']",
+      ),
+    );
+
+    const actions = window.document.querySelector(".botdetailactions");
+    assert.ok(actions);
+    assert.deepEqual(
+      [...actions.querySelectorAll("button")].map((item) =>
+        item.textContent?.trim(),
+      ),
+      [
+        "Save",
+        "Restart machine",
+        "Clear memory",
+        "Save as template…",
+        "Delete",
+        "Cancel",
+      ],
+    );
+
+    await click(byLabel("Stop while running"));
+    assert.ok(requests.includes("POST /api/bots/b1/interrupt"));
+    await click(button("Cancel"));
+    assert.ok(!window.document.querySelector(".dialog.tabs"));
+  } finally {
+    bot.run_state = previousState;
+    await act(async () => {
+      root.unmount();
+    });
+  }
 });
 
 test("bot general saves watchdog hours", async () => {

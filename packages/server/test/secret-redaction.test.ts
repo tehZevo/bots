@@ -118,6 +118,16 @@ test("only tool-result messages are rewritten, in place", () => {
 });
 
 test("persisted transcripts contain no plaintext secrets", () => {
+  dbm.insertRun({
+    id: "run-1",
+    bot_id: "red-bot",
+    status: "running",
+    trigger: "manual",
+    started_at: Date.now(),
+    finished_at: null,
+    output: null,
+    error: null,
+  });
   const p = createMessagePersistence("red-bot", "run-1");
   const msg = {
     role: "toolResult",
