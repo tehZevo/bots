@@ -1,12 +1,37 @@
+import { readdirSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
+
+const swManifest = (): Plugin => ({
+  name: "sw-manifest",
+  apply: "build",
+  closeBundle() {
+    const dir = resolve(import.meta.dirname, "dist/assets");
+    const urls = readdirUrls(dir);
+    writeFileSync(
+      resolve(import.meta.dirname, "dist/sw-manifest.json"),
+      JSON.stringify(urls),
+    );
+  },
+});
+
+function readdirUrls(dir: string): string[] {
+  try {
+    return ["/manifest.webmanifest", "/icon-192.png", "/icon-512.png"].concat(
+      readdirSync(dir).map((f) => `/assets/${f}`),
+    );
+  } catch {
+    return ["/manifest.webmanifest"];
+  }
+}
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), swManifest()],
   server: {
     port: 5173,
     proxy: {
-      "/api": "http://localhost:8787",
+      "/api": "http://localhost:8075",
     },
   },
 });

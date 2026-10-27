@@ -2,15 +2,14 @@
 
 Behaviors agreed on but not yet specced in detail. Each becomes its own spec directory when we open a PR for it.
 
-- **Triggers & hooks** — external wake-ups: `POST /api/hooks/:id` with shared secret (GitHub push etc.), event payloads injected into the run prompt; new trigger kinds beyond `schedule`/`manual`.
-- **Roles with capabilities** — roles grant access to MCP servers, skills, and plugins; a bot's capability set is resolved from its role instead of the fixed built-in tools.
-- **Container customization** — per-bot images, extra packages, and resource limits beyond the single default sandbox image.
-- **Chat messages** — send a message into a bot's context from the web UI; this surface replaces the removed "Run now" control.
-- **Chat channels** — talk to bots interactively (web chat first, then external chat apps).
+- **External chat services** — external chat platforms (Slack, Discord, Telegram, …) as trigger sources with reply delivery; web chat is already specced in `specs/chat/messages.md`.
 - **Approvals** — a human-approval layer for sensitive tool actions that the agent cannot bypass.
-- **Auth & multi-user** — protect API/UI; per-user bots and credentials (placeholder tokens so models never see secrets).
-- **Bot avatars** — pick or generate an avatar per bot, shown on cards and the detail modal.
-- **Current task** — bots publish what they are working on; the agent can update its current task/activity as it progresses, shown on cards and the detail modal.
-- **PWA** — installable web app with offline shell and push-ready structure.
-- **Teams & groups** — organize bots and users into teams with shared visibility and ownership.
-- **Health statuses** — extend bot status colors: yellow = issues detected, red = error/blocked.
+- **Team DM reply storms** — guard bot↔bot `send_message` loops (depth cap or similar); currently mitigated only because nothing auto-replies and injections merge into active loops.
+- **Per-user ownership** — per-user bots, teams and credentials on top of the shared multi-user accounts (`auth/multi-user.md`); placeholder tokens so models never see secrets.
+- **CLI** — first-class command-line client (`bots <verb>`) driving the documented REST API with the same API keys: bot CRUD, run now/interrupt, trigger management, logs tail, template instantiation; scriptable output (`--json`) for cron/CI use.
+- **External coding agents** — a bot can run a third-party headless CLI agent (opencode, Claude Code, …) inside its sandbox instead of the built-in pi loop: per-bot engine selection behind an adapter interface that spawns the CLI in print mode with JSON event streaming (`claude -p --output-format stream-json`, `opencode run --format json`) via container exec; role/system prompt bridged to the CLI's system-prompt flag, role MCP servers written as `.mcp.json`/config into `/workspace`; CLIs installed in the sandbox image with their provider keys injected as exec env.
+
+- **Installable skills — skills.sh** — discover and install skills from the skills.sh registry.
+- **Installable skills — git repo** — install a skill from a git repository URL.
+- **Isolated MCP execution** — run MCP servers in a container with the orchestrator's own filesystem, network and docker socket withheld, instead of as host processes.
+- **Electron app** — desktop wrapper around the web UI: pick a server, keep bots visible via tray icon and native notifications; reuses the REST API and browser push conventions of the PWA.

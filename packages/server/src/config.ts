@@ -9,7 +9,7 @@ export const dataDir = resolve(
 );
 
 export const config = {
-  port: Number(process.env.PORT ?? 8787),
+  port: Number(process.env.PORT ?? 8075),
   databasePath: process.env.DATABASE_PATH
     ? resolve(process.env.DATABASE_PATH)
     : resolve(dataDir, "bots.db"),
