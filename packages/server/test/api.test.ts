@@ -291,6 +291,63 @@ test("mcp servers CRUD and validation", async () => {
   assert.equal((await req("DELETE", "/api/mcp-servers/nope")).status, 404);
 });
 
+test("mcp env secret references are validated and export-safe", async () => {
+  const secret = await req("POST", "/api/secrets", {
+    name: "MCP ref token",
+    key: "MCP_REF_TOKEN",
+    value: "topsecretvalue123",
+  });
+  assert.equal(secret.status, 201);
+
+  assert.equal(
+    (
+      await req("POST", "/api/mcp-servers", {
+        name: "mcp-secret-ref",
+        command: "node b.js",
+        env: { TOKEN: { secret: "missing" } },
+      })
+    ).status,
+    400,
+  );
+
+  const created = await req("POST", "/api/mcp-servers", {
+    name: "mcp-secret-ref",
+    command: "node b.js",
+    env: { TOKEN: { secret: "MCP ref token" }, LITERAL: "plain" },
+  });
+  assert.equal(created.status, 201);
+  assert.deepEqual(created.json.env, {
+    TOKEN: { secret: "MCP ref token" },
+    LITERAL: "plain",
+  });
+  assert.ok(!JSON.stringify(created.json).includes("topsecretvalue123"));
+
+  await req("DELETE", `/api/secrets/${secret.json.id}`);
+  const stale = await req("PATCH", `/api/mcp-servers/${created.json.id}`, {
+    command: "node c.js",
+  });
+  assert.equal(stale.status, 400);
+  assert.match(String(stale.json.error), /unknown secret "MCP ref token"/);
+
+  const recreated = await req("POST", "/api/secrets", {
+    name: "MCP ref token",
+    key: "MCP_REF_TOKEN_2",
+    value: "topsecretvalue456",
+  });
+  assert.equal(recreated.status, 201);
+  const repointed = await req("PATCH", `/api/mcp-servers/${created.json.id}`, {
+    env: { TOKEN: { secret: "MCP ref token" }, LITERAL: "plain" },
+  });
+  assert.equal(repointed.status, 200);
+  assert.deepEqual(repointed.json.env, {
+    TOKEN: { secret: "MCP ref token" },
+    LITERAL: "plain",
+  });
+  assert.ok(!JSON.stringify(repointed.json).includes("topsecretvalue456"));
+
+  await req("DELETE", `/api/mcp-servers/${created.json.id}`);
+});
+
 test("machines CRUD with name clash and in-use guard", async () => {
   const r = await req("POST", "/api/machines", {
     name: "mac1",

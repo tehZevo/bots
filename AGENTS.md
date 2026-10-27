@@ -5,11 +5,12 @@
 - `packages/server` — Hono API, scheduler, agent loop (`src/agent.ts`), SQLite layer (`src/db.ts`), tools (`src/tools.ts`).
 - `packages/web` — React + Vite UI; talks to `/api` (dev proxy → `:8075`).
 - `specs/` — behavior specs: a directory per feature/behavior-set; each markdown file is named after the behavior it describes (e.g. `specs/tools/shell.md`) — never generic names like `spec.md`. Specs describe the **current target behavior** of the application, present tense, ~20 lines max; features not fully defined yet live in root `ROADMAP.md`, never in specs.
+- `specs/VISION.md` — high-level purpose and goals; owned by the human product owner, **agents never edit it** (suggest changes in prose instead).
 - `OPEN_QUESTIONS.md` — judgement calls baked into the implementation that need a deliberate decision, each with a recommended lean. Resolving one = update spec + code, then delete the entry.
 
 ## Specs workflow
 
-- Specs are the source of truth for behavior.
+- Specs are the source of truth for behavior. `specs/VISION.md` is not a spec: never edit or move it in an agent-authored PR.
 - Specs never reference PR/issue numbers — state behavior alone, present tense.
 - When a new behavior is agreed on, open a **spec-only PR** touching just `specs/**`.
 - Implementation happens in separate code PRs that reference the spec they implement.
@@ -20,6 +21,10 @@
 - `docs/` (the VitePress site) is user-facing documentation; keep it current as code lands.
 - Any PR that changes observable behavior, UI flows, API surface, or config must update the affected `docs/**` page in the same PR — new features get a section, changed ones get reworded, removed ones get deleted.
 - Before merging a feature PR, skim every `docs/**` page it touches for stale wording; `pnpm docs:build` fails on broken internal links.
+
+## Issues
+
+- The `ready-for-dev` label marks an issue groomed against its spec — implementation can start without further judgement calls; agents should pick labeled issues up first.
 
 ## Pull requests
 
@@ -47,4 +52,4 @@
 
 ## Testing without CI
 
-Smoke test manually: start server with `.env`, `POST /api/bots` (name only), `POST /api/triggers`-style nested create `/api/bots/:id/triggers` with message "Reply with exactly PONG" and `@every 1m` (or just `POST /api/bots/:id/run` with that message), then poll `GET /api/bots/:id/runs` for `status: ok`.
+Smoke test manually: start server with `.env`, then authenticate every request. Reuse a personal key from **Settings → API keys**, or temporarily set `ALLOW_REGISTRATION=true`, call `POST /api/auth/signup`, and mint one with `POST /api/api-keys` (`{"name":"smoke"}`). Export its returned value as `BOTS_API_KEY` (never commit it) and send `Authorization: Bearer $BOTS_API_KEY`. Then `POST /api/bots` (name only), use the nested create `/api/bots/:id/triggers` with message "Reply with exactly PONG" and `@every 1m` (or just `POST /api/bots/:id/run` with that message), then poll `GET /api/bots/:id/runs` for `status: ok`.

@@ -751,7 +751,12 @@ export function openApiDoc(): Json {
             name: str,
             command: str,
             args: { type: "array", items: str },
-            env: { type: "object" },
+            env: {
+              type: "object",
+              additionalProperties: {
+                anyOf: [str, { type: "object", properties: { secret: str } }],
+              },
+            },
             enabled: { type: "integer" },
           },
         },

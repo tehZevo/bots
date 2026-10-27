@@ -183,7 +183,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
-    run_id TEXT,
+    run_id TEXT REFERENCES runs(id) ON DELETE CASCADE,
     role TEXT NOT NULL,
     payload TEXT NOT NULL,
     created_at INTEGER NOT NULL
@@ -496,6 +496,58 @@ if (!botColumns.has("watchdog_run_started_at"))
     "ALTER TABLE bots ADD COLUMN watchdog_run_started_at INTEGER",
   ).run();
 
+db.exec(`
+  UPDATE messages SET run_id = NULL WHERE run_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM runs WHERE runs.id = messages.run_id
+  );
+  UPDATE bots SET machine_id = NULL WHERE machine_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM machines WHERE machines.id = bots.machine_id
+  );
+  UPDATE bots SET role_id = NULL WHERE role_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM roles WHERE roles.id = bots.role_id
+  );
+  UPDATE templates SET machine_id = NULL WHERE machine_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM machines WHERE machines.id = templates.machine_id
+  );
+  UPDATE templates SET role_id = NULL WHERE role_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM roles WHERE roles.id = templates.role_id
+  );
+  DELETE FROM run_usage WHERE NOT EXISTS (
+    SELECT 1 FROM runs WHERE runs.id = run_usage.run_id
+  );
+`);
+
+const messageForeignKeys = new Set(
+  (
+    db.prepare("PRAGMA foreign_key_list(messages)").all() as {
+      from: string;
+      table: string;
+    }[]
+  ).map((fk) => `${fk.from}->${fk.table}`),
+);
+if (!messageForeignKeys.has("run_id->runs")) {
+  const migrate = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE messages_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+        run_id TEXT REFERENCES runs(id) ON DELETE CASCADE,
+        role TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      INSERT INTO messages_new (id, bot_id, run_id, role, payload, created_at)
+      SELECT id, bot_id, run_id, role, payload, created_at FROM messages ORDER BY id;
+      DROP TABLE messages;
+      ALTER TABLE messages_new RENAME TO messages;
+      CREATE INDEX IF NOT EXISTS idx_messages_bot ON messages (bot_id, id);
+    `);
+  });
+  migrate();
+}
+
+db.pragma("foreign_keys = ON");
+
 export function listBots(): BotRow[] {
   return db.prepare("SELECT * FROM bots ORDER BY created_at").all() as BotRow[];
 }
@@ -603,6 +655,9 @@ export function setMachineBuild(
 
 export function deleteMachine(id: string): void {
   db.prepare("UPDATE bots SET machine_id = NULL WHERE machine_id = ?").run(id);
+  db.prepare("UPDATE templates SET machine_id = NULL WHERE machine_id = ?").run(
+    id,
+  );
   db.prepare("DELETE FROM machines WHERE id = ?").run(id);
 }
 
@@ -713,6 +768,7 @@ export function updateRole(id: string, patch: Partial<RoleRow>): void {
 
 export function deleteRole(id: string): void {
   db.prepare("UPDATE bots SET role_id = NULL WHERE role_id = ?").run(id);
+  db.prepare("UPDATE templates SET role_id = NULL WHERE role_id = ?").run(id);
   db.prepare("DELETE FROM roles WHERE id = ?").run(id);
 }
 
@@ -1551,6 +1607,16 @@ export function getRun(id: string): RunRow | undefined {
     | undefined;
 }
 
+// specs/runs/drill-down.md — deleting a run also removes its linked transcript rows.
+export function deleteRun(runId: string): void {
+  const remove = db.transaction(() => {
+    db.prepare("DELETE FROM messages WHERE run_id = ?").run(runId);
+    db.prepare("DELETE FROM run_usage WHERE run_id = ?").run(runId);
+    db.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+  });
+  remove();
+}
+
 // specs/runs/drill-down.md — chronological replay rows for one run.
 export function listMessagesForRun(runId: string): MessageRow[] {
   return db
@@ -1868,13 +1934,51 @@ export function botUsageTotals(botId: string): {
   return { lifetime: sumUsage(botId), last30d: sumUsage(botId, since) };
 }
 
+export interface McpSecretRef {
+  secret: string;
+}
+
+export type McpEnvValue = string | McpSecretRef;
+
+export function isMcpSecretRef(value: unknown): value is McpSecretRef {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    typeof (value as { secret?: unknown }).secret === "string"
+  );
+}
+
+function normalizeMcpEnv(raw: unknown): Record<string, McpEnvValue> {
+  const env: Record<string, McpEnvValue> = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return env;
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === "string") env[key] = value;
+    else if (isMcpSecretRef(value)) env[key] = { secret: value.secret };
+  }
+  return env;
+}
+
+// specs/mcp/env-secrets.md — references resolve at spawn time, never in stored config.
+export function resolveMcpEnv(
+  env: Record<string, McpEnvValue>,
+): Record<string, string> {
+  const resolved: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (isMcpSecretRef(value))
+      resolved[key] = findSecretByName(value.secret)?.value ?? "";
+    else resolved[key] = value;
+  }
+  return resolved;
+}
+
 export interface McpServerRow {
   id: string;
   name: string;
   transport: "stdio";
   command: string;
   args: string[];
-  env: Record<string, string>;
+  env: Record<string, McpEnvValue>;
   enabled: number;
   created_at: number;
 }
@@ -1917,7 +2021,7 @@ function hydrateMcp(
   return {
     ...row,
     args: JSON.parse(row.args) as string[],
-    env: JSON.parse(row.env) as Record<string, string>,
+    env: normalizeMcpEnv(JSON.parse(row.env)),
   };
 }
 
