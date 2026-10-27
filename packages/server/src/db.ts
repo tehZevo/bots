@@ -1990,14 +1990,16 @@ export function setBreakerLimit(limit: number): void {
 export function checkSpendBreaker(): boolean {
   const state = breakerState();
   if (!state.exceeded) return false;
+  const wasArmed = isBreakerArmed();
   setBreakerArmed(true);
   setPaused(true);
-  createNotification({
-    kind: "breaker",
-    title: "Spend circuit breaker tripped",
-    body: `Trailing 30-day usage of ${state.tokens_30d.toLocaleString()} tokens passed the cap of ${state.limit_tokens.toLocaleString()}. All bots are paused; raise or clear the cap to resume.`,
-    dedupeKey: `breaker:${Date.now()}`,
-  });
+  if (!wasArmed)
+    createNotification({
+      kind: "breaker",
+      title: "Spend circuit breaker tripped",
+      body: `Trailing 30-day usage of ${state.tokens_30d.toLocaleString()} tokens passed the cap of ${state.limit_tokens.toLocaleString()}. All bots are paused; raise or clear the cap to resume.`,
+      dedupeKey: `breaker:${Date.now()}`,
+    });
   return true;
 }
 

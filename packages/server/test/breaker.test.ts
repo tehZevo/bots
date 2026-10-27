@@ -118,9 +118,17 @@ test("crossing the cap at run end arms the global pause with a notification", as
     paused: true,
     reason: "breaker",
   });
-  const notifs = (await json(await authedRequest("/api/notifications")))
+  let notifs = (await json(await authedRequest("/api/notifications")))
     .items as { kind: string; title: string }[];
   assert.ok(notifs.some((n) => n.kind === "breaker"));
+  checkSpendBreaker();
+  notifs = (await json(await authedRequest("/api/notifications")))
+    .items as { kind: string; title: string }[];
+  assert.equal(
+    notifs.filter((n) => n.kind === "breaker").length,
+    1,
+    "one notification per trip",
+  );
 });
 
 test("resume is refused while over the cap and permitted after raising it", async () => {
