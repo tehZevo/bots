@@ -58,9 +58,18 @@ The approval page lives at `/device` (`verification_uri_complete` deep-links it 
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/pause` | `{ paused }` — the server-wide pause state |
-| POST | `/api/pause` | `{ paused: bool }` — hold or resume every bot; anything injected while held drains on resume |
+| GET | `/api/pause` | `{ paused, reason? }` — the server-wide pause state; `reason: "breaker"` while a tripped spend circuit breaker holds it |
+| POST | `/api/pause` | `{ paused: bool }` — hold or resume every bot; anything injected while held drains on resume; Resume answers 409 with usage vs cap while the breaker is over its cap |
 | POST | `/api/stop-all` | Panic button: interrupts every running loop and arms the pause — `{ stopped: <count> }`; idempotent (nothing running still pauses) |
+
+## Spend circuit breaker
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/breaker` | `{ limit_tokens, tokens_30d, exceeded }` — the server-wide trailing-30-day cap and usage (`limit_tokens: 0` = unlimited) |
+| PUT | `/api/breaker` | `{ limit_tokens: int ≥ 0 }` — set or clear (0) the cap; bringing it under usage re-arms resume — 400 on a non-integer or negative value |
+
+The breaker is checked when a run reaches its terminal status; crossing the cap arms the global pause and raises one notification. See [Bots](/bots) and [Settings](/getting-started).
 
 ## Triggers
 

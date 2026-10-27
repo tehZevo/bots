@@ -1934,6 +1934,75 @@ export function botUsageTotals(botId: string): {
   return { lifetime: sumUsage(botId), last30d: sumUsage(botId, since) };
 }
 
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+export function sumUsageAll(since?: number): UsageTotals {
+  const sql = `SELECT COALESCE(SUM(input), 0) AS input, COALESCE(SUM(output), 0) AS output,
+       COALESCE(SUM(cache_read), 0) AS cache_read,
+       COALESCE(SUM(cache_write), 0) AS cache_write
+   FROM run_usage${since ? " WHERE created_at >= ?" : ""}`;
+  const row = (
+    since ? db.prepare(sql).get(since) : db.prepare(sql).get()
+  ) as TokenUsage;
+  return {
+    ...row,
+    total: row.input + row.output + row.cache_read + row.cache_write,
+  };
+}
+
+// specs/usage/circuit-breaker.md — server-wide trailing-30-day token cap.
+export function getBreakerLimit(): number {
+  const raw = getSetting("breaker_limit_tokens");
+  const n = raw ? Number(raw) : 0;
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+export function isBreakerArmed(): boolean {
+  return getSetting("breaker_tripped") === "1";
+}
+
+export function setBreakerArmed(armed: boolean): void {
+  if (armed) setSetting("breaker_tripped", "1");
+  else deleteSetting("breaker_tripped");
+}
+
+export function breakerState(): {
+  limit_tokens: number;
+  tokens_30d: number;
+  exceeded: boolean;
+} {
+  const limit = getBreakerLimit();
+  const tokens30d = sumUsageAll(Date.now() - THIRTY_DAYS_MS).total;
+  return {
+    limit_tokens: limit,
+    tokens_30d: tokens30d,
+    exceeded: limit > 0 && tokens30d > limit,
+  };
+}
+
+export function setBreakerLimit(limit: number): void {
+  if (limit > 0) setSetting("breaker_limit_tokens", String(limit));
+  else deleteSetting("breaker_limit_tokens");
+  const state = breakerState();
+  if (!state.exceeded) setBreakerArmed(false);
+}
+
+export function checkSpendBreaker(): boolean {
+  const state = breakerState();
+  if (!state.exceeded) return false;
+  const wasArmed = isBreakerArmed();
+  setBreakerArmed(true);
+  setPaused(true);
+  if (!wasArmed)
+    createNotification({
+      kind: "breaker",
+      title: "Spend circuit breaker tripped",
+      body: `Trailing 30-day usage of ${state.tokens_30d.toLocaleString()} tokens passed the cap of ${state.limit_tokens.toLocaleString()}. All bots are paused; raise or clear the cap to resume.`,
+      dedupeKey: `breaker:${Date.now()}`,
+    });
+  return true;
+}
+
 export interface McpSecretRef {
   secret: string;
 }

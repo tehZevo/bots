@@ -25,6 +25,8 @@ import {
   botSecretIds,
   botsUsingMachine,
   botUsageTotals,
+  breakerState,
+  checkSpendBreaker,
   claimDeviceGrant,
   clearDeviceGrants,
   clearMessages,
@@ -87,6 +89,7 @@ import {
   insertTemplate,
   insertTrigger,
   insertUser,
+  isBreakerArmed,
   isMcpSecretRef,
   isPaused,
   latestErrorBotIds,
@@ -121,6 +124,8 @@ import {
   setBotProjects,
   setBotSecret,
   setBotTags,
+  setBreakerArmed,
+  setBreakerLimit,
   setMachineBuild,
   setPaused,
   setSetting,
@@ -790,7 +795,14 @@ export function createApp() {
     }),
   );
 
-  app.get("/api/pause", (c) => c.json({ paused: isPaused() }));
+  app.get("/api/pause", (c) => {
+    const armed = isBreakerArmed() && breakerState().exceeded;
+    return c.json(
+      armed
+        ? { paused: isPaused(), reason: "breaker" }
+        : { paused: isPaused() },
+    );
+  });
 
   app.post("/api/pause", async (c) => {
     const body = (await c.req.json().catch(() => null)) as {
@@ -798,9 +810,37 @@ export function createApp() {
     } | null;
     if (typeof body?.paused !== "boolean")
       return c.json({ error: "paused must be a boolean" }, 400);
+    if (!body.paused && isBreakerArmed()) {
+      const state = breakerState();
+      if (state.exceeded)
+        return c.json(
+          {
+            error: `Spend circuit breaker tripped: ${state.tokens_30d.toLocaleString()} tokens used of a ${state.limit_tokens.toLocaleString()} cap (trailing 30 days). Raise or clear the cap in Settings to resume.`,
+          },
+          409,
+        );
+      setBreakerArmed(false);
+    }
     setPaused(body.paused);
     if (!body.paused) resumePendingInjections();
     return c.json({ paused: body.paused });
+  });
+
+  // specs/usage/circuit-breaker.md — server-wide trailing-30-day token cap.
+  app.get("/api/breaker", (c) => c.json(breakerState()));
+
+  app.put("/api/breaker", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      limit_tokens?: unknown;
+    } | null;
+    const raw = body?.limit_tokens;
+    if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0)
+      return c.json(
+        { error: "limit_tokens must be a non-negative integer" },
+        400,
+      );
+    setBreakerLimit(raw);
+    return c.json(breakerState());
   });
 
   // specs/bots/emergency-stop.md — panic button: interrupt everything, then arm the pause.

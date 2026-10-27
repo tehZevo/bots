@@ -12,6 +12,7 @@ import { config } from "./config.ts";
 import {
   appendMessages,
   type BotRow,
+  checkSpendBreaker,
   createNotification,
   deletePendingInjections,
   finishRun,
@@ -558,6 +559,11 @@ async function startLoop(
       );
     } finally {
       recordUsage();
+      try {
+        checkSpendBreaker();
+      } catch (err) {
+        console.error("spend breaker check failed:", err);
+      }
       unsubscribeUsage();
       for (const session of mcp.sessions) session.close();
       liveLoops.delete(bot.id);
