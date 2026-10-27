@@ -145,7 +145,8 @@ test("abort during backoff stops waiting immediately", async () => {
   }
 });
 
-test("onWait reports each backoff before sleeping", async () => {
+test("onWait reports the completed backoff delay", async () => {
+  retryPolicy.baseMs = 50;
   const stub = stubFetch([
     new Response("gone", { status: 503 }),
     new Response("ok", { status: 200 }),
@@ -157,8 +158,36 @@ test("onWait reports each backoff before sleeping", async () => {
     });
     assert.equal(res.status, 200);
     assert.equal(waits.length, 1);
-    assert.ok(waits[0] >= 0);
+    assert.ok(
+      waits[0] >= retryPolicy.baseMs - 5,
+      "reported the wait that actually elapsed",
+    );
   } finally {
+    retryPolicy.baseMs = 15;
+    stub.restore();
+  }
+});
+
+test("onWait reports only elapsed time when abort interrupts a backoff", async () => {
+  retryPolicy.baseMs = 500;
+  const stub = stubFetch([new Response("gone", { status: 503 })]);
+  const controller = new AbortController();
+  try {
+    const waits: number[] = [];
+    const inflight = retryFetch(
+      "http://example.com/v1/chat",
+      { signal: controller.signal },
+      { onWait: (ms) => waits.push(ms) },
+    );
+    setTimeout(() => controller.abort(), 20);
+    await assert.rejects(inflight, (err: Error) => err.name === "AbortError");
+    assert.equal(waits.length, 1);
+    assert.ok(
+      waits[0] >= 0 && waits[0] < retryPolicy.baseMs,
+      "reported the partial wait instead of the planned backoff",
+    );
+  } finally {
+    retryPolicy.baseMs = 15;
     stub.restore();
   }
 });
