@@ -947,6 +947,7 @@ export function App() {
   >("general");
   const [detailOpen, setDetailOpen] = useState(false);
   const [avatarMenu, setAvatarMenu] = useState(false);
+  const [headerBusy, setHeaderBusy] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [botQuery, setBotQuery] = useState("");
   const [statusSel, setStatusSel] = useState<Bot["health"][]>([]);
@@ -1041,7 +1042,7 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (notificationPanelOpen) setNotificationPanelOpen(false);
-      else if (detailOpen) discardGuard(() => setDetailOpen(false));
+      else if (detailOpen) requestCloseDetails();
       else if (chatBot) setChatBot(null);
     };
     document.addEventListener("keydown", onKey);
@@ -1066,6 +1067,8 @@ export function App() {
 
   const openBotRow = bots.find((b) => b.id === openBot);
   const chatBotRow = bots.find((b) => b.id === chatBot);
+  const dismissDetails = () => setDetailOpen(false);
+  const requestCloseDetails = () => discardGuard(dismissDetails);
 
   async function markOneNotification(id: string): Promise<void> {
     try {
@@ -1482,7 +1485,7 @@ export function App() {
                 type="button"
                 className="mscrim"
                 aria-label="Close details"
-                onClick={() => discardGuard(() => setDetailOpen(false))}
+                onClick={requestCloseDetails}
               />
               <div
                 className="dialog tabs"
@@ -1543,14 +1546,60 @@ export function App() {
                       )}
                     </p>
                   )}
-                  <button
-                    type="button"
-                    className="close"
-                    aria-label="Close"
-                    onClick={() => discardGuard(() => setDetailOpen(false))}
-                  >
-                    ×
-                  </button>
+                  <div className="detailhead-actions">
+                    <label className="switch">
+                      <input
+                        type="checkbox"
+                        aria-label="Bot enabled"
+                        checked={openBotRow.enabled !== 0}
+                        disabled={headerBusy}
+                        onChange={() => {
+                          setHeaderBusy(true);
+                          void api(`/api/bots/${openBotRow.id}`, {
+                            method: "PATCH",
+                            headers: { "content-type": "application/json" },
+                            body: JSON.stringify({
+                              enabled: openBotRow.enabled === 0,
+                            }),
+                          })
+                            .then(load)
+                            .catch((e) => alert(e.message))
+                            .finally(() => setHeaderBusy(false));
+                        }}
+                      />
+                      <span className="knob" />
+                      <span className="state">
+                        {openBotRow.enabled ? "Enabled" : "Disabled"}
+                      </span>
+                    </label>
+                    {openBotRow.run_state === "running" && (
+                      <button
+                        type="button"
+                        className="danger"
+                        aria-label="Stop while running"
+                        disabled={headerBusy}
+                        onClick={() => {
+                          setHeaderBusy(true);
+                          void api(`/api/bots/${openBotRow.id}/interrupt`, {
+                            method: "POST",
+                          })
+                            .then(load)
+                            .catch((e) => alert(e.message))
+                            .finally(() => setHeaderBusy(false));
+                        }}
+                      >
+                        Stop
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="close"
+                      aria-label="Close"
+                      onClick={requestCloseDetails}
+                    >
+                      ×
+                    </button>
+                  </div>
                 </div>
                 <nav className="mtabs">
                   {(["general", "triggers", "logs", "stats"] as const).map(
@@ -1572,6 +1621,7 @@ export function App() {
                       key={openBotRow.id}
                       bot={openBotRow}
                       onChanged={load}
+                      onCancel={requestCloseDetails}
                     />
                   )}
                   {modalTab === "triggers" && (
@@ -4129,9 +4179,11 @@ function parseWatchdogHours(value: string): number | null | "invalid" {
 export function BotGeneral({
   bot,
   onChanged,
+  onCancel = () => undefined,
 }: {
   bot: Bot | undefined;
   onChanged: () => void;
+  onCancel?: () => void;
 }) {
   const [roles, setRoles] = useState<Role[]>([]);
   const [name, setName] = useState(bot?.name ?? "");
@@ -4149,7 +4201,6 @@ export function BotGeneral({
   );
   const [defaultModel, setDefaultModel] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [toggling, setToggling] = useState(false);
   const [pending, setPending] = useState<"delete" | "clear" | "restart" | null>(
     null,
   );
@@ -4255,30 +4306,6 @@ export function BotGeneral({
             off.
           </p>
         )}
-        <div className="actions">
-          <button
-            type="button"
-            disabled={busy || !dirty || !name.trim()}
-            onClick={() => {
-              setBusy(true);
-              patchBot({
-                name: name.trim(),
-                instructions,
-                model_id: modelId || null,
-                role_id: roleId || null,
-                machine_id: machineId || null,
-                watchdog_hours:
-                  parsedWatchdog === "invalid" ? watchdogHours : parsedWatchdog,
-              })
-                .then(onChanged)
-                .catch((e) => alert(e.message))
-                .finally(() => setBusy(false));
-            }}
-          >
-            Save
-          </button>
-          <UnsavedNote dirty={dirty} />
-        </div>
       </div>
       <p className="statusline">
         Status:{" "}
@@ -4293,53 +4320,6 @@ export function BotGeneral({
       <BotTags botId={bot.id} />
       <BotSecrets botId={bot.id} />
       <BotTeams botId={bot.id} />
-      <div className="actions">
-        <label className="switch">
-          <input
-            type="checkbox"
-            aria-label="Bot enabled"
-            checked={bot.enabled !== 0}
-            disabled={toggling}
-            onChange={() => {
-              setToggling(true);
-              patchBot({ enabled: bot.enabled === 0 })
-                .then(onChanged)
-                .catch((e) => alert(e.message))
-                .finally(() => setToggling(false));
-            }}
-          />
-          <span className="knob" />
-          <span className="state">{bot.enabled ? "Enabled" : "Disabled"}</span>
-        </label>
-        {bot.run_state === "running" && (
-          <button
-            type="button"
-            onClick={() =>
-              api(`/api/bots/${bot.id}/interrupt`, { method: "POST" })
-                .then(onChanged)
-                .catch((e) => alert(e.message))
-            }
-          >
-            Stop
-          </button>
-        )}
-        <button type="button" onClick={() => setPending("restart")}>
-          Restart machine
-        </button>
-        <button type="button" onClick={() => setPending("clear")}>
-          Clear memory
-        </button>
-        <button type="button" onClick={() => void openTemplateDraft()}>
-          Save as template…
-        </button>
-        <button
-          type="button"
-          className="danger"
-          onClick={() => setPending("delete")}
-        >
-          Delete
-        </button>
-      </div>
       <p className="rolepick">
         Role{" "}
         <select
@@ -4414,6 +4394,49 @@ export function BotGeneral({
           Preview
         </button>
       </p>
+      <div className="botdetailactions">
+        <UnsavedNote dirty={dirty} />
+        <button
+          type="button"
+          disabled={busy || !dirty || !name.trim()}
+          onClick={() => {
+            setBusy(true);
+            patchBot({
+              name: name.trim(),
+              instructions,
+              model_id: modelId || null,
+              role_id: roleId || null,
+              machine_id: machineId || null,
+              watchdog_hours:
+                parsedWatchdog === "invalid" ? watchdogHours : parsedWatchdog,
+            })
+              .then(onChanged)
+              .catch((e) => alert(e.message))
+              .finally(() => setBusy(false));
+          }}
+        >
+          Save
+        </button>
+        <button type="button" onClick={() => setPending("restart")}>
+          Restart machine
+        </button>
+        <button type="button" onClick={() => setPending("clear")}>
+          Clear memory
+        </button>
+        <button type="button" onClick={() => void openTemplateDraft()}>
+          Save as template…
+        </button>
+        <button
+          type="button"
+          className="danger"
+          onClick={() => setPending("delete")}
+        >
+          Delete
+        </button>
+        <button type="button" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
       {pending === "delete" && (
         <ConfirmDialog
           text={`Delete bot ${bot.name}? This removes the bot, its triggers and run history.`}
