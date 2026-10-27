@@ -24,6 +24,7 @@ interface VapidKeys {
 
 let cached: VapidKeys | null = null;
 let signingKey: CryptoKey | null = null;
+let loading: Promise<VapidKeys> | null = null;
 
 const keyFile = () => join(dataDir, "vapid.json");
 
@@ -31,19 +32,43 @@ export async function vapidPublicKey(): Promise<string> {
   return (await keys()).publicKey;
 }
 
-async function keys(): Promise<VapidKeys> {
-  if (cached) return cached;
-  let loaded: VapidKeys | null = null;
+async function importPrivateKey(key: JsonWebKey): Promise<CryptoKey> {
+  return crypto.subtle.importKey(
+    "jwk",
+    key,
+    { name: "ECDSA", namedCurve: "P-256" },
+    false,
+    ["sign"],
+  );
+}
+
+async function isValidPair(keysValue: VapidKeys): Promise<boolean> {
   try {
-    const parsed = JSON.parse(await readFile(keyFile(), "utf8")) as VapidKeys;
-    if (parsed.publicKey && parsed.privateKey) loaded = parsed;
+    const data = new TextEncoder().encode("bots-vapid-self-test");
+    const sig = await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      await importPrivateKey(keysValue.privateKey),
+      data,
+    );
+    const publicKey = await crypto.subtle.importKey(
+      "raw",
+      Buffer.from(keysValue.publicKey, "base64url"),
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["verify"],
+    );
+    return await crypto.subtle.verify(
+      { name: "ECDSA", hash: "SHA-256" },
+      publicKey,
+      sig,
+      data,
+    );
   } catch {
-    // fall through to generation below
+    return false;
   }
-  if (loaded) {
-    cached = loaded;
-    return cached;
-  }
+}
+
+async function generateKeys(): Promise<VapidKeys> {
   const pair = await crypto.subtle.generateKey(
     { name: "ECDSA", namedCurve: "P-256" },
     true,
@@ -56,6 +81,7 @@ async function keys(): Promise<VapidKeys> {
       pair.privateKey,
     )) as JsonWebKey,
   };
+  signingKey = null;
   try {
     await mkdir(dataDir, { recursive: true });
     await writeFile(keyFile(), JSON.stringify(cached));
@@ -68,16 +94,40 @@ async function keys(): Promise<VapidKeys> {
   return cached;
 }
 
+async function keys(): Promise<VapidKeys> {
+  if (cached) return cached;
+  if (loading) return loading;
+  loading = (async () => {
+    let loaded: VapidKeys | null = null;
+    try {
+      const parsed = JSON.parse(await readFile(keyFile(), "utf8")) as VapidKeys;
+      if (parsed.publicKey && parsed.privateKey) loaded = parsed;
+    } catch {
+      // fall through to generation below
+    }
+    if (loaded) {
+      if (await isValidPair(loaded)) {
+        cached = loaded;
+        signingKey = null;
+        return cached;
+      }
+      console.error(
+        "push: stored VAPID key pair failed self-test — regenerating",
+      );
+    }
+    return await generateKeys();
+  })();
+  try {
+    return await loading;
+  } finally {
+    loading = null;
+  }
+}
+
 async function getSigningKey(): Promise<CryptoKey> {
   if (signingKey) return signingKey;
   const k = await keys();
-  signingKey = await crypto.subtle.importKey(
-    "jwk",
-    k.privateKey,
-    { name: "ECDSA", namedCurve: "P-256" },
-    false,
-    ["sign"],
-  );
+  signingKey = await importPrivateKey(k.privateKey);
   return signingKey;
 }
 

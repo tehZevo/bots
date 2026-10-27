@@ -12,4 +12,4 @@ Settings → **General** → **Notification sounds** (off by default) plays a sh
 
 ## Browser push
 
-Settings → **General** → **Browser push** subscribes this device (works in supported browsers, including when the site is installed as a [PWA](/pwa)). Each new notification then delivers one silent system notification even when no tab is open; clicking it focuses the app. Browsers without push support simply don't show the controls — everything else keeps working.
+On first sign-in, the app asks once for browser notification permission and subscribes this device automatically (works in supported browsers, including when the site is installed as a [PWA](/pwa)). Dismissing the prompt does not nag on later visits; change the browser's site permission manually to opt back in. Settings → **General** → **Browser push** shows current status and offers **Unsubscribe**, but no Subscribe button. Each new notification then delivers one silent system notification even when no tab is open; clicking it focuses the app. Browsers without push support simply don't show the controls — everything else keeps working.
