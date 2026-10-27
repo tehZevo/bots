@@ -339,6 +339,49 @@ export function openApiDoc(): Json {
       params: ["id"],
     },
   );
+  add(
+    "/api/bots/{id}/workspace",
+    "get",
+    "List one level of the bot's workspace directory (jailed to data/workspaces/<bot-id>)",
+    {
+      params: ["id"],
+      res: {
+        type: "object",
+        properties: {
+          path: str,
+          entries: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                name: str,
+                type: { enum: ["dir", "file"] },
+                size_bytes: { type: "number" },
+                modified_at: { type: "number" },
+              },
+            },
+          },
+        },
+      },
+    },
+  );
+  paths["/api/bots/{id}/workspace/file"] = {
+    get: {
+      summary:
+        "Download a workspace file as bytes; traversal or symlink escapes answer 400, unknown paths 404",
+      parameters: [{ name: "path", in: "query", required: false, schema: str }],
+      responses: {
+        "200": {
+          description: "ok",
+          content: {
+            "application/octet-stream": {
+              schema: { type: "string", format: "binary" },
+            },
+          },
+        },
+      },
+    },
+  };
   add("/api/bots/{id}/messages", "get", "Conversation memory", {
     params: ["id"],
   });

@@ -180,6 +180,11 @@ import {
   searchSkillsSh,
   storeBundle,
 } from "./skillimport.ts";
+import {
+  listWorkspace,
+  readWorkspaceFile,
+  WorkspaceError,
+} from "./workspace.ts";
 
 const DEFAULT_MANUAL_MESSAGE = "Continue with your current work.";
 
@@ -2069,6 +2074,40 @@ export function createApp() {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
     return c.json({ ...botUsageTotals(bot.id), budget: bot.token_budget });
+  });
+
+  // specs/machines/workspace-browser.md — read-only host view of the workspace.
+  app.get("/api/bots/:id/workspace", (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    const path = c.req.query("path") ?? "";
+    try {
+      return c.json(listWorkspace(bot.id, path));
+    } catch (err) {
+      if (err instanceof WorkspaceError)
+        return c.json({ error: err.message }, err.status as 400);
+      throw err;
+    }
+  });
+
+  app.get("/api/bots/:id/workspace/file", (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    const path = c.req.query("path") ?? "";
+    try {
+      const bytes = readWorkspaceFile(bot.id, path);
+      const name = path.split("/").filter(Boolean).pop() ?? "file";
+      return new Response(new Uint8Array(bytes), {
+        headers: {
+          "content-type": "application/octet-stream",
+          "content-disposition": `attachment; filename="${encodeURIComponent(name)}"`,
+        },
+      });
+    } catch (err) {
+      if (err instanceof WorkspaceError)
+        return c.json({ error: err.message }, err.status as 400);
+      throw err;
+    }
   });
 
   app.get("/api/bots/:id/context-usage", (c) => {
