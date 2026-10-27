@@ -12,4 +12,4 @@ Settings → **Notification sounds** (off by default) plays a short chime when a
 
 ## Browser push
 
-Settings → **Browser push** subscribes this device (installable via the PWA, works in supported browsers). Each new notification then delivers one silent system notification even when no tab is open; clicking it focuses the app. Browsers without push support simply don't show the controls — everything else keeps working.
+Settings → **Browser push** subscribes this device (works in supported browsers, including when the site is installed as a [PWA](/pwa)). Each new notification then delivers one silent system notification even when no tab is open; clicking it focuses the app. Browsers without push support simply don't show the controls — everything else keeps working.
