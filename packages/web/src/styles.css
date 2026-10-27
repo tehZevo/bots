@@ -2694,3 +2694,40 @@ main.scr-active,
   overflow: hidden;
   cursor: pointer;
 }
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.crumbs button {
+  border: none;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.filerow {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.filerow > button {
+  border: none;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fileview {
+  margin-top: 0.5rem;
+}
