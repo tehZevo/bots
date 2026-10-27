@@ -263,6 +263,8 @@ test("panels and tab bodies render with stubbed fetch", () => {
   });
   const generalHtml = renderToStaticMarkup(withBot);
   assert.ok(generalHtml.includes("Save"));
+  assert.match(generalHtml, /class="botdetailactions"/);
+  assert.ok(generalHtml.includes("Cancel"));
   assert.match(generalHtml, /disabled=""/);
   assert.ok(!generalHtml.includes("Unsaved changes"));
   for (const C of [Chat, Triggers])
