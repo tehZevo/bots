@@ -38,6 +38,15 @@ A terminal client requests a short code, the user approves it in the browser, an
 
 The approval page lives at `/device` (`verification_uri_complete` deep-links it with the code); it requires a login session, shows the client name and expiry before approval, and never displays the issued key.
 
+## Configuration backup
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/backup/config` | Export configuration only — `?include_values=true` embeds secret values; default export omits them |
+| POST | `/api/backup/config` | Import a raw snapshot or `{ config, secret_values }`; validates the whole file before changing anything and returns created/updated counts per kind |
+
+Both routes require a browser session and reject API-key bearer authentication with `403`. Snapshots cover bots plus role/tag/project/team references, roles, skills with bundles, MCP servers, projects, tags, teams, templates, secret names and keys, and API key hashes. Runs, chat history, usage totals, notifications, users, provider values, pause state, workspaces and avatars are excluded. Restores upsert by name and never delete; missing values for new secrets must be supplied before the import completes. A restore that creates an API key without a stored hash returns its raw value once in `api_key_values`.
+
 ## Bots
 
 | Method | Path | Purpose |

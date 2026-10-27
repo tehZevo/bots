@@ -19,6 +19,7 @@ import {
   resumePendingInjections,
   stopAllLoops,
 } from "./agent.ts";
+import { exportConfigBackup, importConfigBackup } from "./backup.ts";
 import { repoRoot } from "./config.ts";
 import {
   approveDeviceGrant,
@@ -400,6 +401,13 @@ export interface AuthUser {
   id: string;
   email: string;
   keyId?: string;
+}
+
+function denyApiKey(c: Context): Response | undefined {
+  const user = c.get("user") as AuthUser;
+  return user.keyId
+    ? c.json({ error: "session authentication required" }, 403)
+    : undefined;
 }
 
 // --- device authorization (RFC 8628) ----------------------------------------
@@ -1587,6 +1595,39 @@ export function createApp() {
     if (!found) return c.json({ error: "not found" }, 404);
     deleteSecret(found.id);
     return c.json({ ok: true });
+  });
+
+  app.get("/api/backup/config", (c) => {
+    const denied = denyApiKey(c);
+    if (denied) return denied;
+    try {
+      const includeValues = ["true", "1"].includes(
+        c.req.query("include_values")?.toLowerCase() ?? "",
+      );
+      return c.json(exportConfigBackup(includeValues));
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        500,
+      );
+    }
+  });
+
+  app.post("/api/backup/config", async (c) => {
+    const denied = denyApiKey(c);
+    if (denied) return denied;
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body !== "object" || Array.isArray(body))
+      return c.json({ error: "invalid backup body" }, 400);
+    try {
+      const result = importConfigBackup(body, (c.get("user") as AuthUser).id);
+      return "error" in result ? c.json(result, 400) : c.json(result);
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        500,
+      );
+    }
   });
 
   app.get("/api/roles", (c) => c.json(listRoles()));

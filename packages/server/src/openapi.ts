@@ -234,9 +234,14 @@ export function openApiDoc(): Json {
       properties: { paused: { type: "boolean" } },
     },
   });
-  add("/api/stop-all", "post", "Emergency stop: interrupt all running bots and arm the global pause", {
-    res: { type: "object", properties: { stopped: { type: "number" } } },
-  });
+  add(
+    "/api/stop-all",
+    "post",
+    "Emergency stop: interrupt all running bots and arm the global pause",
+    {
+      res: { type: "object", properties: { stopped: { type: "number" } } },
+    },
+  );
   add("/api/bots", "get", "List bots with health and run state", {
     res: { type: "array", items: ref("Bot") },
   });
@@ -272,9 +277,14 @@ export function openApiDoc(): Json {
     },
   );
   add("/api/bots/{id}/runs", "get", "Run history", { params: ["id"] });
-  add("/api/bots/{id}/runs/{runId}/transcript", "get", "Ordered replay steps for one run", {
-    params: ["id", "runId"],
-  });
+  add(
+    "/api/bots/{id}/runs/{runId}/transcript",
+    "get",
+    "Ordered replay steps for one run",
+    {
+      params: ["id", "runId"],
+    },
+  );
   add(
     "/api/bots/{id}/usage",
     "get",
@@ -619,6 +629,68 @@ export function openApiDoc(): Json {
       params: ["secretId"],
     },
   );
+
+  paths["/api/backup/config"] = {
+    get: {
+      summary: "Export a configuration-only JSON backup",
+      description:
+        "Exports bots, roles, skills with bundles, MCP servers, projects, tags, teams, templates, secrets and API-key hashes. Secret values are omitted unless include_values=true.",
+      security: [{ sessionCookie: [] }],
+      parameters: [
+        {
+          name: "include_values",
+          in: "query",
+          schema: { type: "boolean" },
+        },
+      ],
+      responses: {
+        "200": {
+          description: "Configuration snapshot",
+          content: {
+            "application/json": { schema: { type: "object" } },
+          },
+        },
+      },
+    },
+    post: {
+      summary: "Restore a configuration-only JSON backup",
+      description:
+        "Upserts by name per kind, resolves references by name and never deletes existing records. Whole-file validation happens before any change.",
+      security: [{ sessionCookie: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: {
+              oneOf: [
+                { type: "object", description: "Exported snapshot" },
+                {
+                  type: "object",
+                  properties: {
+                    config: { type: "object" },
+                    secret_values: {
+                      type: "object",
+                      additionalProperties: str,
+                    },
+                  },
+                  required: ["config"],
+                },
+              ],
+            },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "Created and updated counts per kind",
+          content: {
+            "application/json": { schema: { type: "object" } },
+          },
+        },
+        400: error4xx("invalid backup or missing required secret values"),
+      },
+    },
+  };
 
   return {
     openapi: "3.1.0",

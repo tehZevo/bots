@@ -18,4 +18,6 @@ features:
     details: Reusable instructions plus granted skills and MCP tools, assigned per role.
   - title: Fires itself
     details: Cron and @every schedules, webhook endpoints with bearer secrets, chat injection.
+  - title: Portable configuration
+    details: Export and restore bots, roles, skills, projects and settings without run history or workspaces.
 ---
