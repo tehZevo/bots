@@ -1,5 +1,11 @@
 // specs/secrets/redaction.md — exact-value redaction of tool-result text at commit time.
-import { listMcpServers, listProviders, redactionSecretsForBot } from "./db.ts";
+import {
+  findSecretByName,
+  isMcpSecretRef,
+  listMcpServers,
+  listProviders,
+  redactionSecretsForBot,
+} from "./db.ts";
 
 const MIN_SECRET_LEN = 8;
 
@@ -18,8 +24,18 @@ export function redactionTargets(
         value: p.api_key,
       });
   for (const server of listMcpServers())
-    for (const [key, value] of Object.entries(server.env ?? {}))
-      if (value) targets.set(`${key}\u0000${value}`, { name: key, value });
+    for (const [key, value] of Object.entries(server.env ?? {})) {
+      if (isMcpSecretRef(value)) {
+        const secret = findSecretByName(value.secret);
+        if (secret?.value)
+          targets.set(`SECRET\u0000${secret.id}\u0000${secret.value}`, {
+            name: secret.name,
+            value: secret.value,
+          });
+      } else if (value) {
+        targets.set(`${key}\u0000${value}`, { name: key, value });
+      }
+    }
   return [...targets.values()].sort((a, b) => b.value.length - a.value.length);
 }
 

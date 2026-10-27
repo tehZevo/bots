@@ -1359,6 +1359,16 @@ code.secret {
   margin: 0.3rem 0 0;
   font-size: 13px;
 }
+.envline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.envchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
 .ok {
   color: var(--ok);
 }
@@ -1601,12 +1611,58 @@ button.shuffle {
 .envrow input:first-child {
   flex: 0 0 38%;
 }
-.envrow input:nth-child(2) {
+.envvalue {
+  display: flex;
+  gap: 6px;
+  align-items: center;
   flex: 1;
   min-width: 60px;
+}
+.envvalue input,
+.envvalue select {
+  flex: 1;
+  min-width: 0;
   width: 100%;
   box-sizing: border-box;
 }
+.envmode > button {
+  padding-inline: 8px;
+  font-size: 0.75rem;
+}
+
+@media (max-width: 720px) {
+  .envrows {
+    min-height: auto;
+    max-height: min(42vh, 320px);
+    overflow-y: auto;
+  }
+  .envrow {
+    flex-wrap: wrap;
+  }
+  .envrow input:first-child {
+    flex: 1 1 100%;
+  }
+  .envvalue {
+    order: 2;
+    width: 100%;
+    min-width: 0;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .envmode {
+    display: flex;
+    width: 100%;
+  }
+  .envmode > button {
+    flex: 1;
+  }
+  .envrow > button.danger.ghost {
+    order: 3;
+    align-self: flex-end;
+    margin-left: auto;
+  }
+}
+
 button.linklike {
   background: none;
   border: none;
