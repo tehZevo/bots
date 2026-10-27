@@ -446,6 +446,28 @@ test("templates CRUD with validation", async () => {
   assert.equal((await req("DELETE", `/api/templates/${id}`)).status, 404);
 });
 
+test("bot watchdog hours validate and persist", async () => {
+  const created = await req("POST", "/api/bots", {
+    name: "watchdog-settings",
+    watchdog_hours: 24,
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.json.watchdog_hours, 24);
+
+  for (const value of [721, 0, 5.5, "5"]) {
+    const res = await req("PATCH", `/api/bots/${created.json.id}`, {
+      watchdog_hours: value,
+    });
+    assert.equal(res.status, 400);
+  }
+
+  const cleared = await req("PATCH", `/api/bots/${created.json.id}`, {
+    watchdog_hours: null,
+  });
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.json.watchdog_hours, null);
+});
+
 test("control mcp over json-rpc with api key auth", async () => {
   const created = await req("POST", "/api/api-keys", { name: "mcp" });
   const value = created.json.value as string;

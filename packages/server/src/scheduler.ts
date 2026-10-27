@@ -2,6 +2,7 @@ import { CronExpressionParser } from "cron-parser";
 import { injectMessage } from "./agent.ts";
 import {
   dueTriggers,
+  evaluateWatchdogs,
   getBot,
   isPaused,
   latestErrorBotIds,
@@ -77,6 +78,7 @@ export function runTick(): void {
       inject(bot, trigger.message, "schedule");
     }
   }
+  evaluateWatchdogs(Date.now());
 }
 
 export function startScheduler(tickMs = 15_000): void {

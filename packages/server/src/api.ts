@@ -195,6 +195,7 @@ interface BotInput {
   sound?: unknown;
   enabled?: unknown;
   token_budget?: unknown;
+  watchdog_hours?: unknown;
 }
 
 const AVATAR_OPTIONS_COUNT = 12;
@@ -250,6 +251,19 @@ function toBotPayload(input: BotInput) {
       return { error: "token_budget must be a positive integer or null" };
     token_budget = n;
   }
+  let watchdog_hours: number | null = null;
+  if (input.watchdog_hours !== undefined && input.watchdog_hours !== null) {
+    if (
+      typeof input.watchdog_hours !== "number" ||
+      !Number.isInteger(input.watchdog_hours) ||
+      input.watchdog_hours < 1 ||
+      input.watchdog_hours > 720
+    )
+      return {
+        error: "watchdog_hours must be a whole number from 1 to 720 or null",
+      };
+    watchdog_hours = input.watchdog_hours;
+  }
   let sound: string | null = null;
   if (typeof input.sound === "string" && input.sound.trim()) {
     if (!SOUND_CHOICES.has(input.sound.trim()))
@@ -276,6 +290,7 @@ function toBotPayload(input: BotInput) {
     avatar_shape: shape,
     avatar_color: color,
     token_budget,
+    watchdog_hours,
   };
 }
 
@@ -1453,6 +1468,8 @@ export function createApp() {
     if ("error" in payload) return c.json({ error: payload.error }, 400);
     const bot = {
       id: randomUUID(),
+      watchdog_tripped: 0,
+      watchdog_run_started_at: null,
       current_task: null,
       current_task_updated_at: null,
       status: null,

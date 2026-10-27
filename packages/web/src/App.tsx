@@ -41,6 +41,7 @@ interface Bot {
   status_level: "ok" | "issue" | "blocked" | null;
   current_task: string | null;
   current_task_updated_at: number | null;
+  watchdog_hours?: number | null;
 }
 
 interface GrantOption {
@@ -4112,6 +4113,15 @@ export function BotStats({
   );
 }
 
+function parseWatchdogHours(value: string): number | null | "invalid" {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 720
+    ? parsed
+    : "invalid";
+}
+
 export function BotGeneral({
   bot,
   onChanged,
@@ -4124,6 +4134,9 @@ export function BotGeneral({
   const [instructions, setInstructions] = useState(bot?.instructions ?? "");
   const [roleId, setRoleId] = useState(bot?.role_id ?? "");
   const [machineId, setMachineId] = useState(bot?.machine_id ?? "");
+  const [watchdogHours, setWatchdogHours] = useState(
+    bot?.watchdog_hours == null ? "" : String(bot.watchdog_hours),
+  );
   const [modelId, setModelId] = useState(bot?.model_id ?? "");
   const [machines, setMachines] = useState<Machine[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -4173,6 +4186,8 @@ export function BotGeneral({
       .catch(() => undefined);
   }, []);
 
+  const parsedWatchdog = parseWatchdogHours(watchdogHours);
+
   const modelOptions = Array.from(
     new Set([
       ...(bot?.model_id ? [bot.model_id] : []),
@@ -4189,7 +4204,9 @@ export function BotGeneral({
       instructions !== bot.instructions ||
       roleId !== (bot.role_id ?? "") ||
       machineId !== (bot.machine_id ?? "") ||
-      modelId !== (bot.model_id ?? ""));
+      modelId !== (bot.model_id ?? "") ||
+      parsedWatchdog === "invalid" ||
+      parsedWatchdog !== (bot.watchdog_hours ?? null));
   useDirtyGuard(bot ? `the bot ${bot.name}` : "this bot", dirty);
 
   if (!bot) return null;
@@ -4215,6 +4232,25 @@ export function BotGeneral({
           value={instructions}
           onChange={(e) => setInstructions(e.target.value)}
         />
+        <p className="rolepick">
+          Watchdog hours{" "}
+          <input
+            type="number"
+            aria-label="Watchdog hours"
+            placeholder="off"
+            min={1}
+            max={720}
+            step={1}
+            value={watchdogHours}
+            onChange={(e) => setWatchdogHours(e.target.value)}
+          />
+        </p>
+        {parsedWatchdog === "invalid" && (
+          <p className="muted">
+            Watchdog must be a whole number from 1 to 720 hours, or empty for
+            off.
+          </p>
+        )}
         <div className="actions">
           <button
             type="button"
@@ -4227,6 +4263,8 @@ export function BotGeneral({
                 model_id: modelId || null,
                 role_id: roleId || null,
                 machine_id: machineId || null,
+                watchdog_hours:
+                  parsedWatchdog === "invalid" ? watchdogHours : parsedWatchdog,
               })
                 .then(onChanged)
                 .catch((e) => alert(e.message))

@@ -668,6 +668,7 @@ export function openApiDoc(): Json {
             sound: strOrNone,
             enabled: { type: "integer" },
             token_budget: { type: ["integer", "null"] },
+            watchdog_hours: { type: ["integer", "null"] },
             created_at: { type: "integer" },
             health: { enum: ["green", "blue", "yellow", "red", "gray"] },
             run_state: { enum: ["running", "enabled", "disabled"] },
@@ -685,6 +686,7 @@ export function openApiDoc(): Json {
             sound: strOrNone,
             enabled: { type: "boolean" },
             token_budget: { type: ["integer", "null"] },
+            watchdog_hours: { type: ["integer", "null"] },
           },
         },
         Tag: {
