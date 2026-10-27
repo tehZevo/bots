@@ -27,6 +27,13 @@ dbm.insertSecret({
   value: "notassignedvalue999",
   created_at: Date.now(),
 });
+dbm.insertSecret({
+  id: "sec-mcp-ref",
+  name: "MCP GitHub token",
+  key: "MCP_GITHUB_TOKEN",
+  value: "mcp-ref-value-secret123",
+  created_at: Date.now(),
+});
 dbm.insertBot({
   id: "red-bot",
   name: "Red",
@@ -53,6 +60,16 @@ dbm.insertMcpServer({
   enabled: 1,
   created_at: Date.now(),
 });
+dbm.insertMcpServer({
+  id: "mcp-ref-1",
+  name: "srv-with-reference",
+  transport: "stdio",
+  command: "node",
+  args: [],
+  env: { MCP_REF_TOKEN: { secret: "MCP GitHub token" } },
+  enabled: 1,
+  created_at: Date.now(),
+});
 
 test("assigned secrets, provider keys and mcp env values redact in tool text", () => {
   const out = redactText(
@@ -63,6 +80,11 @@ test("assigned secrets, provider keys and mcp env values redact in tool text", (
     out,
     "git push with [REDACTED:GITHUB_TOKEN]; llm uses [REDACTED:OpenRouter] and MCP_SESSION_KEY=[REDACTED:MCP_SESSION_KEY]",
   );
+});
+
+test("referenced MCP secrets redact for every bot regardless of grants", () => {
+  const out = redactText("red-bot", "token mcp-ref-value-secret123 end");
+  assert.equal(out, "token [REDACTED:MCP GitHub token] end");
 });
 
 test("unassigned secret values may appear verbatim", () => {
@@ -96,6 +118,16 @@ test("only tool-result messages are rewritten, in place", () => {
 });
 
 test("persisted transcripts contain no plaintext secrets", () => {
+  dbm.insertRun({
+    id: "run-1",
+    bot_id: "red-bot",
+    status: "running",
+    trigger: "manual",
+    started_at: Date.now(),
+    finished_at: null,
+    output: null,
+    error: null,
+  });
   const p = createMessagePersistence("red-bot", "run-1");
   const msg = {
     role: "toolResult",

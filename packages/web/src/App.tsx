@@ -437,7 +437,10 @@ export function Avatar({
   const eyeRy = eyeRx * (1.8 + rand() * 0.5);
   const gaze = (rand() - 0.5) * 3;
   const droop = rand() < 0.3;
-  const col = color == null ? avatarColor(id) : AVATAR_COLORS[color];
+  const baseCol = color == null ? avatarColor(id) : AVATAR_COLORS[color];
+  const col = health === "gray" ? "#6b7280" : baseCol;
+  const glow =
+    health === "red" || health === "gray" ? "transparent" : `${baseCol}59`;
   const blinkPeriod = 3 + rand() * 5;
   const animClass = health === null ? "" : ` anim-${health}`;
   return (
@@ -445,7 +448,8 @@ export function Avatar({
       className={`avatar${animClass}`}
       style={{
         color: col,
-        ["--avatar-glow" as string]: `${col}59`,
+        ["--avatar-glow" as string]: glow,
+        ["--avatar-glow-strong" as string]: `${baseCol}a6`,
         ["--blink-period" as string]: `${blinkPeriod.toFixed(2)}s`,
         ["--blink-delay" as string]: `${(-rand() * blinkPeriod).toFixed(2)}s`,
       }}
@@ -944,6 +948,7 @@ export function App() {
   >("general");
   const [detailOpen, setDetailOpen] = useState(false);
   const [avatarMenu, setAvatarMenu] = useState(false);
+  const [headerBusy, setHeaderBusy] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [botQuery, setBotQuery] = useState("");
   const [statusSel, setStatusSel] = useState<Bot["health"][]>([]);
@@ -1038,7 +1043,7 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (notificationPanelOpen) setNotificationPanelOpen(false);
-      else if (detailOpen) discardGuard(() => setDetailOpen(false));
+      else if (detailOpen) requestCloseDetails();
       else if (chatBot) setChatBot(null);
     };
     document.addEventListener("keydown", onKey);
@@ -1063,6 +1068,8 @@ export function App() {
 
   const openBotRow = bots.find((b) => b.id === openBot);
   const chatBotRow = bots.find((b) => b.id === chatBot);
+  const dismissDetails = () => setDetailOpen(false);
+  const requestCloseDetails = () => discardGuard(dismissDetails);
 
   async function markOneNotification(id: string): Promise<void> {
     try {
@@ -1479,7 +1486,7 @@ export function App() {
                 type="button"
                 className="mscrim"
                 aria-label="Close details"
-                onClick={() => discardGuard(() => setDetailOpen(false))}
+                onClick={requestCloseDetails}
               />
               <div
                 className="dialog tabs"
@@ -1540,14 +1547,60 @@ export function App() {
                       )}
                     </p>
                   )}
-                  <button
-                    type="button"
-                    className="close"
-                    aria-label="Close"
-                    onClick={() => discardGuard(() => setDetailOpen(false))}
-                  >
-                    ×
-                  </button>
+                  <div className="detailhead-actions">
+                    <label className="switch">
+                      <input
+                        type="checkbox"
+                        aria-label="Bot enabled"
+                        checked={openBotRow.enabled !== 0}
+                        disabled={headerBusy}
+                        onChange={() => {
+                          setHeaderBusy(true);
+                          void api(`/api/bots/${openBotRow.id}`, {
+                            method: "PATCH",
+                            headers: { "content-type": "application/json" },
+                            body: JSON.stringify({
+                              enabled: openBotRow.enabled === 0,
+                            }),
+                          })
+                            .then(load)
+                            .catch((e) => alert(e.message))
+                            .finally(() => setHeaderBusy(false));
+                        }}
+                      />
+                      <span className="knob" />
+                      <span className="state">
+                        {openBotRow.enabled ? "Enabled" : "Disabled"}
+                      </span>
+                    </label>
+                    {openBotRow.run_state === "running" && (
+                      <button
+                        type="button"
+                        className="danger"
+                        aria-label="Stop while running"
+                        disabled={headerBusy}
+                        onClick={() => {
+                          setHeaderBusy(true);
+                          void api(`/api/bots/${openBotRow.id}/interrupt`, {
+                            method: "POST",
+                          })
+                            .then(load)
+                            .catch((e) => alert(e.message))
+                            .finally(() => setHeaderBusy(false));
+                        }}
+                      >
+                        Stop
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="close"
+                      aria-label="Close"
+                      onClick={requestCloseDetails}
+                    >
+                      ×
+                    </button>
+                  </div>
                 </div>
                 <nav className="mtabs">
                   {(["general", "triggers", "logs", "stats"] as const).map(
@@ -1569,6 +1622,7 @@ export function App() {
                       key={openBotRow.id}
                       bot={openBotRow}
                       onChanged={load}
+                      onCancel={requestCloseDetails}
                     />
                   )}
                   {modalTab === "triggers" && (
@@ -4221,9 +4275,11 @@ function parseWatchdogHours(value: string): number | null | "invalid" {
 export function BotGeneral({
   bot,
   onChanged,
+  onCancel = () => undefined,
 }: {
   bot: Bot | undefined;
   onChanged: () => void;
+  onCancel?: () => void;
 }) {
   const [roles, setRoles] = useState<Role[]>([]);
   const [name, setName] = useState(bot?.name ?? "");
@@ -4241,7 +4297,6 @@ export function BotGeneral({
   );
   const [defaultModel, setDefaultModel] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [toggling, setToggling] = useState(false);
   const [pending, setPending] = useState<"delete" | "clear" | "restart" | null>(
     null,
   );
@@ -4347,30 +4402,6 @@ export function BotGeneral({
             off.
           </p>
         )}
-        <div className="actions">
-          <button
-            type="button"
-            disabled={busy || !dirty || !name.trim()}
-            onClick={() => {
-              setBusy(true);
-              patchBot({
-                name: name.trim(),
-                instructions,
-                model_id: modelId || null,
-                role_id: roleId || null,
-                machine_id: machineId || null,
-                watchdog_hours:
-                  parsedWatchdog === "invalid" ? watchdogHours : parsedWatchdog,
-              })
-                .then(onChanged)
-                .catch((e) => alert(e.message))
-                .finally(() => setBusy(false));
-            }}
-          >
-            Save
-          </button>
-          <UnsavedNote dirty={dirty} />
-        </div>
       </div>
       <p className="statusline">
         Status:{" "}
@@ -4385,53 +4416,6 @@ export function BotGeneral({
       <BotTags botId={bot.id} />
       <BotSecrets botId={bot.id} />
       <BotTeams botId={bot.id} />
-      <div className="actions">
-        <label className="switch">
-          <input
-            type="checkbox"
-            aria-label="Bot enabled"
-            checked={bot.enabled !== 0}
-            disabled={toggling}
-            onChange={() => {
-              setToggling(true);
-              patchBot({ enabled: bot.enabled === 0 })
-                .then(onChanged)
-                .catch((e) => alert(e.message))
-                .finally(() => setToggling(false));
-            }}
-          />
-          <span className="knob" />
-          <span className="state">{bot.enabled ? "Enabled" : "Disabled"}</span>
-        </label>
-        {bot.run_state === "running" && (
-          <button
-            type="button"
-            onClick={() =>
-              api(`/api/bots/${bot.id}/interrupt`, { method: "POST" })
-                .then(onChanged)
-                .catch((e) => alert(e.message))
-            }
-          >
-            Stop
-          </button>
-        )}
-        <button type="button" onClick={() => setPending("restart")}>
-          Restart machine
-        </button>
-        <button type="button" onClick={() => setPending("clear")}>
-          Clear memory
-        </button>
-        <button type="button" onClick={() => void openTemplateDraft()}>
-          Save as template…
-        </button>
-        <button
-          type="button"
-          className="danger"
-          onClick={() => setPending("delete")}
-        >
-          Delete
-        </button>
-      </div>
       <p className="rolepick">
         Role{" "}
         <select
@@ -4506,6 +4490,49 @@ export function BotGeneral({
           Preview
         </button>
       </p>
+      <div className="botdetailactions">
+        <UnsavedNote dirty={dirty} />
+        <button
+          type="button"
+          disabled={busy || !dirty || !name.trim()}
+          onClick={() => {
+            setBusy(true);
+            patchBot({
+              name: name.trim(),
+              instructions,
+              model_id: modelId || null,
+              role_id: roleId || null,
+              machine_id: machineId || null,
+              watchdog_hours:
+                parsedWatchdog === "invalid" ? watchdogHours : parsedWatchdog,
+            })
+              .then(onChanged)
+              .catch((e) => alert(e.message))
+              .finally(() => setBusy(false));
+          }}
+        >
+          Save
+        </button>
+        <button type="button" onClick={() => setPending("restart")}>
+          Restart machine
+        </button>
+        <button type="button" onClick={() => setPending("clear")}>
+          Clear memory
+        </button>
+        <button type="button" onClick={() => void openTemplateDraft()}>
+          Save as template…
+        </button>
+        <button
+          type="button"
+          className="danger"
+          onClick={() => setPending("delete")}
+        >
+          Delete
+        </button>
+        <button type="button" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
       {pending === "delete" && (
         <ConfirmDialog
           text={`Delete bot ${bot.name}? This removes the bot, its triggers and run history.`}
@@ -5275,14 +5302,59 @@ interface Skill {
   import_info?: string | null;
 }
 
+export type McpEnvMode = "literal" | "secret";
+
+interface McpSecretRef {
+  secret: string;
+}
+
+export type McpEnvValue = string | McpSecretRef;
+
 interface McpServer {
   id: string;
   name: string;
   transport: "stdio";
   command: string;
   args: string[];
-  env: Record<string, string>;
+  env: Record<string, McpEnvValue>;
   enabled: number;
+}
+
+interface McpEnvRow {
+  key: string;
+  mode: McpEnvMode;
+  value: string;
+}
+
+function isMcpSecretRef(value: unknown): value is McpSecretRef {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    typeof (value as { secret?: unknown }).secret === "string"
+  );
+}
+
+export function mcpEnvRowsFromRecord(
+  env: Record<string, McpEnvValue>,
+): McpEnvRow[] {
+  return Object.entries(env).map(([key, value]) =>
+    isMcpSecretRef(value)
+      ? { key, mode: "secret", value: value.secret }
+      : { key, mode: "literal", value },
+  );
+}
+
+export function mcpEnvMapFromRows(
+  rows: McpEnvRow[],
+): Record<string, McpEnvValue> {
+  const env: Record<string, McpEnvValue> = {};
+  for (const row of rows) {
+    const key = row.key.trim();
+    if (!key) continue;
+    env[key] = row.mode === "secret" ? { secret: row.value } : row.value;
+  }
+  return env;
 }
 
 export function IntegrationsPanel() {
@@ -5357,11 +5429,17 @@ export function IntegrationsPanel() {
                 </button>
               </header>
               <code>{[s.command, ...s.args].join(" ")}</code>
-              {Object.keys(s.env).length > 0 && (
+              {Object.entries(s.env).length > 0 && (
                 <p className="muted envline">
-                  {Object.keys(s.env)
-                    .map((k) => `${k}=••••`)
-                    .join("  ")}
+                  {Object.entries(s.env).map(([key, value]) => {
+                    const secret = isMcpSecretRef(value) ? value.secret : null;
+                    return (
+                      <span key={key} className="envchip">
+                        {`${key}=••••`}
+                        {secret && <span className="srcbadge">{secret}</span>}
+                      </span>
+                    );
+                  })}
                 </p>
               )}
               {r?.tools !== undefined && (
@@ -5401,9 +5479,9 @@ export function IntegrationsPanel() {
 
 export function SkillsPanel() {
   const [skills, setSkills] = useState<Skill[]>([]);
-  const [skillForm, setSkillForm] = useState<Skill | "new" | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
   const [removingSkill, setRemovingSkill] = useState<Skill | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
 
   const reloadSkills = useCallback(
     () =>
@@ -5421,11 +5499,8 @@ export function SkillsPanel() {
     <section>
       <div className="viewhead">
         <h2>Skills</h2>
-        <button type="button" onClick={() => setImportOpen(true)}>
-          Import
-        </button>
-        <button type="button" onClick={() => setSkillForm("new")}>
-          Add skill
+        <button type="button" onClick={() => setAddOpen(true)}>
+          + Add skill
         </button>
       </div>
       <div className="mcpsection">
@@ -5441,7 +5516,7 @@ export function SkillsPanel() {
                   {`${safeImportOrigin(sk.import_info) ?? "git"} skill`}
                 </span>
               )}
-              <button type="button" onClick={() => setSkillForm(sk)}>
+              <button type="button" onClick={() => setEditingSkill(sk)}>
                 Edit
               </button>
               <button
@@ -5470,21 +5545,21 @@ export function SkillsPanel() {
           }}
         />
       )}
-      {skillForm && (
-        <SkillModal
-          skill={skillForm === "new" ? null : skillForm}
-          onClose={() => setSkillForm(null)}
+      {addOpen && (
+        <AddSkillModal
+          onClose={() => setAddOpen(false)}
           onSaved={() => {
-            setSkillForm(null);
+            setAddOpen(false);
             void reloadSkills();
           }}
         />
       )}
-      {importOpen && (
-        <ImportSkillModal
-          onClose={() => setImportOpen(false)}
-          onImported={() => {
-            setImportOpen(false);
+      {editingSkill && (
+        <SkillModal
+          skill={editingSkill}
+          onClose={() => setEditingSkill(null)}
+          onSaved={() => {
+            setEditingSkill(null);
             void reloadSkills();
           }}
         />
@@ -5498,24 +5573,20 @@ export function SkillModal({
   onClose,
   onSaved,
 }: {
-  skill: Skill | null;
+  skill: Skill;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [name, setName] = useState(skill?.name ?? "");
-  const [description, setDescription] = useState(skill?.description ?? "");
-  const [instructions, setInstructions] = useState(skill?.instructions ?? "");
+  const [name, setName] = useState(skill.name);
+  const [description, setDescription] = useState(skill.description);
+  const [instructions, setInstructions] = useState(skill.instructions);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const dirty =
-    name !== (skill?.name ?? "") ||
-    description !== (skill?.description ?? "") ||
-    instructions !== (skill?.instructions ?? "");
-  const attemptClose = useDiscardGuard(
-    skill ? `skill ${skill.name}` : "this new skill",
-    dirty,
-    onClose,
-  );
+    name !== skill.name ||
+    description !== skill.description ||
+    instructions !== skill.instructions;
+  const attemptClose = useDiscardGuard(`skill ${skill.name}`, dirty, onClose);
 
   return (
     <div className="modal">
@@ -5526,15 +5597,15 @@ export function SkillModal({
         onClick={attemptClose}
       />
       <div className="dialog" role="dialog" aria-label="Skill">
-        <h2>{skill ? "Edit skill" : "Add skill"}</h2>
+        <h2>Edit skill</h2>
         <form
           onSubmit={async (e) => {
             e.preventDefault();
             setBusy(true);
             setError(null);
             try {
-              await api(skill ? `/api/skills/${skill.id}` : "/api/skills", {
-                method: skill ? "PATCH" : "POST",
+              await api(`/api/skills/${skill.id}`, {
+                method: "PATCH",
                 headers: { "content-type": "application/json" },
                 body: JSON.stringify({ name, description, instructions }),
               });
@@ -5574,7 +5645,7 @@ export function SkillModal({
           {error && <p className="error">{error}</p>}
           <div className="actions">
             <button type="submit" disabled={busy}>
-              {busy ? "Saving…" : skill ? "Save" : "Create"}
+              {busy ? "Saving…" : "Save"}
             </button>
             <UnsavedNote dirty={dirty} />
             <button type="button" onClick={attemptClose}>
@@ -5587,10 +5658,158 @@ export function SkillModal({
   );
 }
 
-export function findDuplicateEnvKey(rows: [string, string][]): string | null {
+function CreateSkillForm({
+  onSaved,
+  onDirtyChange,
+}: {
+  onSaved: () => void;
+  onDirtyChange: (dirty: boolean) => void;
+}) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [instructions, setInstructions] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const dirty = name !== "" || description !== "" || instructions !== "";
+
+  useEffect(() => {
+    onDirtyChange(dirty);
+  }, [dirty, onDirtyChange]);
+
+  return (
+    <form
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        setError(null);
+        try {
+          await api("/api/skills", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ name, description, instructions }),
+          });
+          onSaved();
+        } catch (err) {
+          setError(err instanceof Error ? err.message : String(err));
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <label>
+        Name
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
+      </label>
+      <label>
+        Description (optional)
+        <input
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </label>
+      <label>
+        Instructions (markdown)
+        <textarea
+          className="fixed"
+          rows={12}
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
+          required
+        />
+      </label>
+      {error && <p className="error">{error}</p>}
+      <div className="actions">
+        <button type="submit" disabled={busy}>
+          {busy ? "Creating…" : "Create"}
+        </button>
+        <UnsavedNote dirty={dirty} />
+      </div>
+    </form>
+  );
+}
+
+export function AddSkillModal({
+  onClose,
+  onSaved,
+}: {
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [tab, setTab] = useState<"create" | "import">("create");
+  const [formKey, setFormKey] = useState(0);
+  const [createDirty, setCreateDirty] = useState(false);
+  const attemptClose = useDiscardGuard("this new skill", createDirty, onClose);
+  const guard = useNavGuard();
+
+  function switchTab(next: "create" | "import") {
+    if (next === tab) return;
+    guard(() => {
+      setCreateDirty(false);
+      if (tab === "create") setFormKey((key) => key + 1);
+      setTab(next);
+    });
+  }
+
+  return (
+    <div className="modal">
+      <button
+        type="button"
+        className="mscrim"
+        aria-label="Close"
+        onClick={attemptClose}
+      />
+      <div className="dialog tabs" role="dialog" aria-label="Add skill">
+        <div className="viewhead">
+          <h2>Add skill</h2>
+          <button
+            type="button"
+            className="close"
+            aria-label="Cancel"
+            onClick={attemptClose}
+          >
+            ×
+          </button>
+        </div>
+        <nav className="mtabs">
+          {(
+            [
+              ["create", "Create"],
+              ["import", "Import"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              className={tab === id ? "sel" : ""}
+              onClick={() => switchTab(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+        <div className="tabbody">
+          {tab === "create" && (
+            <CreateSkillForm
+              key={formKey}
+              onSaved={onSaved}
+              onDirtyChange={setCreateDirty}
+            />
+          )}
+          {tab === "import" && <ImportSkillsPane onImported={onSaved} />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function findDuplicateEnvKey(rows: { key: string }[]): string | null {
   const seen = new Set<string>();
-  for (const [key] of rows) {
-    const trimmed = key.trim();
+  for (const row of rows) {
+    const trimmed = row.key.trim();
     if (!trimmed) continue;
     if (seen.has(trimmed)) return trimmed;
     seen.add(trimmed);
@@ -5610,13 +5829,27 @@ export function McpServerModal({
   const [name, setName] = useState(server?.name ?? "");
   const [command, setCommand] = useState(server?.command ?? "");
   const [args, setArgs] = useState((server?.args ?? []).join("\n"));
-  const [envRows, setEnvRows] = useState<[string, string][]>(() => {
-    const entries = Object.entries(server?.env ?? {}) as [string, string][];
-    return entries.length > 0 ? entries : [["", ""]];
+  const [envRows, setEnvRows] = useState<McpEnvRow[]>(() => {
+    const rows = mcpEnvRowsFromRecord(server?.env ?? {});
+    return rows.length > 0 ? rows : [{ key: "", mode: "literal", value: "" }];
   });
+  const [secrets, setSecrets] = useState<SecretMeta[]>([]);
   const [enabled, setEnabled] = useState(server ? server.enabled === 1 : true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void api<SecretMeta[]>("/api/secrets")
+      .then((items) => {
+        if (live) setSecrets(items);
+      })
+      .catch(() => {
+        if (live) setSecrets([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
   const snap = useRef({
     name: server?.name ?? "",
     command: server?.command ?? "",
@@ -5656,11 +5889,6 @@ export function McpServerModal({
             }
             setBusy(true);
             setError(null);
-            const envMap: Record<string, string> = {};
-            for (const [k, v] of envRows) {
-              const key = k.trim();
-              if (key) envMap[key] = v;
-            }
             const body = {
               name,
               command,
@@ -5668,7 +5896,7 @@ export function McpServerModal({
                 .split("\n")
                 .map((a) => a.trim())
                 .filter(Boolean),
-              env: envMap,
+              env: mcpEnvMapFromRows(envRows),
               enabled,
             };
             try {
@@ -5716,30 +5944,97 @@ export function McpServerModal({
           </label>
           <fieldset className="envrows">
             <legend>Env vars</legend>
-            {envRows.map(([k, v], i) => (
+            {envRows.map((row, i) => (
               <div className="envrow" key={i}>
                 <input
                   placeholder="KEY"
-                  value={k}
+                  value={row.key}
                   onChange={(e) =>
                     setEnvRows(
                       envRows.map((r, j) =>
-                        j === i ? [e.target.value, r[1]] : r,
+                        j === i ? { ...r, key: e.target.value } : r,
                       ),
                     )
                   }
                 />
-                <input
-                  placeholder="value"
-                  value={v}
-                  onChange={(e) =>
-                    setEnvRows(
-                      envRows.map((r, j) =>
-                        j === i ? [r[0], e.target.value] : r,
-                      ),
-                    )
-                  }
-                />
+                <div className="envvalue">
+                  <div className="themegroup envmode">
+                    <button
+                      type="button"
+                      aria-label={`Use a literal value for env var ${i + 1}`}
+                      className={row.mode === "literal" ? "sel" : ""}
+                      onClick={() =>
+                        setEnvRows(
+                          envRows.map((r, j) =>
+                            j === i ? { ...r, mode: "literal" } : r,
+                          ),
+                        )
+                      }
+                    >
+                      Literal
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Use a secret reference for env var ${i + 1}`}
+                      className={row.mode === "secret" ? "sel" : ""}
+                      onClick={() =>
+                        setEnvRows(
+                          envRows.map((r, j) => {
+                            if (j !== i) return r;
+                            const known = secrets.some(
+                              (s) => s.name === r.value,
+                            );
+                            return {
+                              ...r,
+                              mode: "secret",
+                              value: known ? r.value : "",
+                            };
+                          }),
+                        )
+                      }
+                    >
+                      Secret
+                    </button>
+                  </div>
+                  {row.mode === "literal" ? (
+                    <input
+                      placeholder="value"
+                      value={row.value}
+                      onChange={(e) =>
+                        setEnvRows(
+                          envRows.map((r, j) =>
+                            j === i ? { ...r, value: e.target.value } : r,
+                          ),
+                        )
+                      }
+                    />
+                  ) : (
+                    <select
+                      aria-label={`Env var ${i + 1} secret`}
+                      value={row.value}
+                      onChange={(e) =>
+                        setEnvRows(
+                          envRows.map((r, j) =>
+                            j === i ? { ...r, value: e.target.value } : r,
+                          ),
+                        )
+                      }
+                    >
+                      <option value="">Select a secret…</option>
+                      {row.value &&
+                        !secrets.some((s) => s.name === row.value) && (
+                          <option
+                            value={row.value}
+                          >{`${row.value} (missing)`}</option>
+                        )}
+                      {secrets.map((secret) => (
+                        <option key={secret.id} value={secret.name}>
+                          {secret.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
                 <button
                   type="button"
                   className="danger ghost"
@@ -5753,7 +6048,12 @@ export function McpServerModal({
             <button
               type="button"
               className="linklike"
-              onClick={() => setEnvRows([...envRows, ["", ""]])}
+              onClick={() =>
+                setEnvRows([
+                  ...envRows,
+                  { key: "", mode: "literal", value: "" },
+                ])
+              }
             >
               + Add variable
             </button>
@@ -6875,13 +7175,7 @@ interface SkillPreviewRow {
   content_hash: string;
 }
 
-export function ImportSkillModal({
-  onClose,
-  onImported,
-}: {
-  onClose: () => void;
-  onImported: () => void;
-}) {
+function ImportSkillsPane({ onImported }: { onImported: () => void }) {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [source, setSource] = useState("");
@@ -6944,121 +7238,109 @@ export function ImportSkillModal({
   };
 
   return (
-    <div className="modal">
-      <button
-        type="button"
-        className="mscrim"
-        aria-label="Close"
-        onClick={onClose}
-      />
-      <div className="dialog" role="dialog" aria-label="Import skill">
-        <h2>Import skills</h2>
-        <label className="field">
-          Search skills.sh
-          <input
-            value={query}
-            placeholder="pdf, testing, ..."
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                void search();
-              }
-            }}
-          />
-        </label>
-        <div className="actions">
-          <button
-            type="button"
-            disabled={busy || !query.trim()}
-            onClick={() => void search()}
-          >
-            Search
-          </button>
-        </div>
-        {hits && (
-          <ul className="srclist">
-            {hits.length === 0 && <li className="muted">No matches.</li>}
-            {hits.map((h) => (
-              <li key={h.id}>
-                <span>
-                  {h.name}{" "}
-                  <em className="muted">
-                    ({h.source}
-                    {h.installs !== null ? ` · ${h.installs} installs` : ""})
-                  </em>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setSource(`${h.source}@${h.skill_id}`)}
-                >
-                  Use
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <label className="field">
-          Git source
-          <input
-            value={source}
-            placeholder="owner/repo, https://…/tree/main/skills/pdf@pdf#v1.2"
-            onChange={(e) => setSource(e.target.value)}
-          />
-        </label>
-        <div className="actions">
-          <button
-            type="button"
-            disabled={busy || !source.trim()}
-            onClick={() => void preview()}
-          >
-            Preview
-          </button>
-        </div>
-        {previews.length > 0 && (
-          <ul className="srclist">
-            {previews.map((p) => (
-              <li key={p.folder}>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={picked.has(p.folder)}
-                    onChange={() =>
-                      setPicked((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(p.folder)) next.delete(p.folder);
-                        else next.add(p.folder);
-                        return next;
-                      })
-                    }
-                  />{" "}
-                  <strong>{p.name}</strong>{" "}
-                  <em className="muted">
-                    {p.folder} · {p.file_count} files ·{" "}
-                    {(p.total_size / 1024).toFixed(0)} KB
-                  </em>
-                </label>
-              </li>
-            ))}
-          </ul>
-        )}
-        {error && <p className="error">{error}</p>}
-        <div className="actions">
-          <button
-            type="button"
-            disabled={busy || picked.size === 0}
-            onClick={() => void doImport()}
-          >
-            Import{" "}
-            {picked.size > 0
-              ? `${picked.size} skill${picked.size > 1 ? "s" : ""}`
-              : ""}
-          </button>
-          <button type="button" onClick={onClose}>
-            Cancel
-          </button>
-        </div>
+    <>
+      <label className="field">
+        Search skills.sh
+        <input
+          value={query}
+          placeholder="pdf, testing, ..."
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void search();
+            }
+          }}
+        />
+      </label>
+      <div className="actions">
+        <button
+          type="button"
+          disabled={busy || !query.trim()}
+          onClick={() => void search()}
+        >
+          Search
+        </button>
       </div>
-    </div>
+      {hits && (
+        <ul className="srclist">
+          {hits.length === 0 && <li className="muted">No matches.</li>}
+          {hits.map((h) => (
+            <li key={h.id}>
+              <span>
+                {h.name}{" "}
+                <em className="muted">
+                  ({h.source}
+                  {h.installs !== null ? ` · ${h.installs} installs` : ""})
+                </em>
+              </span>
+              <button
+                type="button"
+                onClick={() => setSource(`${h.source}@${h.skill_id}`)}
+              >
+                Use
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <label className="field">
+        Git source
+        <input
+          value={source}
+          placeholder="owner/repo, https://…/tree/main/skills/pdf@pdf#v1.2"
+          onChange={(e) => setSource(e.target.value)}
+        />
+      </label>
+      <div className="actions">
+        <button
+          type="button"
+          disabled={busy || !source.trim()}
+          onClick={() => void preview()}
+        >
+          Preview
+        </button>
+      </div>
+      {previews.length > 0 && (
+        <ul className="srclist">
+          {previews.map((p) => (
+            <li key={p.folder}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={picked.has(p.folder)}
+                  onChange={() =>
+                    setPicked((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(p.folder)) next.delete(p.folder);
+                      else next.add(p.folder);
+                      return next;
+                    })
+                  }
+                />{" "}
+                <strong>{p.name}</strong>{" "}
+                <em className="muted">
+                  {p.folder} · {p.file_count} files ·{" "}
+                  {(p.total_size / 1024).toFixed(0)} KB
+                </em>
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
+      {error && <p className="error">{error}</p>}
+      <div className="actions">
+        <button
+          type="button"
+          disabled={busy || picked.size === 0}
+          onClick={() => void doImport()}
+        >
+          Import{" "}
+          {picked.size > 0
+            ? `${picked.size} skill${picked.size > 1 ? "s" : ""}`
+            : ""}
+        </button>
+      </div>
+    </>
   );
 }

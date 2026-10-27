@@ -56,6 +56,7 @@ const {
   BotProjects,
   MachinesPanel,
   SkillsPanel,
+  AddSkillModal,
   IntegrationsPanel,
   BotGeneral,
   ChatSidebar,
@@ -152,6 +153,24 @@ test("Avatar renders svg in the seeded color", () => {
   );
   assert.ok(html.includes("<svg"));
   assert.ok(html.includes(avatarColor("abc")));
+
+  const active = renderToStaticMarkup(
+    React.createElement(Avatar, { name: "x", id: "abc", health: "green" }),
+  );
+  assert.match(active, /class="avatar anim-green"/);
+  assert.match(active, /--avatar-glow-strong:/);
+
+  const blocked = renderToStaticMarkup(
+    React.createElement(Avatar, { name: "x", id: "abc", health: "red" }),
+  );
+  assert.match(blocked, /class="avatar anim-red"/);
+  assert.match(blocked, /--avatar-glow:transparent/);
+
+  const disabled = renderToStaticMarkup(
+    React.createElement(Avatar, { name: "x", id: "abc", health: "gray" }),
+  );
+  assert.match(disabled, /class="avatar anim-gray"/);
+  assert.match(disabled, /color:#6b7280/);
 });
 
 test("StatusDot renders per health with title", () => {
@@ -266,6 +285,8 @@ test("panels and tab bodies render with stubbed fetch", () => {
   });
   const generalHtml = renderToStaticMarkup(withBot);
   assert.ok(generalHtml.includes("Save"));
+  assert.match(generalHtml, /class="botdetailactions"/);
+  assert.ok(generalHtml.includes("Cancel"));
   assert.match(generalHtml, /disabled=""/);
   assert.ok(!generalHtml.includes("Unsaved changes"));
   for (const C of [Chat, Triggers])
@@ -304,7 +325,21 @@ test("modals render", () => {
   const modals: [unknown, Record<string, unknown>][] = [
     [AddBotModal, { usedNames: ["A"], onClose: noop, onCreated: noop }],
     [RoleFormModal, { role: null, onClose: noop, onSaved: noop }],
-    [SkillModal, { skill: null, onClose: noop, onSaved: noop }],
+    [AddSkillModal, { onClose: noop, onSaved: noop }],
+    [
+      SkillModal,
+      {
+        skill: {
+          id: "s1",
+          name: "Existing",
+          description: "",
+          instructions: "body",
+          created_at: 0,
+        },
+        onClose: noop,
+        onSaved: noop,
+      },
+    ],
     [McpServerModal, { server: null, onClose: noop, onSaved: noop }],
     [MachineModal, { machine: null, onClose: noop, onSaved: noop }],
     [ProviderFormModal, { provider: null, onClose: noop, onSaved: noop }],

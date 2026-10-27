@@ -43,6 +43,8 @@ const {
   BotGeneral,
   BotTags,
   findDuplicateEnvKey,
+  mcpEnvMapFromRows,
+  mcpEnvRowsFromRecord,
   McpServerModal,
   ProviderFormModal,
   Triggers,
@@ -83,6 +85,7 @@ const trigger = {
 const requests: string[] = [];
 const patchBodies: Record<string, unknown>[] = [];
 const botPatchBodies: Record<string, unknown>[] = [];
+const mcpPatchBodies: Record<string, unknown>[] = [];
 let pausedFlag = false;
 
 function json(value: unknown): Response {
@@ -284,6 +287,25 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     botPatchBodies.push(body);
     return json({ ...bot, ...body });
   }
+  if (url === "/api/mcp-servers/m1" && method === "PATCH") {
+    try {
+      mcpPatchBodies.push(
+        JSON.parse(String(init?.body)) as Record<string, unknown>,
+      );
+    } catch {
+      mcpPatchBodies.push({});
+    }
+  }
+  if (url === "/api/secrets")
+    return json([
+      {
+        id: "sec1",
+        name: "GitHub token",
+        key: "GITHUB_TOKEN",
+        created_at: now,
+      },
+      { id: "sec2", name: "Deploy key", key: "DEPLOY_KEY", created_at: now },
+    ]);
   if (url === "/api/api-keys") return json([]);
   if (url === "/api/providers") {
     return json([
@@ -509,18 +531,13 @@ test("bot general actions update the bot", async () => {
     React.createElement(BotGeneral, {
       bot,
       onChanged: () => undefined,
+      onCancel: () => undefined,
     }),
   );
 
   await typeInto(byLabel("Bot name"), "Sable 2");
   await click(button("Save"));
   assert.ok(requests.includes("PATCH /api/bots/b1"));
-
-  const enabled = byLabel("Bot enabled") as HTMLInputElement;
-  await act(async () => {
-    enabled.click();
-  });
-  await flush();
 
   await click(button("Restart machine"));
   await click(button("Restart machine"));
@@ -530,11 +547,59 @@ test("bot general actions update the bot", async () => {
   await click(button("Delete bot"));
   await click(button("Save as template…"));
   assert.match(window.document.body.textContent ?? "", /New template/);
-  await click(button("Cancel"));
+  const templateCancel = [
+    ...window.document.querySelectorAll(".dialog.narrow button"),
+  ].find((item) => item.textContent?.trim() === "Cancel");
+  await click(templateCancel);
 
   await act(async () => {
     root.unmount();
   });
+});
+
+test("bot detail header carries enable/Stop and General pins its action row", async () => {
+  requests.length = 0;
+  const previousState = bot.run_state;
+  bot.run_state = "running";
+  const root = await mount(React.createElement(App));
+  try {
+    await click(byLabel("Sable (null)"));
+    await click(byLabel("Sable settings"));
+
+    const header = window.document.querySelector(".dialog.tabs > .viewhead");
+    assert.ok(header?.querySelector('[aria-label="Bot enabled"]'));
+    assert.ok(
+      window.document.querySelector(
+        ".detailhead-actions [aria-label='Stop while running']",
+      ),
+    );
+
+    const actions = window.document.querySelector(".botdetailactions");
+    assert.ok(actions);
+    assert.deepEqual(
+      [...actions.querySelectorAll("button")].map((item) =>
+        item.textContent?.trim(),
+      ),
+      [
+        "Save",
+        "Restart machine",
+        "Clear memory",
+        "Save as template…",
+        "Delete",
+        "Cancel",
+      ],
+    );
+
+    await click(byLabel("Stop while running"));
+    assert.ok(requests.includes("POST /api/bots/b1/interrupt"));
+    await click(button("Cancel"));
+    assert.ok(!window.document.querySelector(".dialog.tabs"));
+  } finally {
+    bot.run_state = previousState;
+    await act(async () => {
+      root.unmount();
+    });
+  }
 });
 
 test("bot general saves watchdog hours", async () => {
@@ -1008,22 +1073,27 @@ test("tags panel lists tags with bot counts", async () => {
   });
 });
 
+test("MCP env rows preserve literal and secret modes", () => {
+  assert.deepEqual(
+    mcpEnvRowsFromRecord({ FOO: "bar", TOKEN: { secret: "GitHub token" } }),
+    [
+      { key: "FOO", mode: "literal", value: "bar" },
+      { key: "TOKEN", mode: "secret", value: "GitHub token" },
+    ],
+  );
+  assert.deepEqual(
+    mcpEnvMapFromRows([
+      { key: " FOO ", mode: "literal", value: " bar " },
+      { key: "TOKEN", mode: "secret", value: "Deploy key" },
+    ]),
+    { FOO: " bar ", TOKEN: { secret: "Deploy key" } },
+  );
+});
+
 test("findDuplicateEnvKey ignores blanks and trims keys", () => {
   assert.equal(findDuplicateEnvKey([]), null);
-  assert.equal(
-    findDuplicateEnvKey([
-      ["FOO", "1"],
-      [" BAR ", "2"],
-    ]),
-    null,
-  );
-  assert.equal(
-    findDuplicateEnvKey([
-      ["FOO", "1"],
-      [" FOO ", "2"],
-    ]),
-    "FOO",
-  );
+  assert.equal(findDuplicateEnvKey([{ key: "FOO" }, { key: " BAR " }]), null);
+  assert.equal(findDuplicateEnvKey([{ key: "FOO" }, { key: " FOO " }]), "FOO");
 });
 
 test("MCP env duplicate keys show an inline error before saving", async () => {
@@ -1061,6 +1131,98 @@ test("MCP env duplicate keys show an inline error before saving", async () => {
       /duplicate environment variable key FOO/,
     );
     assert.ok(!requests.includes("POST /api/mcp-servers"));
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("MCP env editor saves secret references", async () => {
+  requests.length = 0;
+  mcpPatchBodies.length = 0;
+  const root = await mount(
+    React.createElement(McpServerModal, {
+      server: {
+        id: "m1",
+        name: "srv",
+        transport: "stdio",
+        command: "node",
+        args: [],
+        env: { TOKEN: { secret: "GitHub token" }, LITERAL: "plain" },
+        enabled: 1,
+      },
+      onClose: () => undefined,
+      onSaved: () => undefined,
+    }),
+  );
+  try {
+    assert.ok(requests.includes("GET /api/secrets"));
+    const secretSelect = window.document.querySelector(
+      '[aria-label="Env var 1 secret"]',
+    ) as HTMLSelectElement | null;
+    assert.ok(secretSelect);
+    assert.equal(secretSelect.value, "GitHub token");
+
+    const rows = window.document.querySelectorAll(".envrow");
+    await typeInto(
+      rows[1].querySelector('input[placeholder="value"]'),
+      "changed",
+    );
+    await click(button("Save"));
+    assert.deepEqual(mcpPatchBodies.at(-1)?.env, {
+      TOKEN: { secret: "GitHub token" },
+      LITERAL: "changed",
+    });
+
+    await click(byLabel("Use a literal value for env var 1"));
+    await typeInto(
+      rows[0].querySelector('input[placeholder="value"]'),
+      "literal-token",
+    );
+    await click(button("Save"));
+    assert.deepEqual(mcpPatchBodies.at(-1)?.env, {
+      TOKEN: "literal-token",
+      LITERAL: "changed",
+    });
+
+    await click(byLabel("Use a secret reference for env var 1"));
+    const repointSelect = window.document.querySelector(
+      '[aria-label="Env var 1 secret"]',
+    ) as HTMLSelectElement | null;
+    assert.ok(repointSelect);
+    assert.equal(repointSelect.value, "");
+    await typeInto(repointSelect, "Deploy key");
+    await click(button("Save"));
+    assert.deepEqual(mcpPatchBodies.at(-1)?.env, {
+      TOKEN: { secret: "Deploy key" },
+      LITERAL: "changed",
+    });
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("MCP env editor marks missing secret references", async () => {
+  const root = await mount(
+    React.createElement(McpServerModal, {
+      server: {
+        id: "m1",
+        name: "srv",
+        transport: "stdio",
+        command: "node",
+        args: [],
+        env: { TOKEN: { secret: "Deleted" } },
+        enabled: 1,
+      },
+      onClose: () => undefined,
+      onSaved: () => undefined,
+    }),
+  );
+  try {
+    assert.match(window.document.body.textContent ?? "", /Deleted \(missing\)/);
   } finally {
     await act(async () => {
       root.unmount();
