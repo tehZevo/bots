@@ -588,6 +588,19 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+export function fmtTokens(n: number): string {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
+  return String(n);
+}
+
+export interface Breaker {
+  limit_tokens: number;
+  tokens_30d: number;
+  exceeded: boolean;
+}
+
 export function fmt(ts: number | null): string {
   return ts ? new Date(ts).toLocaleString() : "—";
 }
@@ -918,6 +931,8 @@ export function App() {
   const [chatBot, setChatBot] = useState<string | null>(null);
   const [poking, setPoking] = useState<Record<string, boolean>>({});
   const [paused, setPausedState] = useState(false);
+  const [pauseReason, setPauseReason] = useState<string | null>(null);
+  const [breaker, setBreaker] = useState<Breaker | null>(null);
   const [stopAllConfirm, setStopAllConfirm] = useState(false);
   const [quickConfirm, setQuickConfirm] = useState<{
     bot: Bot;
@@ -967,18 +982,27 @@ export function App() {
 
   const load = useCallback(async () => {
     try {
-      const [botData, notificationData, roleData, tagData, pauseData] =
-        await Promise.all([
-          api<Bot[]>("/api/bots"),
-          api<NotificationsResponse>("/api/notifications"),
-          api<Role[]>("/api/roles"),
-          api<Tag[]>("/api/tags").catch(() => []),
-          api<{ paused: boolean }>("/api/pause").catch(() => ({
-            paused: false,
-          })),
-        ]);
+      const [
+        botData,
+        notificationData,
+        roleData,
+        tagData,
+        pauseData,
+        breakerData,
+      ] = await Promise.all([
+        api<Bot[]>("/api/bots"),
+        api<NotificationsResponse>("/api/notifications"),
+        api<Role[]>("/api/roles"),
+        api<Tag[]>("/api/tags").catch(() => []),
+        api<{ paused: boolean; reason?: string | null }>("/api/pause").catch(
+          () => ({ paused: false, reason: null }),
+        ),
+        api<Breaker>("/api/breaker").catch(() => null),
+      ]);
       setBots(botData);
       setPausedState(pauseData.paused);
+      setPauseReason(pauseData.reason ?? null);
+      setBreaker(breakerData);
       const prevSeen = seenNotifIds.current;
       if (localStorage.getItem("bots-sounds") === "on" && prevSeen) {
         const fresh = notificationData.items.filter((n) => !prevSeen.has(n.id));
@@ -1141,7 +1165,12 @@ export function App() {
             {paused && (
               <>
                 {" "}
-                · <span className="pausedcount">paused</span>
+                ·{" "}
+                <span className="pausedcount">
+                  {pauseReason === "breaker" && breaker
+                    ? `over spend cap (${fmtTokens(breaker.tokens_30d)} / ${fmtTokens(breaker.limit_tokens)})`
+                    : "paused"}
+                </span>
               </>
             )}
           </span>
@@ -1149,7 +1178,13 @@ export function App() {
             type="button"
             className={`pausetoggle${paused ? " on" : ""}`}
             aria-label={paused ? "Resume all bots" : "Pause all bots"}
-            title={paused ? "Resume all bots" : "Pause all bots"}
+            title={
+              paused && pauseReason === "breaker" && breaker
+                ? `Trailing 30-day usage of ${breaker.tokens_30d.toLocaleString()} tokens is over the cap of ${breaker.limit_tokens.toLocaleString()} — raise or clear it in Settings to resume`
+                : paused
+                  ? "Resume all bots"
+                  : "Pause all bots"
+            }
             onClick={() =>
               void api("/api/pause", {
                 method: "POST",
@@ -1157,7 +1192,7 @@ export function App() {
                 body: JSON.stringify({ paused: !paused }),
               })
                 .then(() => void load())
-                .catch(() => undefined)
+                .catch((e) => alert(e instanceof Error ? e.message : String(e)))
             }
           >
             {paused ? "Resume" : "Pause"}
@@ -2432,6 +2467,41 @@ export function SettingsGeneral() {
     }
   };
 
+  const [cap, setCap] = useState(0);
+  const [savedCap, setSavedCap] = useState<number | null>(null);
+  const [usage30d, setUsage30d] = useState(0);
+  const [savingCap, setSavingCap] = useState(false);
+
+  useEffect(() => {
+    void api<Breaker>("/api/breaker")
+      .then((b) => {
+        setCap(b.limit_tokens);
+        setSavedCap(b.limit_tokens);
+        setUsage30d(b.tokens_30d);
+      })
+      .catch(() => {});
+  }, []);
+
+  const capDirty = savedCap !== null && cap !== savedCap;
+  useDirtyGuard("the spend circuit breaker cap", capDirty);
+
+  const saveCap = async () => {
+    setSavingCap(true);
+    try {
+      const b = await api<Breaker>("/api/breaker", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ limit_tokens: cap }),
+      });
+      setSavedCap(b.limit_tokens);
+      setUsage30d(b.tokens_30d);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingCap(false);
+    }
+  };
+
   const [soundsOn, setSoundsOn] = useState(
     () => localStorage.getItem("bots-sounds") === "on",
   );
@@ -2472,6 +2542,27 @@ export function SettingsGeneral() {
           Save
         </button>
         <UnsavedNote dirty={idleDirty} />
+      </div>
+      <p className="muted">Spend circuit breaker cap</p>
+      <div className="actions">
+        <input
+          type="number"
+          min={0}
+          aria-label="Spend circuit breaker token cap"
+          value={cap}
+          onChange={(e) =>
+            setCap(Math.max(0, Math.floor(Number(e.target.value) || 0)))
+          }
+        />
+        tokens / trailing 30 days (0 = unlimited · {fmtTokens(usage30d)} used)
+        <button
+          type="button"
+          disabled={savingCap}
+          onClick={() => void saveCap()}
+        >
+          Save
+        </button>
+        <UnsavedNote dirty={capDirty} />
       </div>
       <p className="muted">Notification sounds</p>
       <div className="actions">

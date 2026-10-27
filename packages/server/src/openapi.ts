@@ -220,7 +220,10 @@ export function openApiDoc(): Json {
   add("/api/pause", "get", "Read the global pause state", {
     res: {
       type: "object",
-      properties: { paused: { type: "boolean" } },
+      properties: {
+        paused: { type: "boolean" },
+        reason: { type: "string", enum: ["breaker"] },
+      },
     },
   });
   add("/api/pause", "post", "Pause or resume all bots", {
@@ -234,9 +237,49 @@ export function openApiDoc(): Json {
       properties: { paused: { type: "boolean" } },
     },
   });
-  add("/api/stop-all", "post", "Emergency stop: interrupt all running bots and arm the global pause", {
-    res: { type: "object", properties: { stopped: { type: "number" } } },
-  });
+  add(
+    "/api/stop-all",
+    "post",
+    "Emergency stop: interrupt all running bots and arm the global pause",
+    {
+      res: { type: "object", properties: { stopped: { type: "number" } } },
+    },
+  );
+  add(
+    "/api/breaker",
+    "get",
+    "Read the spend circuit breaker cap, trailing-30-day usage and exceeded flag",
+    {
+      res: {
+        type: "object",
+        properties: {
+          limit_tokens: { type: "number" },
+          tokens_30d: { type: "number" },
+          exceeded: { type: "boolean" },
+        },
+      },
+    },
+  );
+  add(
+    "/api/breaker",
+    "put",
+    "Set the spend circuit breaker token cap (0 = unlimited)",
+    {
+      body: {
+        type: "object",
+        required: ["limit_tokens"],
+        properties: { limit_tokens: { type: "number" } },
+      },
+      res: {
+        type: "object",
+        properties: {
+          limit_tokens: { type: "number" },
+          tokens_30d: { type: "number" },
+          exceeded: { type: "boolean" },
+        },
+      },
+    },
+  );
   add("/api/bots", "get", "List bots with health and run state", {
     res: { type: "array", items: ref("Bot") },
   });
@@ -272,9 +315,14 @@ export function openApiDoc(): Json {
     },
   );
   add("/api/bots/{id}/runs", "get", "Run history", { params: ["id"] });
-  add("/api/bots/{id}/runs/{runId}/transcript", "get", "Ordered replay steps for one run", {
-    params: ["id", "runId"],
-  });
+  add(
+    "/api/bots/{id}/runs/{runId}/transcript",
+    "get",
+    "Ordered replay steps for one run",
+    {
+      params: ["id", "runId"],
+    },
+  );
   add(
     "/api/bots/{id}/usage",
     "get",
