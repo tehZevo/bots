@@ -2637,8 +2637,21 @@ main.scr-active,
   display: flex;
   gap: 0.5rem;
   align-items: center;
+  flex-wrap: wrap;
   font-size: 0.78rem;
   color: var(--muted);
+}
+
+.ractions {
+  margin-left: auto;
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.ractions button {
+  font-size: 0.78rem;
+  padding: 0.2rem 0.45rem;
 }
 
 .rkind {
