@@ -5213,14 +5213,59 @@ interface Skill {
   import_info?: string | null;
 }
 
+export type McpEnvMode = "literal" | "secret";
+
+interface McpSecretRef {
+  secret: string;
+}
+
+export type McpEnvValue = string | McpSecretRef;
+
 interface McpServer {
   id: string;
   name: string;
   transport: "stdio";
   command: string;
   args: string[];
-  env: Record<string, string>;
+  env: Record<string, McpEnvValue>;
   enabled: number;
+}
+
+interface McpEnvRow {
+  key: string;
+  mode: McpEnvMode;
+  value: string;
+}
+
+function isMcpSecretRef(value: unknown): value is McpSecretRef {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    typeof (value as { secret?: unknown }).secret === "string"
+  );
+}
+
+export function mcpEnvRowsFromRecord(
+  env: Record<string, McpEnvValue>,
+): McpEnvRow[] {
+  return Object.entries(env).map(([key, value]) =>
+    isMcpSecretRef(value)
+      ? { key, mode: "secret", value: value.secret }
+      : { key, mode: "literal", value },
+  );
+}
+
+export function mcpEnvMapFromRows(
+  rows: McpEnvRow[],
+): Record<string, McpEnvValue> {
+  const env: Record<string, McpEnvValue> = {};
+  for (const row of rows) {
+    const key = row.key.trim();
+    if (!key) continue;
+    env[key] = row.mode === "secret" ? { secret: row.value } : row.value;
+  }
+  return env;
 }
 
 export function IntegrationsPanel() {
@@ -5295,11 +5340,17 @@ export function IntegrationsPanel() {
                 </button>
               </header>
               <code>{[s.command, ...s.args].join(" ")}</code>
-              {Object.keys(s.env).length > 0 && (
+              {Object.entries(s.env).length > 0 && (
                 <p className="muted envline">
-                  {Object.keys(s.env)
-                    .map((k) => `${k}=••••`)
-                    .join("  ")}
+                  {Object.entries(s.env).map(([key, value]) => {
+                    const secret = isMcpSecretRef(value) ? value.secret : null;
+                    return (
+                      <span key={key} className="envchip">
+                        {`${key}=••••`}
+                        {secret && <span className="srcbadge">{secret}</span>}
+                      </span>
+                    );
+                  })}
                 </p>
               )}
               {r?.tools !== undefined && (
@@ -5525,10 +5576,10 @@ export function SkillModal({
   );
 }
 
-export function findDuplicateEnvKey(rows: [string, string][]): string | null {
+export function findDuplicateEnvKey(rows: { key: string }[]): string | null {
   const seen = new Set<string>();
-  for (const [key] of rows) {
-    const trimmed = key.trim();
+  for (const row of rows) {
+    const trimmed = row.key.trim();
     if (!trimmed) continue;
     if (seen.has(trimmed)) return trimmed;
     seen.add(trimmed);
@@ -5548,13 +5599,27 @@ export function McpServerModal({
   const [name, setName] = useState(server?.name ?? "");
   const [command, setCommand] = useState(server?.command ?? "");
   const [args, setArgs] = useState((server?.args ?? []).join("\n"));
-  const [envRows, setEnvRows] = useState<[string, string][]>(() => {
-    const entries = Object.entries(server?.env ?? {}) as [string, string][];
-    return entries.length > 0 ? entries : [["", ""]];
+  const [envRows, setEnvRows] = useState<McpEnvRow[]>(() => {
+    const rows = mcpEnvRowsFromRecord(server?.env ?? {});
+    return rows.length > 0 ? rows : [{ key: "", mode: "literal", value: "" }];
   });
+  const [secrets, setSecrets] = useState<SecretMeta[]>([]);
   const [enabled, setEnabled] = useState(server ? server.enabled === 1 : true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void api<SecretMeta[]>("/api/secrets")
+      .then((items) => {
+        if (live) setSecrets(items);
+      })
+      .catch(() => {
+        if (live) setSecrets([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
   const snap = useRef({
     name: server?.name ?? "",
     command: server?.command ?? "",
@@ -5594,11 +5659,6 @@ export function McpServerModal({
             }
             setBusy(true);
             setError(null);
-            const envMap: Record<string, string> = {};
-            for (const [k, v] of envRows) {
-              const key = k.trim();
-              if (key) envMap[key] = v;
-            }
             const body = {
               name,
               command,
@@ -5606,7 +5666,7 @@ export function McpServerModal({
                 .split("\n")
                 .map((a) => a.trim())
                 .filter(Boolean),
-              env: envMap,
+              env: mcpEnvMapFromRows(envRows),
               enabled,
             };
             try {
@@ -5654,30 +5714,97 @@ export function McpServerModal({
           </label>
           <fieldset className="envrows">
             <legend>Env vars</legend>
-            {envRows.map(([k, v], i) => (
+            {envRows.map((row, i) => (
               <div className="envrow" key={i}>
                 <input
                   placeholder="KEY"
-                  value={k}
+                  value={row.key}
                   onChange={(e) =>
                     setEnvRows(
                       envRows.map((r, j) =>
-                        j === i ? [e.target.value, r[1]] : r,
+                        j === i ? { ...r, key: e.target.value } : r,
                       ),
                     )
                   }
                 />
-                <input
-                  placeholder="value"
-                  value={v}
-                  onChange={(e) =>
-                    setEnvRows(
-                      envRows.map((r, j) =>
-                        j === i ? [r[0], e.target.value] : r,
-                      ),
-                    )
-                  }
-                />
+                <div className="envvalue">
+                  <div className="themegroup envmode">
+                    <button
+                      type="button"
+                      aria-label={`Use a literal value for env var ${i + 1}`}
+                      className={row.mode === "literal" ? "sel" : ""}
+                      onClick={() =>
+                        setEnvRows(
+                          envRows.map((r, j) =>
+                            j === i ? { ...r, mode: "literal" } : r,
+                          ),
+                        )
+                      }
+                    >
+                      Literal
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Use a secret reference for env var ${i + 1}`}
+                      className={row.mode === "secret" ? "sel" : ""}
+                      onClick={() =>
+                        setEnvRows(
+                          envRows.map((r, j) => {
+                            if (j !== i) return r;
+                            const known = secrets.some(
+                              (s) => s.name === r.value,
+                            );
+                            return {
+                              ...r,
+                              mode: "secret",
+                              value: known ? r.value : "",
+                            };
+                          }),
+                        )
+                      }
+                    >
+                      Secret
+                    </button>
+                  </div>
+                  {row.mode === "literal" ? (
+                    <input
+                      placeholder="value"
+                      value={row.value}
+                      onChange={(e) =>
+                        setEnvRows(
+                          envRows.map((r, j) =>
+                            j === i ? { ...r, value: e.target.value } : r,
+                          ),
+                        )
+                      }
+                    />
+                  ) : (
+                    <select
+                      aria-label={`Env var ${i + 1} secret`}
+                      value={row.value}
+                      onChange={(e) =>
+                        setEnvRows(
+                          envRows.map((r, j) =>
+                            j === i ? { ...r, value: e.target.value } : r,
+                          ),
+                        )
+                      }
+                    >
+                      <option value="">Select a secret…</option>
+                      {row.value &&
+                        !secrets.some((s) => s.name === row.value) && (
+                          <option
+                            value={row.value}
+                          >{`${row.value} (missing)`}</option>
+                        )}
+                      {secrets.map((secret) => (
+                        <option key={secret.id} value={secret.name}>
+                          {secret.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
                 <button
                   type="button"
                   className="danger ghost"
@@ -5691,7 +5818,12 @@ export function McpServerModal({
             <button
               type="button"
               className="linklike"
-              onClick={() => setEnvRows([...envRows, ["", ""]])}
+              onClick={() =>
+                setEnvRows([
+                  ...envRows,
+                  { key: "", mode: "literal", value: "" },
+                ])
+              }
             >
               + Add variable
             </button>

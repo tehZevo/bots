@@ -1,6 +1,0 @@
-Auto-merging docs/bots.md
-CONFLICT (content): Merge conflict in docs/bots.md
-Auto-merging packages/web/src/App.tsx
-Auto-merging packages/web/src/styles.css
-Auto-merging packages/web/test/ssr.test.ts
-Automatic merge failed; fix conflicts and then commit the result.

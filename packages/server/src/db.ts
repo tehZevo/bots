@@ -1934,13 +1934,51 @@ export function botUsageTotals(botId: string): {
   return { lifetime: sumUsage(botId), last30d: sumUsage(botId, since) };
 }
 
+export interface McpSecretRef {
+  secret: string;
+}
+
+export type McpEnvValue = string | McpSecretRef;
+
+export function isMcpSecretRef(value: unknown): value is McpSecretRef {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    typeof (value as { secret?: unknown }).secret === "string"
+  );
+}
+
+function normalizeMcpEnv(raw: unknown): Record<string, McpEnvValue> {
+  const env: Record<string, McpEnvValue> = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return env;
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === "string") env[key] = value;
+    else if (isMcpSecretRef(value)) env[key] = { secret: value.secret };
+  }
+  return env;
+}
+
+// specs/mcp/env-secrets.md — references resolve at spawn time, never in stored config.
+export function resolveMcpEnv(
+  env: Record<string, McpEnvValue>,
+): Record<string, string> {
+  const resolved: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (isMcpSecretRef(value))
+      resolved[key] = findSecretByName(value.secret)?.value ?? "";
+    else resolved[key] = value;
+  }
+  return resolved;
+}
+
 export interface McpServerRow {
   id: string;
   name: string;
   transport: "stdio";
   command: string;
   args: string[];
-  env: Record<string, string>;
+  env: Record<string, McpEnvValue>;
   enabled: number;
   created_at: number;
 }
@@ -1983,7 +2021,7 @@ function hydrateMcp(
   return {
     ...row,
     args: JSON.parse(row.args) as string[],
-    env: JSON.parse(row.env) as Record<string, string>,
+    env: normalizeMcpEnv(JSON.parse(row.env)),
   };
 }
 
