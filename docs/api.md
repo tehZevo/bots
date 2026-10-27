@@ -6,7 +6,7 @@ Everything the UI does is available headlessly under `/api` (JSON), documented a
 
 Every route requires a session cookie (web UI login) or `Authorization: Bearer <api key>`; anything else answers `401 { error }`. Open exceptions: `/api/health`, the auth routes below, and webhook endpoints (`POST /api/webhooks/:triggerId`), which authenticate with their trigger secret instead. Cookie state changes are CSRF-guarded: same-origin `Origin` when present, JSON bodies otherwise.
 
-Create keys in **Settings → API keys**: each value is `bots_` + 40 hex chars, shown exactly once and stored hashed; the list shows name, created-at and last-used (updated at most once per minute). Revoking fails closed — requests with a revoked or malformed key get `401 { "error": "invalid api key" }`.
+Create keys in **Settings → API keys**: each value is `bots_` + 40 hex chars, shown exactly once and stored hashed; the list shows name, created-at and last-used (updated at most once per minute). Revoking fails closed — requests with a revoked or malformed key get `401 { "error": "invalid api key" }`. For UI key management, account setup and browser-approved CLI sign-in, see [Accounts & access](/authentication).
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -80,7 +80,20 @@ The approval page lives at `/device` (`verification_uri_complete` deep-links it 
 | PATCH | `/api/templates/:id` | Partial update (same validation) |
 | DELETE | `/api/templates/:id` | Delete — bots created from it are untouched |
 
-See [Bots → Templates](/bots#templates) for the UI flow.
+See [Templates](/templates) for the UI flow.
+
+## Secrets
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/secrets` | List `{ id, name, key, created_at }` — values hidden |
+| POST | `/api/secrets` | Create — `{ name, key, value }`; duplicate name or invalid env-var key → `400` |
+| GET | `/api/secrets/:secretId` | Read metadata without the value |
+| GET | `/api/secrets/:secretId/value` | Reveal the current plaintext value for an authorized action |
+| PATCH | `/api/secrets/:secretId` | Update supplied fields; replacing `value` is destructive |
+| DELETE | `/api/secrets/:secretId` | Remove — running sandboxes must restart to drop its variable |
+
+Bots return their `secret_ids` in the bot API and accept updates through `PATCH /api/bots/:id`; teams support `secret_ids` on their PATCH route. See [Secrets](/secrets) for injection and redaction behavior.
 
 ## Control MCP (`/mcp`)
 
