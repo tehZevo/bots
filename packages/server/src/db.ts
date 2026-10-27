@@ -96,6 +96,10 @@ mkdirSync(dirname(config.databasePath), { recursive: true });
 const db = new Database(config.databasePath);
 db.pragma("journal_mode = WAL");
 
+export function runInTransaction<T>(fn: () => T): T {
+  return db.transaction(fn)();
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS bots (
     id TEXT PRIMARY KEY,
@@ -861,6 +865,34 @@ export function removeTeamMember(teamId: string, botId: string): void {
     teamId,
     botId,
   );
+}
+
+export function teamIdsByBot(): Map<string, { id: string; leader: boolean }[]> {
+  const map = new Map<string, { id: string; leader: boolean }[]>();
+  for (const row of db
+    .prepare(
+      "SELECT bot_id, team_id, leader FROM team_members ORDER BY team_id",
+    )
+    .all() as { bot_id: string; team_id: string; leader: number }[]) {
+    const list = map.get(row.bot_id) ?? [];
+    list.push({ id: row.team_id, leader: row.leader === 1 });
+    map.set(row.bot_id, list);
+  }
+  return map;
+}
+
+export function setTeamMembershipsForBot(
+  botId: string,
+  memberships: { team_id: string; leader: boolean }[],
+): void {
+  db.prepare("DELETE FROM team_members WHERE bot_id = ?").run(botId);
+  const ins = db.prepare(
+    `INSERT INTO team_members (team_id, bot_id, leader) VALUES (?, ?, ?)
+     ON CONFLICT (team_id, bot_id) DO UPDATE SET leader = excluded.leader`,
+  );
+  for (const m of new Map(memberships.map((x) => [x.team_id, x])).values()) {
+    ins.run(m.team_id, botId, m.leader ? 1 : 0);
+  }
 }
 
 export interface TeammateRow {
@@ -2130,13 +2162,17 @@ export function insertSkill(skill: SkillRow): void {
 
 export function updateSkill(
   id: string,
-  fields: Partial<Pick<SkillRow, "name" | "description" | "instructions">>,
+  fields: Partial<
+    Pick<SkillRow, "name" | "description" | "instructions"> & {
+      import_info: string | null;
+    }
+  >,
 ): void {
-  const sets = Object.keys(fields)
-    .map((k) => `${k} = ?`)
-    .join(", ");
+  const entries = Object.entries(fields);
+  if (entries.length === 0) return;
+  const sets = entries.map(([k]) => `${k} = ?`).join(", ");
   db.prepare(`UPDATE skills SET ${sets} WHERE id = ?`).run(
-    ...Object.values(fields),
+    ...entries.map(([, v]) => v),
     id,
   );
 }
@@ -2295,6 +2331,22 @@ export function listApiKeys(userId: string): ApiKeyRow[] {
     .all(userId) as ApiKeyRow[];
 }
 
+export function listAllApiKeys(): (ApiKeyRow & { hash: string })[] {
+  return db
+    .prepare(
+      "SELECT id, name, hash, user_id, created_at, last_used_at FROM api_keys ORDER BY created_at",
+    )
+    .all() as (ApiKeyRow & { hash: string })[];
+}
+
+export function getApiKeyById(id: string): ApiKeyRow | undefined {
+  return db
+    .prepare(
+      "SELECT id, name, user_id, created_at, last_used_at FROM api_keys WHERE id = ?",
+    )
+    .get(id) as ApiKeyRow | undefined;
+}
+
 export function getApiKeyByHash(hash: string): ApiKeyRow | undefined {
   return db
     .prepare(
@@ -2305,6 +2357,17 @@ export function getApiKeyByHash(hash: string): ApiKeyRow | undefined {
 
 export function touchApiKey(id: string, ts: number): void {
   db.prepare("UPDATE api_keys SET last_used_at = ? WHERE id = ?").run(ts, id);
+}
+
+export function updateApiKey(
+  id: string,
+  patch: Partial<{ name: string; hash: string; created_at: number }>,
+): void {
+  const entries = Object.entries(patch).filter(([, v]) => v !== undefined);
+  if (entries.length === 0) return;
+  db.prepare(
+    `UPDATE api_keys SET ${entries.map(([k]) => `${k} = @${k}`).join(", ")} WHERE id = @id`,
+  ).run({ ...Object.fromEntries(entries), id });
 }
 
 export function deleteApiKey(id: string, userId: string): boolean {

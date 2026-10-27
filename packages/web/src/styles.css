@@ -2289,6 +2289,32 @@ button.danger.ghost {
   max-width: 9rem;
 }
 
+.backupsecretrows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.backupsecretrow span {
+  min-width: 9rem;
+}
+
+.backupsecretrow input {
+  width: 100%;
+}
+
+.actions input[type="file"] {
+  max-width: min(20rem, 100%);
+}
+
+@media (max-width: 700px) {
+  .backupsecretrow {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 .warnline {
   margin: 0.25rem 0;
   color: var(--err);
