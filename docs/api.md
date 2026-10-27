@@ -6,7 +6,7 @@ Everything the UI does is available headlessly under `/api` (JSON), documented a
 
 Every route requires a session cookie (web UI login) or `Authorization: Bearer <api key>`; anything else answers `401 { error }`. Open exceptions: `/api/health`, the auth routes below, and webhook endpoints (`POST /api/webhooks/:triggerId`), which authenticate with their trigger secret instead. Cookie state changes are CSRF-guarded: same-origin `Origin` when present, JSON bodies otherwise.
 
-Create keys in **Settings → API keys**: each value is `bots_` + 40 hex chars, shown exactly once and stored hashed; the list shows name, created-at and last-used (updated at most once per minute). Revoking fails closed — requests with a revoked or malformed key get `401 { "error": "invalid api key" }`. For UI key management, account setup and browser-approved CLI sign-in, see [Accounts & access](/authentication).
+Create keys in **Settings → System → API keys**: each value is `bots_` + 40 hex chars, shown exactly once and stored hashed; the list shows name, created-at and last-used (updated at most once per minute). Revoking fails closed — requests with a revoked or malformed key get `401 { "error": "invalid api key" }`. For UI key management, account setup and browser-approved CLI sign-in, see [Accounts & access](/authentication).
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -97,7 +97,7 @@ Bots return their `secret_ids` in the bot API and accept updates through `PATCH 
 
 ## Control MCP (`/mcp`)
 
-External agents drive the same surface over MCP at streamable HTTP `POST /mcp`, authenticated with an API key (`Authorization: Bearer bots_…`; session cookies don't apply). JSON-RPC methods: `initialize`, `tools/list`, `tools/call`. Tools are flat verbs whose results mirror the REST payloads exactly: `bots_list`, `bot_get`, `bot_create`, `bot_set_role`, `run_now`, `interrupt`, `runs_tail` (accepts `limit`, max 100). A **Settings → Control MCP** switch enables the endpoint; while disabled `/mcp` returns `404`. Unknown or revoked keys are rejected with `401` before any JSON-RPC method runs.
+External agents drive the same surface over MCP at streamable HTTP `POST /mcp`, authenticated with an API key (`Authorization: Bearer bots_…`; session cookies don't apply). JSON-RPC methods: `initialize`, `tools/list`, `tools/call`. Tools are flat verbs whose results mirror the REST payloads exactly: `bots_list`, `bot_get`, `bot_create`, `bot_set_role`, `run_now`, `interrupt`, `runs_tail` (accepts `limit`, max 100). A **Settings → System → Control MCP** switch enables the endpoint; while disabled `/mcp` returns `404`. Unknown or revoked keys are rejected with `401` before any JSON-RPC method runs.
 
 ## Notifications
 

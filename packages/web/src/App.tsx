@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { AccountSection } from "./auth.tsx";
+import { PasswordSettings, SessionSettings } from "./auth.tsx";
 import { renderMarkdown } from "./markdown.ts";
 import { PushSection } from "./push.tsx";
 import { readStoredTheme, setStoredTheme } from "./theme.ts";
@@ -902,6 +902,7 @@ export function App() {
     if (typeof addEventListener === "undefined") return;
     const onPop = () => {
       const target = tabFromPath(location.pathname);
+      if (target === tabRef.current) return;
       const label = anyDirtyLabel();
       if (!label) {
         setTabRaw(target);
@@ -2315,11 +2316,190 @@ interface BotGeneralSettings {
   default_model: string | null;
 }
 
+type SettingsTab = "general" | "providers" | "system";
+
+const SETTINGS_TABS: readonly { id: SettingsTab; label: string }[] = [
+  { id: "general", label: "General" },
+  { id: "providers", label: "Providers" },
+  { id: "system", label: "System" },
+];
+
+function settingsHref(tab: SettingsTab): string {
+  return tab === "general" ? "/settings" : `/settings?tab=${tab}`;
+}
+
+function settingsTabFromLocation(): SettingsTab {
+  if (typeof location === "undefined") return "general";
+  const value = new URLSearchParams(location.search).get("tab");
+  return SETTINGS_TABS.some((x) => x.id === value)
+    ? (value as SettingsTab)
+    : "general";
+}
+
 export function SettingsPanel() {
+  const guard = useNavGuard();
+  const [sub, setSub] = useState<SettingsTab>(settingsTabFromLocation);
+  const subRef = useRef(sub);
+
+  useEffect(() => {
+    subRef.current = sub;
+  }, [sub]);
+
+  useEffect(() => {
+    if (typeof addEventListener === "undefined") return;
+    const onPop = () => {
+      if (location.pathname.replace(/\/+$/, "") !== "/settings") return;
+      const target = settingsTabFromLocation();
+      if (target === subRef.current) return;
+      if (anyDirtyLabel())
+        history.pushState({}, "", settingsHref(subRef.current));
+      guard(() => setSub(target));
+    };
+    addEventListener("popstate", onPop);
+    return () => removeEventListener("popstate", onPop);
+  }, [guard]);
+
+  const switchTab = (next: SettingsTab) => {
+    if (next === sub) return;
+    guard(() => {
+      setSub(next);
+      if (typeof history !== "undefined")
+        history.pushState({}, "", settingsHref(next));
+    });
+  };
+
+  return (
+    <section>
+      <div className="mainhead">
+        <h2>Settings</h2>
+      </div>
+      <nav className="mtabs" aria-label="Settings sections">
+        {SETTINGS_TABS.map((x) => (
+          <button
+            key={x.id}
+            type="button"
+            className={sub === x.id ? "sel" : ""}
+            onClick={() => switchTab(x.id)}
+          >
+            {x.label}
+          </button>
+        ))}
+      </nav>
+      <div
+        className="tabbody settingstab"
+        role="tabpanel"
+        aria-label={`${sub[0].toUpperCase()}${sub.slice(1)} settings`}
+      >
+        {sub === "general" && <SettingsGeneral key="general" />}
+        {sub === "providers" && <SettingsProviders key="providers" />}
+        {sub === "system" && <SettingsSystem key="system" />}
+      </div>
+    </section>
+  );
+}
+
+export function SettingsGeneral() {
   const [theme, setTheme] = useState<Theme>(readStoredTheme);
   const [idle, setIdle] = useState(5);
   const [savedIdle, setSavedIdle] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    void api<{ sandbox_idle_minutes: number }>("/api/settings")
+      .then((s) => {
+        setIdle(s.sandbox_idle_minutes);
+        setSavedIdle(s.sandbox_idle_minutes);
+      })
+      .catch(() => {});
+  }, []);
+
+  const idleDirty = savedIdle !== null && idle !== savedIdle;
+  useDirtyGuard("the sandbox idle timeout", idleDirty);
+
+  const saveIdle = async () => {
+    setSaving(true);
+    try {
+      await api("/api/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sandbox_idle_minutes: idle }),
+      });
+      setSavedIdle(idle);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const [soundsOn, setSoundsOn] = useState(
+    () => localStorage.getItem("bots-sounds") === "on",
+  );
+
+  const pickTheme = (t: Theme) => {
+    setStoredTheme(t);
+    setTheme(t);
+  };
+
+  return (
+    <>
+      <PasswordSettings />
+      <p className="muted">Theme</p>
+      <div className="themegroup" role="group" aria-label="Theme">
+        {THEMES.map((t) => (
+          <button
+            key={t}
+            type="button"
+            className={t === theme ? "sel" : ""}
+            onClick={() => pickTheme(t)}
+          >
+            {t[0].toUpperCase() + t.slice(1)}
+          </button>
+        ))}
+      </div>
+      <p className="muted">Sandbox idle timeout</p>
+      <div className="actions">
+        <input
+          type="number"
+          min={0}
+          max={1440}
+          aria-label="Sandbox idle timeout"
+          value={idle}
+          onChange={(e) => setIdle(Number(e.target.value))}
+        />
+        minutes
+        <button type="button" disabled={saving} onClick={() => void saveIdle()}>
+          Save
+        </button>
+        <UnsavedNote dirty={idleDirty} />
+      </div>
+      <p className="muted">Notification sounds</p>
+      <div className="actions">
+        <label className="switch">
+          <input
+            type="checkbox"
+            aria-label="Play notification sounds"
+            checked={soundsOn}
+            onChange={() => {
+              const next = !soundsOn;
+              setSoundsOn(next);
+              localStorage.setItem("bots-sounds", next ? "on" : "off");
+              if (next) playSound("default");
+            }}
+          />
+          <span className="knob" />
+          <span className="state">{soundsOn ? "On" : "Off"}</span>
+        </label>
+        <button type="button" onClick={() => playSound("default")}>
+          Preview
+        </button>
+      </div>
+      <PushSection />
+    </>
+  );
+}
+
+export function SettingsProviders() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [defaultProviderId, setDefaultProviderId] = useState<string | null>(
     null,
@@ -2328,52 +2508,16 @@ export function SettingsPanel() {
   const [formOpen, setFormOpen] = useState(false);
   const [formProvider, setFormProvider] = useState<Provider | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Provider | null>(null);
-  const [keys, setKeys] = useState<ApiKey[]>([]);
-  const [keyName, setKeyName] = useState("");
-  const [revealedKey, setRevealedKey] = useState<string | null>(null);
-  const [mcpEnabled, setMcpEnabled] = useState(true);
-
-  const loadKeys = useCallback(async () => {
-    const list = await api<ApiKey[]>("/api/api-keys").catch(
-      () => [] as ApiKey[],
-    );
-    setKeys(list);
-  }, []);
-
-  useEffect(() => {
-    void loadKeys();
-  }, [loadKeys]);
-
-  const createKey = async () => {
-    const res = await api<{ value: string }>("/api/api-keys", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: keyName.trim() }),
-    }).catch(() => null);
-    if (res?.value) {
-      setRevealedKey(res.value);
-      setKeyName("");
-      void loadKeys();
-    }
-  };
-
-  const revokeKey = async (id: string) => {
-    await api(`/api/api-keys/${id}`, { method: "DELETE" }).catch(() => null);
-    void loadKeys();
-  };
 
   const loadProviders = useCallback(async () => {
     const [list, settings] = await Promise.all([
       api<Provider[]>("/api/providers").catch(() => [] as Provider[]),
-      api<{
-        default_provider_id: string | null;
-        default_model: string | null;
-        control_mcp_enabled?: boolean;
-      }>("/api/settings").catch(() => null),
+      api<{ default_provider_id: string | null; default_model: string | null }>(
+        "/api/settings",
+      ).catch(() => null),
     ]);
     setProviders(list);
     if (settings) {
-      setMcpEnabled(settings.control_mcp_enabled !== false);
       setDefaultProviderId(settings.default_provider_id);
       setDefaultModel(settings.default_model);
     }
@@ -2420,167 +2564,8 @@ export function SettingsPanel() {
       ]
     : [];
 
-  useEffect(() => {
-    void api<{ sandbox_idle_minutes: number }>("/api/settings")
-      .then((s) => {
-        setIdle(s.sandbox_idle_minutes);
-        setSavedIdle(s.sandbox_idle_minutes);
-      })
-      .catch(() => {});
-  }, []);
-
-  const idleDirty = savedIdle !== null && idle !== savedIdle;
-  useDirtyGuard("the sandbox idle timeout", idleDirty);
-
-  const saveIdle = async () => {
-    setSaving(true);
-    try {
-      await api("/api/settings", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sandbox_idle_minutes: idle }),
-      });
-      setSavedIdle(idle);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const [soundsOn, setSoundsOn] = useState(
-    () => localStorage.getItem("bots-sounds") === "on",
-  );
-
-  const pick = (t: Theme) => {
-    setStoredTheme(t);
-    setTheme(t);
-  };
-
   return (
-    <section>
-      <div className="mainhead">
-        <h2>Settings</h2>
-      </div>
-      <AccountSection />
-      <p className="muted">Theme</p>
-      <div className="themegroup" role="group" aria-label="Theme">
-        {THEMES.map((t) => (
-          <button
-            key={t}
-            type="button"
-            className={t === theme ? "sel" : ""}
-            onClick={() => pick(t)}
-          >
-            {t[0].toUpperCase() + t.slice(1)}
-          </button>
-        ))}
-      </div>
-      <p className="muted">Sandbox idle timeout</p>
-      <div className="actions">
-        <input
-          type="number"
-          min={0}
-          max={1440}
-          value={idle}
-          onChange={(e) => setIdle(Number(e.target.value))}
-        />
-        minutes
-        <button type="button" disabled={saving} onClick={() => void saveIdle()}>
-          Save
-        </button>
-        <UnsavedNote dirty={idleDirty} />
-      </div>
-      <p className="muted">Notification sounds</p>
-      <div className="actions">
-        <label className="switch">
-          <input
-            type="checkbox"
-            aria-label="Play notification sounds"
-            checked={soundsOn}
-            onChange={() => {
-              const next = !soundsOn;
-              setSoundsOn(next);
-              localStorage.setItem("bots-sounds", next ? "on" : "off");
-              if (next) playSound("default");
-            }}
-          />
-          <span className="knob" />
-          <span className="state">{soundsOn ? "On" : "Off"}</span>
-        </label>
-        <button type="button" onClick={() => playSound("default")}>
-          Preview
-        </button>
-      </div>
-      <PushSection />
-
-      <p className="muted">API keys</p>
-      <ul className="plist">
-        {keys.map((k) => (
-          <li key={k.id}>
-            <div className="pinfo">
-              <strong>{k.name}</strong>
-              <span className="muted">created {relTime(k.created_at)}</span>
-              <span className="muted">
-                {k.last_used_at === null
-                  ? "never used"
-                  : `last used ${relTime(k.last_used_at)}`}
-              </span>
-            </div>
-            <div className="actions">
-              <button type="button" onClick={() => void revokeKey(k.id)}>
-                Revoke
-              </button>
-            </div>
-          </li>
-        ))}
-      </ul>
-      {revealedKey !== null && (
-        <p className="keyreveal">
-          New key — shown once: <code>{revealedKey}</code>
-        </p>
-      )}
-      <div className="keyrow">
-        <input
-          placeholder="Key name"
-          value={keyName}
-          onChange={(e) => setKeyName(e.target.value)}
-        />
-        <button
-          type="button"
-          disabled={!keyName.trim()}
-          onClick={() => void createKey()}
-        >
-          Add key
-        </button>
-      </div>
-      <p className="muted">
-        Headless access: <a href="/api/openapi.json">OpenAPI spec</a>
-      </p>
-
-      <p className="muted">Control MCP server</p>
-      <div className="tedithead">
-        <label className="switch">
-          <input
-            type="checkbox"
-            aria-label="Control MCP enabled"
-            checked={mcpEnabled}
-            onChange={() => {
-              const next = !mcpEnabled;
-              setMcpEnabled(next);
-              api("/api/settings", {
-                method: "PUT",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ control_mcp_enabled: next }),
-              }).catch((e) => alert(e.message));
-            }}
-          />
-          <span className="knob" />
-          <span className="state">{mcpEnabled ? "Enabled" : "Disabled"}</span>
-        </label>
-        <code>/mcp</code>
-      </div>
-
+    <>
       <p className="muted">LLM providers</p>
       {providers.length === 0 && (
         <p className="muted">
@@ -2682,7 +2667,118 @@ export function SettingsPanel() {
           onConfirm={() => void removeProvider(confirmDelete)}
         />
       )}
-    </section>
+    </>
+  );
+}
+
+export function SettingsSystem() {
+  const [keys, setKeys] = useState<ApiKey[]>([]);
+  const [keyName, setKeyName] = useState("");
+  const [revealedKey, setRevealedKey] = useState<string | null>(null);
+  const [mcpEnabled, setMcpEnabled] = useState(true);
+
+  const loadKeys = useCallback(async () => {
+    const list = await api<ApiKey[]>("/api/api-keys").catch(
+      () => [] as ApiKey[],
+    );
+    setKeys(list);
+  }, []);
+
+  useEffect(() => {
+    void loadKeys();
+    void api<{ control_mcp_enabled?: boolean }>("/api/settings")
+      .then((settings) => setMcpEnabled(settings.control_mcp_enabled !== false))
+      .catch(() => undefined);
+  }, [loadKeys]);
+
+  const createKey = async () => {
+    const res = await api<{ value: string }>("/api/api-keys", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: keyName.trim() }),
+    }).catch(() => null);
+    if (res?.value) {
+      setRevealedKey(res.value);
+      setKeyName("");
+      void loadKeys();
+    }
+  };
+
+  const revokeKey = async (id: string) => {
+    await api(`/api/api-keys/${id}`, { method: "DELETE" }).catch(() => null);
+    void loadKeys();
+  };
+
+  return (
+    <>
+      <SessionSettings />
+      <p className="muted">API keys</p>
+      <ul className="plist">
+        {keys.map((k) => (
+          <li key={k.id}>
+            <div className="pinfo">
+              <strong>{k.name}</strong>
+              <span className="muted">created {relTime(k.created_at)}</span>
+              <span className="muted">
+                {k.last_used_at === null
+                  ? "never used"
+                  : `last used ${relTime(k.last_used_at)}`}
+              </span>
+            </div>
+            <div className="actions">
+              <button type="button" onClick={() => void revokeKey(k.id)}>
+                Revoke
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {revealedKey !== null && (
+        <p className="keyreveal">
+          New key — shown once: <code>{revealedKey}</code>
+        </p>
+      )}
+      <div className="keyrow">
+        <input
+          placeholder="Key name"
+          value={keyName}
+          onChange={(e) => setKeyName(e.target.value)}
+        />
+        <button
+          type="button"
+          disabled={!keyName.trim()}
+          onClick={() => void createKey()}
+        >
+          Add key
+        </button>
+      </div>
+      <p className="muted">
+        Headless access: <a href="/api/openapi.json">OpenAPI spec</a>
+      </p>
+
+      <p className="muted">Control MCP server</p>
+      <div className="tedithead">
+        <label className="switch">
+          <input
+            type="checkbox"
+            aria-label="Control MCP enabled"
+            checked={mcpEnabled}
+            onChange={() => {
+              const next = !mcpEnabled;
+              setMcpEnabled(next);
+              api("/api/settings", {
+                method: "PUT",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ control_mcp_enabled: next }),
+              }).catch((e) => alert(e.message));
+            }}
+          />
+          <span className="knob" />
+          <span className="state">{mcpEnabled ? "Enabled" : "Disabled"}</span>
+        </label>
+        <code>/mcp</code>
+      </div>
+    </>
   );
 }
 
@@ -4501,13 +4597,6 @@ export function anyDirtyLabel(): string | null {
 export function clearAllDirty(): void {
   dirtyEditors.clear();
   bumpDirty();
-}
-
-function subscribeDirty(l: () => void): () => void {
-  dirtyListeners.add(l);
-  return () => {
-    dirtyListeners.delete(l);
-  };
 }
 
 export function formDirty(
