@@ -21,6 +21,10 @@
 - Any PR that changes observable behavior, UI flows, API surface, or config must update the affected `docs/**` page in the same PR — new features get a section, changed ones get reworded, removed ones get deleted.
 - Before merging a feature PR, skim every `docs/**` page it touches for stale wording; `pnpm docs:build` fails on broken internal links.
 
+## Issues
+
+- The `ready-for-dev` label marks an issue groomed against its spec — implementation can start without further judgement calls; agents should pick labeled issues up first.
+
 ## Pull requests
 
 - UI changes: attach **light-mode, dark-mode, and one mobile-width (390px) screenshot** to the PR when able.
