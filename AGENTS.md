@@ -42,6 +42,7 @@
 - Never expose sensitive user config, settings, or environment in commits — installed applications, usernames, service URLs/hosts, API keys, paths like `/home/<user>/…`. Scrub diffs, screenshots, PR bodies, and test fixtures before they land; use placeholders (`example.com`, `<user>`) instead.
 - `better-sqlite3` is a native dep — if bindings are missing after install, run its install script inside the pnpm store dir (`prebuild-install || node-gyp rebuild --release`).
 - Agent LLM access goes through `@earendil-works/pi-*` v1.x: stream via `streamSimple` from `@earendil-works/pi-ai/api/openai-completions`, agent state is set with `initialState`, and `systemPrompt` on the live agent state is read-only. Inject into a busy loop with `agent.steer()` (see `injectMessage` in `agent.ts`).
+- Durable agent state runs on `@earendil-works/pi-durable`: every transcript entry, tool call and wait is a Harness commit before it surfaces; boot calls resume, tools declare replay policy explicitly (`shell`/`web_fetch`/MCP are not replay-safe), and the harness keeps its own SQLite file beside `data.db`. Pin exact pi package versions — minors ship breaking changes.
 - Trigger firing and message injection are fire-and-forget; every run row must reach a terminal status (`ok`/`error`) — keep the try/catch/finally around the loop in `agent.ts` intact.
 
 ## Testing without CI
