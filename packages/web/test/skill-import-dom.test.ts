@@ -17,6 +17,7 @@ Object.assign(globalThis, {
   document: window.document,
   HTMLElement: window.HTMLElement,
   HTMLInputElement: window.HTMLInputElement,
+  HTMLTextAreaElement: window.HTMLTextAreaElement,
   Event: window.Event,
   MouseEvent: window.MouseEvent,
   KeyboardEvent: window.KeyboardEvent,
@@ -46,13 +47,12 @@ const skillList = [
   },
 ];
 
-const requests: string[] = [];
+let lastCreateBody: Record<string, unknown> | null = null;
 let lastImportBody: Record<string, unknown> | null = null;
 
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input);
   const method = init?.method ?? "GET";
-  requests.push(`${method} ${url}`);
   if (url.startsWith("/api/skills/search")) {
     return new Response(
       JSON.stringify({
@@ -94,6 +94,10 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     lastImportBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
     return new Response(JSON.stringify({ skills: [] }), { status: 201 });
   }
+  if (url === "/api/skills" && method === "POST") {
+    lastCreateBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response(JSON.stringify(skillList[0]), { status: 201 });
+  }
   if (url === "/api/skills" && method === "GET") {
     return new Response(JSON.stringify(skillList), { status: 200 });
   }
@@ -102,7 +106,9 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 
 const React = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { SkillsPanel, ImportSkillModal } = await import("../src/App.tsx");
+const { AddSkillModal, NavGuardContext, SkillsPanel } = await import(
+  "../src/App.tsx"
+);
 const act = React.act;
 
 async function flush(): Promise<void> {
@@ -140,16 +146,37 @@ function button(text: string): Element | null {
   );
 }
 
-function setInput(el: Element | null, value: string): Promise<void> {
-  const input = el as HTMLInputElement;
-  assert.ok(input);
-  const setter = Object.getOwnPropertyDescriptor(
-    window.HTMLInputElement.prototype,
-    "value",
-  )?.set;
-  return act(async () => {
-    setter?.call(input, value);
-    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+function exactButton(text: string): Element | null {
+  return [...window.document.querySelectorAll("button")].find(
+    (b) => (b.textContent ?? "").trim() === text,
+  );
+}
+
+function tabButton(text: string): Element | null {
+  return [...window.document.querySelectorAll(".mtabs button")].find((b) =>
+    (b.textContent ?? "").includes(text),
+  );
+}
+
+function actionButton(text: string): Element | null {
+  return [...window.document.querySelectorAll(".dialog .actions button")].find(
+    (b) => (b.textContent ?? "").includes(text),
+  );
+}
+
+async function setControl(
+  element: Element | null,
+  value: string,
+): Promise<void> {
+  assert.ok(element, "expected control to set");
+  const proto =
+    element instanceof window.HTMLTextAreaElement
+      ? window.HTMLTextAreaElement.prototype
+      : window.HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+  await act(async () => {
+    setter?.call(element, value);
+    element.dispatchEvent(new window.Event("input", { bubbles: true }));
   });
 }
 
@@ -157,13 +184,9 @@ test("skill cards badge imported skills only", async () => {
   const root = await mount(React.createElement(SkillsPanel));
   try {
     assert.match(window.document.body.textContent ?? "", /git skill/);
-    const handmadeBadgeRow = [...window.document.querySelectorAll(".mcpsrv")];
-    const alpha = handmadeBadgeRow.find((c) =>
-      c.textContent?.includes("Alpha Helper"),
-    );
-    const handmade = handmadeBadgeRow.find((c) =>
-      c.textContent?.includes("Handmade"),
-    );
+    const cards = [...window.document.querySelectorAll(".mcpsrv")];
+    const alpha = cards.find((c) => c.textContent?.includes("Alpha Helper"));
+    const handmade = cards.find((c) => c.textContent?.includes("Handmade"));
     assert.ok(alpha?.querySelector(".srcbadge"));
     assert.equal(handmade?.querySelector(".srcbadge"), null);
   } finally {
@@ -173,18 +196,80 @@ test("skill cards badge imported skills only", async () => {
   }
 });
 
-test("import modal: search, use result, preview, pick and import", async () => {
+test("skills panel opens one Create/Import modal from a single Add action", async () => {
+  const root = await mount(React.createElement(SkillsPanel));
+  try {
+    assert.equal(window.document.querySelector(".dialog.tabs"), null);
+    assert.ok(exactButton("+ Add skill"));
+    await click(exactButton("+ Add skill"));
+
+    const dialog = window.document.querySelector('[aria-label="Add skill"]');
+    assert.ok(dialog);
+    assert.ok(tabButton("Create"));
+    assert.ok(tabButton("Import"));
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("add modal creates a hand-written skill", async () => {
+  let created = false;
+  const root = await mount(
+    React.createElement(AddSkillModal, {
+      onClose: () => undefined,
+      onSaved: () => {
+        created = true;
+      },
+    }),
+  );
+  try {
+    assert.equal(
+      window.document.querySelector(".mtabs .sel")?.textContent,
+      "Create",
+    );
+    await setControl(
+      window.document.querySelector(".tabbody form input"),
+      "Draft",
+    );
+    await setControl(
+      window.document.querySelector(".tabbody form textarea"),
+      "Do the thing",
+    );
+    await click(actionButton("Create"));
+
+    assert.equal(created, true);
+    assert.deepEqual(lastCreateBody, {
+      name: "Draft",
+      description: "",
+      instructions: "Do the thing",
+    });
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("import flow runs from the Add skill modal", async () => {
   let imported = false;
   const root = await mount(
-    React.createElement(ImportSkillModal, {
+    React.createElement(AddSkillModal, {
       onClose: () => undefined,
-      onImported: () => {
+      onSaved: () => {
         imported = true;
       },
     }),
   );
   try {
-    await setInput(
+    await click(tabButton("Import"));
+    assert.equal(
+      window.document.querySelector(".mtabs .sel")?.textContent,
+      "Import",
+    );
+
+    await setControl(
       window.document.querySelector('.field input[placeholder^="pdf"]'),
       "pdf",
     );
@@ -197,7 +282,7 @@ test("import modal: search, use result, preview, pick and import", async () => {
     ) as HTMLInputElement;
     assert.equal(source.value, "acme/repo@pdf");
 
-    await click(button("Preview"));
+    await click(actionButton("Preview"));
     const checkbox = window.document.querySelector(
       ".srclist input[type=checkbox]",
     ) as HTMLInputElement;
@@ -207,12 +292,68 @@ test("import modal: search, use result, preview, pick and import", async () => {
     });
     await flush();
 
-    await click(button("Import"));
+    await click(actionButton("Import"));
     assert.equal(imported, true);
     assert.deepEqual(lastImportBody, {
       source: "acme/repo@pdf",
       folders: ["skills/pdf"],
     });
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("leaving a dirty Create tab asks before discarding its text", async () => {
+  const guards: Array<() => void> = [];
+  let deferNavigation = false;
+  const root = await mount(
+    React.createElement(
+      NavGuardContext.Provider,
+      {
+        value: (fn: () => void) => {
+          if (deferNavigation) guards.push(fn);
+          else fn();
+        },
+      },
+      React.createElement(AddSkillModal, {
+        onClose: () => undefined,
+        onSaved: () => undefined,
+      }),
+    ),
+  );
+  try {
+    await setControl(
+      window.document.querySelector(".tabbody form input"),
+      "Draft",
+    );
+    assert.match(window.document.body.textContent ?? "", /Unsaved changes/);
+    deferNavigation = true;
+
+    await click(tabButton("Import"));
+    const discard = guards[0];
+    assert.ok(discard, "expected the tab switch to be guarded");
+    assert.equal(
+      window.document.querySelector(".mtabs .sel")?.textContent,
+      "Create",
+    );
+
+    deferNavigation = false;
+    await act(async () => {
+      discard();
+    });
+    await flush();
+    assert.equal(
+      window.document.querySelector(".mtabs .sel")?.textContent,
+      "Import",
+    );
+
+    await click(tabButton("Create"));
+    const name = window.document.querySelector(
+      ".tabbody form input",
+    ) as HTMLInputElement;
+    assert.equal(name.value, "");
   } finally {
     await act(async () => {
       root.unmount();
