@@ -35,6 +35,16 @@ Object.assign(globalThis, {
 window.HTMLElement.prototype.scrollIntoView = () => undefined;
 globalThis.alert = () => undefined;
 
+const clipboardWrites: string[] = [];
+Object.defineProperty(window.navigator, "clipboard", {
+  configurable: true,
+  value: {
+    writeText: async (text: string) => {
+      clipboardWrites.push(text);
+    },
+  },
+});
+
 const React = await import("react");
 const { createRoot } = await import("react-dom/client");
 const {
@@ -43,6 +53,8 @@ const {
   BotGeneral,
   BotTags,
   findDuplicateEnvKey,
+  mcpEnvMapFromRows,
+  mcpEnvRowsFromRecord,
   McpServerModal,
   ProviderFormModal,
   Triggers,
@@ -83,6 +95,8 @@ const trigger = {
 const requests: string[] = [];
 const patchBodies: Record<string, unknown>[] = [];
 const botPatchBodies: Record<string, unknown>[] = [];
+const mcpPatchBodies: Record<string, unknown>[] = [];
+const runBodies: Record<string, unknown>[] = [];
 let pausedFlag = false;
 
 function json(value: unknown): Response {
@@ -284,6 +298,25 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     botPatchBodies.push(body);
     return json({ ...bot, ...body });
   }
+  if (url === "/api/mcp-servers/m1" && method === "PATCH") {
+    try {
+      mcpPatchBodies.push(
+        JSON.parse(String(init?.body)) as Record<string, unknown>,
+      );
+    } catch {
+      mcpPatchBodies.push({});
+    }
+  }
+  if (url === "/api/secrets")
+    return json([
+      {
+        id: "sec1",
+        name: "GitHub token",
+        key: "GITHUB_TOKEN",
+        created_at: now,
+      },
+      { id: "sec2", name: "Deploy key", key: "DEPLOY_KEY", created_at: now },
+    ]);
   if (url === "/api/api-keys") return json([]);
   if (url === "/api/providers") {
     return json([
@@ -305,6 +338,14 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url === "/api/stop-all" && method === "POST") {
     pausedFlag = true;
     return json({ stopped: 0 });
+  }
+  if (url === "/api/bots/b1/run" && method === "POST") {
+    try {
+      runBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+    } catch {
+      runBodies.push({});
+    }
+    return json({ runId: "run2", steered: false });
   }
   if (url === "/api/triggers/t1" && method === "PATCH") return json(trigger);
   if (url.startsWith("/api/triggers/") && method === "DELETE") return json({});
@@ -376,6 +417,15 @@ async function typeInto(
   await flush();
 }
 
+async function expandTranscript(): Promise<void> {
+  await click(byLabel("Sable (null)"));
+  await click(byLabel("Sable settings"));
+  await click(button("Logs"));
+  await flush();
+  await click(window.document.querySelector(".runhead"));
+  await flush();
+}
+
 test("app navigation, chat, and bot detail flows", async () => {
   const root = await mount(React.createElement(App));
   assert.match(window.document.body.textContent ?? "", /Sable/);
@@ -440,23 +490,82 @@ test("app navigation, chat, and bot detail flows", async () => {
   });
 });
 
+test("settings tabs split controls and guard unsaved changes", async () => {
+  const root = await mount(React.createElement(App));
+  try {
+    const navButton = (label: string) =>
+      [...window.document.querySelectorAll(".sidetabs button")].find(
+        (item) =>
+          (item.getAttribute("title") ?? item.textContent?.trim()) === label,
+      );
+    const settingsTab = (label: string) =>
+      [...window.document.querySelectorAll(".mtabs button")].find(
+        (item) => item.textContent?.trim() === label,
+      );
+
+    await click(navButton("Settings"));
+    assert.match(window.document.body.textContent ?? "", /Notification sounds/);
+    assert.doesNotMatch(
+      window.document.body.textContent ?? "",
+      /LLM providers|API keys/,
+    );
+    assert.equal(window.location.pathname, "/settings");
+
+    await click(settingsTab("Providers"));
+    assert.match(window.document.body.textContent ?? "", /LLM providers/);
+    assert.doesNotMatch(
+      window.document.body.textContent ?? "",
+      /Notification sounds|API keys/,
+    );
+    assert.equal(window.location.search, "?tab=providers");
+
+    await click(settingsTab("System"));
+    assert.match(window.document.body.textContent ?? "", /API keys/);
+    assert.match(window.document.body.textContent ?? "", /Signed in as/);
+    assert.doesNotMatch(
+      window.document.body.textContent ?? "",
+      /Notification sounds|LLM providers/,
+    );
+    assert.equal(window.location.search, "?tab=system");
+
+    await click(settingsTab("General"));
+    const idle = byLabel("Sandbox idle timeout");
+    await typeInto(idle, "7");
+    assert.match(window.document.body.textContent ?? "", /Unsaved changes/);
+
+    await click(settingsTab("Providers"));
+    assert.match(
+      window.document.body.textContent ?? "",
+      /Discard unsaved changes to the sandbox idle timeout\?/,
+    );
+    await click(button("Keep editing"));
+    assert.equal(window.location.search, "");
+
+    await click(settingsTab("System"));
+    await click(button("Discard changes"));
+    assert.match(window.document.body.textContent ?? "", /API keys/);
+    assert.equal(window.location.search, "?tab=system");
+
+    await click(navButton("Bots"));
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
 test("bot general actions update the bot", async () => {
   const root = await mount(
     React.createElement(BotGeneral, {
       bot,
       onChanged: () => undefined,
+      onCancel: () => undefined,
     }),
   );
 
   await typeInto(byLabel("Bot name"), "Sable 2");
   await click(button("Save"));
   assert.ok(requests.includes("PATCH /api/bots/b1"));
-
-  const enabled = byLabel("Bot enabled") as HTMLInputElement;
-  await act(async () => {
-    enabled.click();
-  });
-  await flush();
 
   await click(button("Restart machine"));
   await click(button("Restart machine"));
@@ -466,11 +575,59 @@ test("bot general actions update the bot", async () => {
   await click(button("Delete bot"));
   await click(button("Save as template…"));
   assert.match(window.document.body.textContent ?? "", /New template/);
-  await click(button("Cancel"));
+  const templateCancel = [
+    ...window.document.querySelectorAll(".dialog.narrow button"),
+  ].find((item) => item.textContent?.trim() === "Cancel");
+  await click(templateCancel);
 
   await act(async () => {
     root.unmount();
   });
+});
+
+test("bot detail header carries enable/Stop and General pins its action row", async () => {
+  requests.length = 0;
+  const previousState = bot.run_state;
+  bot.run_state = "running";
+  const root = await mount(React.createElement(App));
+  try {
+    await click(byLabel("Sable (null)"));
+    await click(byLabel("Sable settings"));
+
+    const header = window.document.querySelector(".dialog.tabs > .viewhead");
+    assert.ok(header?.querySelector('[aria-label="Bot enabled"]'));
+    assert.ok(
+      window.document.querySelector(
+        ".detailhead-actions [aria-label='Stop while running']",
+      ),
+    );
+
+    const actions = window.document.querySelector(".botdetailactions");
+    assert.ok(actions);
+    assert.deepEqual(
+      [...actions.querySelectorAll("button")].map((item) =>
+        item.textContent?.trim(),
+      ),
+      [
+        "Save",
+        "Restart machine",
+        "Clear memory",
+        "Save as template…",
+        "Delete",
+        "Cancel",
+      ],
+    );
+
+    await click(byLabel("Stop while running"));
+    assert.ok(requests.includes("POST /api/bots/b1/interrupt"));
+    await click(button("Cancel"));
+    assert.ok(!window.document.querySelector(".dialog.tabs"));
+  } finally {
+    bot.run_state = previousState;
+    await act(async () => {
+      root.unmount();
+    });
+  }
 });
 
 test("bot general saves watchdog hours", async () => {
@@ -908,6 +1065,71 @@ test("logs rows expand inline into the run transcript replay", async () => {
   }
 });
 
+test("transcript user steps rerun the exact message and copy other steps", async () => {
+  requests.length = 0;
+  runBodies.length = 0;
+  clipboardWrites.length = 0;
+  const previousPaused = pausedFlag;
+  pausedFlag = false;
+  const root = await mount(React.createElement(App));
+  try {
+    await expandTranscript();
+
+    assert.deepEqual(
+      [...window.document.querySelectorAll(".ractions button")].map((item) =>
+        item.textContent?.trim(),
+      ),
+      ["Run this", "Copy", "Copy"],
+    );
+
+    const copies = [
+      ...window.document.querySelectorAll(".ractions button"),
+    ].filter((item) => item.textContent?.trim() === "Copy");
+    await click(copies[0]);
+    assert.deepEqual(clipboardWrites, ["running shell"]);
+    assert.match(window.document.body.textContent ?? "", /Copied/);
+
+    await click(copies[1]);
+    assert.equal(clipboardWrites.at(-1), "exit 0\n/dev/root 92%");
+
+    const runButton = button("Run this");
+    assert.ok(runButton);
+    await click(runButton);
+    assert.ok(requests.includes("POST /api/bots/b1/run"));
+    assert.deepEqual(runBodies, [{ message: "check disk" }]);
+  } finally {
+    pausedFlag = previousPaused;
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("transcript rerun is disabled while the bot is running", async () => {
+  requests.length = 0;
+  runBodies.length = 0;
+  const previousPaused = pausedFlag;
+  pausedFlag = false;
+  const previousState = bot.run_state;
+  bot.run_state = "running";
+  const root = await mount(React.createElement(App));
+  try {
+    await expandTranscript();
+    const runButton = button("Run this");
+    assert.ok(runButton);
+    assert.ok(runButton.hasAttribute("disabled"));
+
+    await click(runButton);
+    assert.equal(requests.filter((item) => item.endsWith("/run")).length, 0);
+  } finally {
+    pausedFlag = previousPaused;
+    bot.run_state = previousState;
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
 test("a failed tag create keeps the typed text", async () => {
   const alerts: string[] = [];
   const prevAlert = globalThis.alert;
@@ -944,22 +1166,27 @@ test("tags panel lists tags with bot counts", async () => {
   });
 });
 
+test("MCP env rows preserve literal and secret modes", () => {
+  assert.deepEqual(
+    mcpEnvRowsFromRecord({ FOO: "bar", TOKEN: { secret: "GitHub token" } }),
+    [
+      { key: "FOO", mode: "literal", value: "bar" },
+      { key: "TOKEN", mode: "secret", value: "GitHub token" },
+    ],
+  );
+  assert.deepEqual(
+    mcpEnvMapFromRows([
+      { key: " FOO ", mode: "literal", value: " bar " },
+      { key: "TOKEN", mode: "secret", value: "Deploy key" },
+    ]),
+    { FOO: " bar ", TOKEN: { secret: "Deploy key" } },
+  );
+});
+
 test("findDuplicateEnvKey ignores blanks and trims keys", () => {
   assert.equal(findDuplicateEnvKey([]), null);
-  assert.equal(
-    findDuplicateEnvKey([
-      ["FOO", "1"],
-      [" BAR ", "2"],
-    ]),
-    null,
-  );
-  assert.equal(
-    findDuplicateEnvKey([
-      ["FOO", "1"],
-      [" FOO ", "2"],
-    ]),
-    "FOO",
-  );
+  assert.equal(findDuplicateEnvKey([{ key: "FOO" }, { key: " BAR " }]), null);
+  assert.equal(findDuplicateEnvKey([{ key: "FOO" }, { key: " FOO " }]), "FOO");
 });
 
 test("MCP env duplicate keys show an inline error before saving", async () => {
@@ -997,6 +1224,98 @@ test("MCP env duplicate keys show an inline error before saving", async () => {
       /duplicate environment variable key FOO/,
     );
     assert.ok(!requests.includes("POST /api/mcp-servers"));
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("MCP env editor saves secret references", async () => {
+  requests.length = 0;
+  mcpPatchBodies.length = 0;
+  const root = await mount(
+    React.createElement(McpServerModal, {
+      server: {
+        id: "m1",
+        name: "srv",
+        transport: "stdio",
+        command: "node",
+        args: [],
+        env: { TOKEN: { secret: "GitHub token" }, LITERAL: "plain" },
+        enabled: 1,
+      },
+      onClose: () => undefined,
+      onSaved: () => undefined,
+    }),
+  );
+  try {
+    assert.ok(requests.includes("GET /api/secrets"));
+    const secretSelect = window.document.querySelector(
+      '[aria-label="Env var 1 secret"]',
+    ) as HTMLSelectElement | null;
+    assert.ok(secretSelect);
+    assert.equal(secretSelect.value, "GitHub token");
+
+    const rows = window.document.querySelectorAll(".envrow");
+    await typeInto(
+      rows[1].querySelector('input[placeholder="value"]'),
+      "changed",
+    );
+    await click(button("Save"));
+    assert.deepEqual(mcpPatchBodies.at(-1)?.env, {
+      TOKEN: { secret: "GitHub token" },
+      LITERAL: "changed",
+    });
+
+    await click(byLabel("Use a literal value for env var 1"));
+    await typeInto(
+      rows[0].querySelector('input[placeholder="value"]'),
+      "literal-token",
+    );
+    await click(button("Save"));
+    assert.deepEqual(mcpPatchBodies.at(-1)?.env, {
+      TOKEN: "literal-token",
+      LITERAL: "changed",
+    });
+
+    await click(byLabel("Use a secret reference for env var 1"));
+    const repointSelect = window.document.querySelector(
+      '[aria-label="Env var 1 secret"]',
+    ) as HTMLSelectElement | null;
+    assert.ok(repointSelect);
+    assert.equal(repointSelect.value, "");
+    await typeInto(repointSelect, "Deploy key");
+    await click(button("Save"));
+    assert.deepEqual(mcpPatchBodies.at(-1)?.env, {
+      TOKEN: { secret: "Deploy key" },
+      LITERAL: "changed",
+    });
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("MCP env editor marks missing secret references", async () => {
+  const root = await mount(
+    React.createElement(McpServerModal, {
+      server: {
+        id: "m1",
+        name: "srv",
+        transport: "stdio",
+        command: "node",
+        args: [],
+        env: { TOKEN: { secret: "Deleted" } },
+        enabled: 1,
+      },
+      onClose: () => undefined,
+      onSaved: () => undefined,
+    }),
+  );
+  try {
+    assert.match(window.document.body.textContent ?? "", /Deleted \(missing\)/);
   } finally {
     await act(async () => {
       root.unmount();

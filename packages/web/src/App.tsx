@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { AccountSection } from "./auth.tsx";
+import { PasswordSettings, SessionSettings } from "./auth.tsx";
 import { renderMarkdown } from "./markdown.ts";
 import { PushSection } from "./push.tsx";
 import { readStoredTheme, setStoredTheme } from "./theme.ts";
@@ -132,8 +132,19 @@ function fmtMs(ms: number): string {
     : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
 }
 
-function ReplayStep({ step }: { step: TranscriptStep }) {
+function ReplayStep({
+  step,
+  running = false,
+  busy = false,
+  onRerun,
+}: {
+  step: TranscriptStep;
+  running?: boolean;
+  busy?: boolean;
+  onRerun?: (message: string) => Promise<void>;
+}) {
   const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
   const clipped = step.kind === "tool_result" || step.kind === "tool_call";
   const toggle = () => setOpen(!open);
   const keyToggle = (e: React.KeyboardEvent) => {
@@ -150,6 +161,22 @@ function ReplayStep({ step }: { step: TranscriptStep }) {
         onKeyDown: keyToggle,
       }
     : {};
+
+  async function copyText(): Promise<void> {
+    if (!step.text || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(step.text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      // clipboard access is best effort
+    }
+  }
+
+  const showRun = step.kind === "user" && onRerun !== undefined;
+  const showCopy =
+    (step.kind === "assistant" || step.kind === "tool_result") && !!step.text;
+
   return (
     <div className={`rstep ${step.kind}${step.is_error ? " err" : ""}`}>
       <div className="rmeta">
@@ -162,6 +189,25 @@ function ReplayStep({ step }: { step: TranscriptStep }) {
         )}
         {!!step.retry_wait_ms && (
           <span className="rretry">retry wait {fmtMs(step.retry_wait_ms)}</span>
+        )}
+        {(showRun || showCopy) && (
+          <span className="ractions">
+            {showCopy && (
+              <button type="button" onClick={() => void copyText()}>
+                {copied ? "Copied" : "Copy"}
+              </button>
+            )}
+            {showRun && (
+              <button
+                type="button"
+                disabled={running || busy}
+                title={running ? "The bot is already running" : undefined}
+                onClick={() => void onRerun(step.text ?? "")}
+              >
+                Run this
+              </button>
+            )}
+          </span>
         )}
       </div>
       {step.args && (
@@ -187,11 +233,22 @@ function ReplayStep({ step }: { step: TranscriptStep }) {
   );
 }
 
-function ReplayPanel({ botId, run }: { botId: string; run: Run }) {
+function ReplayPanel({
+  botId,
+  run,
+  running = false,
+  onRerun,
+}: {
+  botId: string;
+  run: Run;
+  running?: boolean;
+  onRerun?: (message: string) => Promise<void>;
+}) {
   const [data, setData] = useState<{
     usage: { total: number } | null;
     steps: TranscriptStep[];
   } | null>(null);
+  const [rerunning, setRerunning] = useState(false);
   useEffect(() => {
     let on = true;
     api<{
@@ -205,6 +262,17 @@ function ReplayPanel({ botId, run }: { botId: string; run: Run }) {
     };
   }, [botId, run.id]);
   if (!data) return <p className="muted replay">Loading transcript…</p>;
+
+  async function rerun(message: string): Promise<void> {
+    if (!onRerun || running || rerunning) return;
+    setRerunning(true);
+    try {
+      await onRerun(message);
+    } finally {
+      setRerunning(false);
+    }
+  }
+
   return (
     <div className="replay">
       <header>
@@ -216,7 +284,15 @@ function ReplayPanel({ botId, run }: { botId: string; run: Run }) {
         <p className="muted">transcript not recorded</p>
       ) : (
         // biome-ignore lint/suspicious/noArrayIndexKey: transcript steps are append-only, position is their identity
-        data.steps.map((s, i) => <ReplayStep key={i} step={s} />)
+        data.steps.map((s, i) => (
+          <ReplayStep
+            key={i}
+            step={s}
+            running={running}
+            busy={rerunning}
+            onRerun={onRerun ? rerun : undefined}
+          />
+        ))
       )}
     </div>
   );
@@ -437,7 +513,10 @@ export function Avatar({
   const eyeRy = eyeRx * (1.8 + rand() * 0.5);
   const gaze = (rand() - 0.5) * 3;
   const droop = rand() < 0.3;
-  const col = color == null ? avatarColor(id) : AVATAR_COLORS[color];
+  const baseCol = color == null ? avatarColor(id) : AVATAR_COLORS[color];
+  const col = health === "gray" ? "#6b7280" : baseCol;
+  const glow =
+    health === "red" || health === "gray" ? "transparent" : `${baseCol}59`;
   const blinkPeriod = 3 + rand() * 5;
   const animClass = health === null ? "" : ` anim-${health}`;
   return (
@@ -445,7 +524,8 @@ export function Avatar({
       className={`avatar${animClass}`}
       style={{
         color: col,
-        ["--avatar-glow" as string]: `${col}59`,
+        ["--avatar-glow" as string]: glow,
+        ["--avatar-glow-strong" as string]: `${baseCol}a6`,
         ["--blink-period" as string]: `${blinkPeriod.toFixed(2)}s`,
         ["--blink-delay" as string]: `${(-rand() * blinkPeriod).toFixed(2)}s`,
       }}
@@ -582,6 +662,19 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const body = await res.json();
   if (!res.ok) throw new Error(body.error ?? `${res.status}`);
   return body as T;
+}
+
+export function fmtTokens(n: number): string {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
+  return String(n);
+}
+
+export interface Breaker {
+  limit_tokens: number;
+  tokens_30d: number;
+  exceeded: boolean;
 }
 
 export function fmt(ts: number | null): string {
@@ -898,6 +991,7 @@ export function App() {
     if (typeof addEventListener === "undefined") return;
     const onPop = () => {
       const target = tabFromPath(location.pathname);
+      if (target === tabRef.current) return;
       const label = anyDirtyLabel();
       if (!label) {
         setTabRaw(target);
@@ -913,6 +1007,8 @@ export function App() {
   const [chatBot, setChatBot] = useState<string | null>(null);
   const [poking, setPoking] = useState<Record<string, boolean>>({});
   const [paused, setPausedState] = useState(false);
+  const [pauseReason, setPauseReason] = useState<string | null>(null);
+  const [breaker, setBreaker] = useState<Breaker | null>(null);
   const [stopAllConfirm, setStopAllConfirm] = useState(false);
   const [quickConfirm, setQuickConfirm] = useState<{
     bot: Bot;
@@ -938,11 +1034,31 @@ export function App() {
       .finally(() => setPoking((p) => ({ ...p, [bot.id]: false })));
   };
 
+  const rerunTranscriptMessage = async (
+    botId: string,
+    message: string,
+  ): Promise<void> => {
+    const target = bots.find((b) => b.id === botId);
+    if (!target || !target.enabled || paused || target.run_state === "running")
+      return;
+    try {
+      await api(`/api/bots/${botId}/run`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      await load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const [modalTab, setModalTab] = useState<
-    "general" | "triggers" | "logs" | "stats"
+    "general" | "triggers" | "logs" | "stats" | "files"
   >("general");
   const [detailOpen, setDetailOpen] = useState(false);
   const [avatarMenu, setAvatarMenu] = useState(false);
+  const [headerBusy, setHeaderBusy] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [botQuery, setBotQuery] = useState("");
   const [statusSel, setStatusSel] = useState<Bot["health"][]>([]);
@@ -961,18 +1077,27 @@ export function App() {
 
   const load = useCallback(async () => {
     try {
-      const [botData, notificationData, roleData, tagData, pauseData] =
-        await Promise.all([
-          api<Bot[]>("/api/bots"),
-          api<NotificationsResponse>("/api/notifications"),
-          api<Role[]>("/api/roles"),
-          api<Tag[]>("/api/tags").catch(() => []),
-          api<{ paused: boolean }>("/api/pause").catch(() => ({
-            paused: false,
-          })),
-        ]);
+      const [
+        botData,
+        notificationData,
+        roleData,
+        tagData,
+        pauseData,
+        breakerData,
+      ] = await Promise.all([
+        api<Bot[]>("/api/bots"),
+        api<NotificationsResponse>("/api/notifications"),
+        api<Role[]>("/api/roles"),
+        api<Tag[]>("/api/tags").catch(() => []),
+        api<{ paused: boolean; reason?: string | null }>("/api/pause").catch(
+          () => ({ paused: false, reason: null }),
+        ),
+        api<Breaker>("/api/breaker").catch(() => null),
+      ]);
       setBots(botData);
       setPausedState(pauseData.paused);
+      setPauseReason(pauseData.reason ?? null);
+      setBreaker(breakerData);
       const prevSeen = seenNotifIds.current;
       if (localStorage.getItem("bots-sounds") === "on" && prevSeen) {
         const fresh = notificationData.items.filter((n) => !prevSeen.has(n.id));
@@ -1037,7 +1162,7 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (notificationPanelOpen) setNotificationPanelOpen(false);
-      else if (detailOpen) discardGuard(() => setDetailOpen(false));
+      else if (detailOpen) requestCloseDetails();
       else if (chatBot) setChatBot(null);
     };
     document.addEventListener("keydown", onKey);
@@ -1062,6 +1187,8 @@ export function App() {
 
   const openBotRow = bots.find((b) => b.id === openBot);
   const chatBotRow = bots.find((b) => b.id === chatBot);
+  const dismissDetails = () => setDetailOpen(false);
+  const requestCloseDetails = () => discardGuard(dismissDetails);
 
   async function markOneNotification(id: string): Promise<void> {
     try {
@@ -1133,7 +1260,12 @@ export function App() {
             {paused && (
               <>
                 {" "}
-                · <span className="pausedcount">paused</span>
+                ·{" "}
+                <span className="pausedcount">
+                  {pauseReason === "breaker" && breaker
+                    ? `over spend cap (${fmtTokens(breaker.tokens_30d)} / ${fmtTokens(breaker.limit_tokens)})`
+                    : "paused"}
+                </span>
               </>
             )}
           </span>
@@ -1141,7 +1273,13 @@ export function App() {
             type="button"
             className={`pausetoggle${paused ? " on" : ""}`}
             aria-label={paused ? "Resume all bots" : "Pause all bots"}
-            title={paused ? "Resume all bots" : "Pause all bots"}
+            title={
+              paused && pauseReason === "breaker" && breaker
+                ? `Trailing 30-day usage of ${breaker.tokens_30d.toLocaleString()} tokens is over the cap of ${breaker.limit_tokens.toLocaleString()} — raise or clear it in Settings to resume`
+                : paused
+                  ? "Resume all bots"
+                  : "Pause all bots"
+            }
             onClick={() =>
               void api("/api/pause", {
                 method: "POST",
@@ -1149,7 +1287,7 @@ export function App() {
                 body: JSON.stringify({ paused: !paused }),
               })
                 .then(() => void load())
-                .catch(() => undefined)
+                .catch((e) => alert(e instanceof Error ? e.message : String(e)))
             }
           >
             {paused ? "Resume" : "Pause"}
@@ -1478,7 +1616,7 @@ export function App() {
                 type="button"
                 className="mscrim"
                 aria-label="Close details"
-                onClick={() => discardGuard(() => setDetailOpen(false))}
+                onClick={requestCloseDetails}
               />
               <div
                 className="dialog tabs"
@@ -1539,28 +1677,74 @@ export function App() {
                       )}
                     </p>
                   )}
-                  <button
-                    type="button"
-                    className="close"
-                    aria-label="Close"
-                    onClick={() => discardGuard(() => setDetailOpen(false))}
-                  >
-                    ×
-                  </button>
+                  <div className="detailhead-actions">
+                    <label className="switch">
+                      <input
+                        type="checkbox"
+                        aria-label="Bot enabled"
+                        checked={openBotRow.enabled !== 0}
+                        disabled={headerBusy}
+                        onChange={() => {
+                          setHeaderBusy(true);
+                          void api(`/api/bots/${openBotRow.id}`, {
+                            method: "PATCH",
+                            headers: { "content-type": "application/json" },
+                            body: JSON.stringify({
+                              enabled: openBotRow.enabled === 0,
+                            }),
+                          })
+                            .then(load)
+                            .catch((e) => alert(e.message))
+                            .finally(() => setHeaderBusy(false));
+                        }}
+                      />
+                      <span className="knob" />
+                      <span className="state">
+                        {openBotRow.enabled ? "Enabled" : "Disabled"}
+                      </span>
+                    </label>
+                    {openBotRow.run_state === "running" && (
+                      <button
+                        type="button"
+                        className="danger"
+                        aria-label="Stop while running"
+                        disabled={headerBusy}
+                        onClick={() => {
+                          setHeaderBusy(true);
+                          void api(`/api/bots/${openBotRow.id}/interrupt`, {
+                            method: "POST",
+                          })
+                            .then(load)
+                            .catch((e) => alert(e.message))
+                            .finally(() => setHeaderBusy(false));
+                        }}
+                      >
+                        Stop
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="close"
+                      aria-label="Close"
+                      onClick={requestCloseDetails}
+                    >
+                      ×
+                    </button>
+                  </div>
                 </div>
                 <nav className="mtabs">
-                  {(["general", "triggers", "logs", "stats"] as const).map(
-                    (t) => (
-                      <button
-                        key={t}
-                        type="button"
-                        className={modalTab === t ? "sel" : ""}
-                        onClick={() => discardGuard(() => setModalTab(t))}
-                      >
-                        {t[0].toUpperCase() + t.slice(1)}
-                      </button>
-                    ),
-                  )}
+                  {(
+                    ["general", "triggers", "logs", "stats", "files"] as const
+                  ).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      className={modalTab === t ? "sel" : ""}
+                      onClick={() => discardGuard(() => setModalTab(t))}
+                    >
+                      {t[0].toUpperCase() + t.slice(1)}
+                    </button>
+                  ))}
                 </nav>
                 <div className="tabbody">
                   {modalTab === "general" && (
@@ -1568,6 +1752,7 @@ export function App() {
                       key={openBotRow.id}
                       bot={openBotRow}
                       onChanged={load}
+                      onCancel={requestCloseDetails}
                     />
                   )}
                   {modalTab === "triggers" && (
@@ -1605,7 +1790,14 @@ export function App() {
                             <pre className="error">{run.error}</pre>
                           )}
                           {replayRun === run.id && openBot && (
-                            <ReplayPanel botId={openBot} run={run} />
+                            <ReplayPanel
+                              botId={openBot}
+                              run={run}
+                              running={openBotRow.run_state === "running"}
+                              onRerun={(message) =>
+                                rerunTranscriptMessage(openBot, message)
+                              }
+                            />
                           )}
                         </article>
                       ))}
@@ -1617,6 +1809,9 @@ export function App() {
                       botId={openBotRow.id}
                       running={openBotRow.run_state === "running"}
                     />
+                  )}
+                  {modalTab === "files" && (
+                    <BotFiles key={openBotRow.id} botId={openBotRow.id} />
                   )}
                 </div>
               </div>
@@ -2261,11 +2456,246 @@ interface BotGeneralSettings {
   default_model: string | null;
 }
 
+type SettingsTab = "general" | "providers" | "system";
+
+const SETTINGS_TABS: readonly { id: SettingsTab; label: string }[] = [
+  { id: "general", label: "General" },
+  { id: "providers", label: "Providers" },
+  { id: "system", label: "System" },
+];
+
+function settingsHref(tab: SettingsTab): string {
+  return tab === "general" ? "/settings" : `/settings?tab=${tab}`;
+}
+
+function settingsTabFromLocation(): SettingsTab {
+  if (typeof location === "undefined") return "general";
+  const value = new URLSearchParams(location.search).get("tab");
+  return SETTINGS_TABS.some((x) => x.id === value)
+    ? (value as SettingsTab)
+    : "general";
+}
+
 export function SettingsPanel() {
+  const guard = useNavGuard();
+  const [sub, setSub] = useState<SettingsTab>(settingsTabFromLocation);
+  const subRef = useRef(sub);
+
+  useEffect(() => {
+    subRef.current = sub;
+  }, [sub]);
+
+  useEffect(() => {
+    if (typeof addEventListener === "undefined") return;
+    const onPop = () => {
+      if (location.pathname.replace(/\/+$/, "") !== "/settings") return;
+      const target = settingsTabFromLocation();
+      if (target === subRef.current) return;
+      if (anyDirtyLabel())
+        history.pushState({}, "", settingsHref(subRef.current));
+      guard(() => setSub(target));
+    };
+    addEventListener("popstate", onPop);
+    return () => removeEventListener("popstate", onPop);
+  }, [guard]);
+
+  const switchTab = (next: SettingsTab) => {
+    if (next === sub) return;
+    guard(() => {
+      setSub(next);
+      if (typeof history !== "undefined")
+        history.pushState({}, "", settingsHref(next));
+    });
+  };
+
+  return (
+    <section>
+      <div className="mainhead">
+        <h2>Settings</h2>
+      </div>
+      <nav className="mtabs" aria-label="Settings sections">
+        {SETTINGS_TABS.map((x) => (
+          <button
+            key={x.id}
+            type="button"
+            className={sub === x.id ? "sel" : ""}
+            onClick={() => switchTab(x.id)}
+          >
+            {x.label}
+          </button>
+        ))}
+      </nav>
+      <div
+        className="tabbody settingstab"
+        role="tabpanel"
+        aria-label={`${sub[0].toUpperCase()}${sub.slice(1)} settings`}
+      >
+        {sub === "general" && <SettingsGeneral key="general" />}
+        {sub === "providers" && <SettingsProviders key="providers" />}
+        {sub === "system" && <SettingsSystem key="system" />}
+      </div>
+    </section>
+  );
+}
+
+export function SettingsGeneral() {
   const [theme, setTheme] = useState<Theme>(readStoredTheme);
   const [idle, setIdle] = useState(5);
   const [savedIdle, setSavedIdle] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    void api<{ sandbox_idle_minutes: number }>("/api/settings")
+      .then((s) => {
+        setIdle(s.sandbox_idle_minutes);
+        setSavedIdle(s.sandbox_idle_minutes);
+      })
+      .catch(() => {});
+  }, []);
+
+  const idleDirty = savedIdle !== null && idle !== savedIdle;
+  useDirtyGuard("the sandbox idle timeout", idleDirty);
+
+  const saveIdle = async () => {
+    setSaving(true);
+    try {
+      await api("/api/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sandbox_idle_minutes: idle }),
+      });
+      setSavedIdle(idle);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const [cap, setCap] = useState(0);
+  const [savedCap, setSavedCap] = useState<number | null>(null);
+  const [usage30d, setUsage30d] = useState(0);
+  const [savingCap, setSavingCap] = useState(false);
+
+  useEffect(() => {
+    void api<Breaker>("/api/breaker")
+      .then((b) => {
+        setCap(b.limit_tokens);
+        setSavedCap(b.limit_tokens);
+        setUsage30d(b.tokens_30d);
+      })
+      .catch(() => {});
+  }, []);
+
+  const capDirty = savedCap !== null && cap !== savedCap;
+  useDirtyGuard("the spend circuit breaker cap", capDirty);
+
+  const saveCap = async () => {
+    setSavingCap(true);
+    try {
+      const b = await api<Breaker>("/api/breaker", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ limit_tokens: cap }),
+      });
+      setSavedCap(b.limit_tokens);
+      setUsage30d(b.tokens_30d);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingCap(false);
+    }
+  };
+
+  const [soundsOn, setSoundsOn] = useState(
+    () => localStorage.getItem("bots-sounds") === "on",
+  );
+
+  const pickTheme = (t: Theme) => {
+    setStoredTheme(t);
+    setTheme(t);
+  };
+
+  return (
+    <>
+      <PasswordSettings />
+      <p className="muted">Theme</p>
+      <div className="themegroup" role="group" aria-label="Theme">
+        {THEMES.map((t) => (
+          <button
+            key={t}
+            type="button"
+            className={t === theme ? "sel" : ""}
+            onClick={() => pickTheme(t)}
+          >
+            {t[0].toUpperCase() + t.slice(1)}
+          </button>
+        ))}
+      </div>
+      <p className="muted">Sandbox idle timeout</p>
+      <div className="actions">
+        <input
+          type="number"
+          min={0}
+          max={1440}
+          aria-label="Sandbox idle timeout"
+          value={idle}
+          onChange={(e) => setIdle(Number(e.target.value))}
+        />
+        minutes
+        <button type="button" disabled={saving} onClick={() => void saveIdle()}>
+          Save
+        </button>
+        <UnsavedNote dirty={idleDirty} />
+      </div>
+      <p className="muted">Spend circuit breaker cap</p>
+      <div className="actions">
+        <input
+          type="number"
+          min={0}
+          aria-label="Spend circuit breaker token cap"
+          value={cap}
+          onChange={(e) =>
+            setCap(Math.max(0, Math.floor(Number(e.target.value) || 0)))
+          }
+        />
+        tokens / trailing 30 days (0 = unlimited · {fmtTokens(usage30d)} used)
+        <button
+          type="button"
+          disabled={savingCap}
+          onClick={() => void saveCap()}
+        >
+          Save
+        </button>
+        <UnsavedNote dirty={capDirty} />
+      </div>
+      <p className="muted">Notification sounds</p>
+      <div className="actions">
+        <label className="switch">
+          <input
+            type="checkbox"
+            aria-label="Play notification sounds"
+            checked={soundsOn}
+            onChange={() => {
+              const next = !soundsOn;
+              setSoundsOn(next);
+              localStorage.setItem("bots-sounds", next ? "on" : "off");
+              if (next) playSound("default");
+            }}
+          />
+          <span className="knob" />
+          <span className="state">{soundsOn ? "On" : "Off"}</span>
+        </label>
+        <button type="button" onClick={() => playSound("default")}>
+          Preview
+        </button>
+      </div>
+      <PushSection />
+    </>
+  );
+}
+
+export function SettingsProviders() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [defaultProviderId, setDefaultProviderId] = useState<string | null>(
     null,
@@ -2274,52 +2704,16 @@ export function SettingsPanel() {
   const [formOpen, setFormOpen] = useState(false);
   const [formProvider, setFormProvider] = useState<Provider | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Provider | null>(null);
-  const [keys, setKeys] = useState<ApiKey[]>([]);
-  const [keyName, setKeyName] = useState("");
-  const [revealedKey, setRevealedKey] = useState<string | null>(null);
-  const [mcpEnabled, setMcpEnabled] = useState(true);
-
-  const loadKeys = useCallback(async () => {
-    const list = await api<ApiKey[]>("/api/api-keys").catch(
-      () => [] as ApiKey[],
-    );
-    setKeys(list);
-  }, []);
-
-  useEffect(() => {
-    void loadKeys();
-  }, [loadKeys]);
-
-  const createKey = async () => {
-    const res = await api<{ value: string }>("/api/api-keys", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: keyName.trim() }),
-    }).catch(() => null);
-    if (res?.value) {
-      setRevealedKey(res.value);
-      setKeyName("");
-      void loadKeys();
-    }
-  };
-
-  const revokeKey = async (id: string) => {
-    await api(`/api/api-keys/${id}`, { method: "DELETE" }).catch(() => null);
-    void loadKeys();
-  };
 
   const loadProviders = useCallback(async () => {
     const [list, settings] = await Promise.all([
       api<Provider[]>("/api/providers").catch(() => [] as Provider[]),
-      api<{
-        default_provider_id: string | null;
-        default_model: string | null;
-        control_mcp_enabled?: boolean;
-      }>("/api/settings").catch(() => null),
+      api<{ default_provider_id: string | null; default_model: string | null }>(
+        "/api/settings",
+      ).catch(() => null),
     ]);
     setProviders(list);
     if (settings) {
-      setMcpEnabled(settings.control_mcp_enabled !== false);
       setDefaultProviderId(settings.default_provider_id);
       setDefaultModel(settings.default_model);
     }
@@ -2366,169 +2760,8 @@ export function SettingsPanel() {
       ]
     : [];
 
-  useEffect(() => {
-    void api<{ sandbox_idle_minutes: number }>("/api/settings")
-      .then((s) => {
-        setIdle(s.sandbox_idle_minutes);
-        setSavedIdle(s.sandbox_idle_minutes);
-      })
-      .catch(() => {});
-  }, []);
-
-  const idleDirty = savedIdle !== null && idle !== savedIdle;
-  useDirtyGuard("the sandbox idle timeout", idleDirty);
-
-  const saveIdle = async () => {
-    setSaving(true);
-    try {
-      await api("/api/settings", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sandbox_idle_minutes: idle }),
-      });
-      setSavedIdle(idle);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const [soundsOn, setSoundsOn] = useState(
-    () => localStorage.getItem("bots-sounds") === "on",
-  );
-
-  const pick = (t: Theme) => {
-    setStoredTheme(t);
-    setTheme(t);
-  };
-
   return (
-    <section>
-      <div className="mainhead">
-        <h2>Settings</h2>
-      </div>
-      <AccountSection />
-      <p className="muted">Theme</p>
-      <div className="themegroup" role="group" aria-label="Theme">
-        {THEMES.map((t) => (
-          <button
-            key={t}
-            type="button"
-            className={t === theme ? "sel" : ""}
-            onClick={() => pick(t)}
-          >
-            {t[0].toUpperCase() + t.slice(1)}
-          </button>
-        ))}
-      </div>
-      <p className="muted">Sandbox idle timeout</p>
-      <div className="actions">
-        <input
-          type="number"
-          min={0}
-          max={1440}
-          value={idle}
-          onChange={(e) => setIdle(Number(e.target.value))}
-        />
-        minutes
-        <button type="button" disabled={saving} onClick={() => void saveIdle()}>
-          Save
-        </button>
-        <UnsavedNote dirty={idleDirty} />
-      </div>
-      <p className="muted">Notification sounds</p>
-      <div className="actions">
-        <label className="switch">
-          <input
-            type="checkbox"
-            aria-label="Play notification sounds"
-            checked={soundsOn}
-            onChange={() => {
-              const next = !soundsOn;
-              setSoundsOn(next);
-              localStorage.setItem("bots-sounds", next ? "on" : "off");
-              if (next) playSound("default");
-            }}
-          />
-          <span className="knob" />
-          <span className="state">{soundsOn ? "On" : "Off"}</span>
-        </label>
-        <button type="button" onClick={() => playSound("default")}>
-          Preview
-        </button>
-      </div>
-      <PushSection />
-
-      <p className="muted">API keys</p>
-      <ul className="plist">
-        {keys.map((k) => (
-          <li key={k.id}>
-            <div className="pinfo">
-              <strong>{k.name}</strong>
-              <span className="muted">created {relTime(k.created_at)}</span>
-              <span className="muted">
-                {k.last_used_at === null
-                  ? "never used"
-                  : `last used ${relTime(k.last_used_at)}`}
-              </span>
-            </div>
-            <div className="actions">
-              <button type="button" onClick={() => void revokeKey(k.id)}>
-                Revoke
-              </button>
-            </div>
-          </li>
-        ))}
-      </ul>
-      {revealedKey !== null && (
-        <p className="keyreveal">
-          New key — shown once: <code>{revealedKey}</code>
-        </p>
-      )}
-      <div className="keyrow">
-        <input
-          placeholder="Key name"
-          value={keyName}
-          onChange={(e) => setKeyName(e.target.value)}
-        />
-        <button
-          type="button"
-          disabled={!keyName.trim()}
-          onClick={() => void createKey()}
-        >
-          Add key
-        </button>
-      </div>
-      <p className="muted">
-        Headless access: <a href="/api/openapi.json">OpenAPI spec</a>
-      </p>
-
-      <ConfigBackupSection />
-
-      <p className="muted">Control MCP server</p>
-      <div className="tedithead">
-        <label className="switch">
-          <input
-            type="checkbox"
-            aria-label="Control MCP enabled"
-            checked={mcpEnabled}
-            onChange={() => {
-              const next = !mcpEnabled;
-              setMcpEnabled(next);
-              api("/api/settings", {
-                method: "PUT",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ control_mcp_enabled: next }),
-              }).catch((e) => alert(e.message));
-            }}
-          />
-          <span className="knob" />
-          <span className="state">{mcpEnabled ? "Enabled" : "Disabled"}</span>
-        </label>
-        <code>/mcp</code>
-      </div>
-
+    <>
       <p className="muted">LLM providers</p>
       {providers.length === 0 && (
         <p className="muted">
@@ -2630,7 +2863,120 @@ export function SettingsPanel() {
           onConfirm={() => void removeProvider(confirmDelete)}
         />
       )}
-    </section>
+    </>
+  );
+}
+
+export function SettingsSystem() {
+  const [keys, setKeys] = useState<ApiKey[]>([]);
+  const [keyName, setKeyName] = useState("");
+  const [revealedKey, setRevealedKey] = useState<string | null>(null);
+  const [mcpEnabled, setMcpEnabled] = useState(true);
+
+  const loadKeys = useCallback(async () => {
+    const list = await api<ApiKey[]>("/api/api-keys").catch(
+      () => [] as ApiKey[],
+    );
+    setKeys(list);
+  }, []);
+
+  useEffect(() => {
+    void loadKeys();
+    void api<{ control_mcp_enabled?: boolean }>("/api/settings")
+      .then((settings) => setMcpEnabled(settings.control_mcp_enabled !== false))
+      .catch(() => undefined);
+  }, [loadKeys]);
+
+  const createKey = async () => {
+    const res = await api<{ value: string }>("/api/api-keys", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: keyName.trim() }),
+    }).catch(() => null);
+    if (res?.value) {
+      setRevealedKey(res.value);
+      setKeyName("");
+      void loadKeys();
+    }
+  };
+
+  const revokeKey = async (id: string) => {
+    await api(`/api/api-keys/${id}`, { method: "DELETE" }).catch(() => null);
+    void loadKeys();
+  };
+
+  return (
+    <>
+      <SessionSettings />
+      <p className="muted">API keys</p>
+      <ul className="plist">
+        {keys.map((k) => (
+          <li key={k.id}>
+            <div className="pinfo">
+              <strong>{k.name}</strong>
+              <span className="muted">created {relTime(k.created_at)}</span>
+              <span className="muted">
+                {k.last_used_at === null
+                  ? "never used"
+                  : `last used ${relTime(k.last_used_at)}`}
+              </span>
+            </div>
+            <div className="actions">
+              <button type="button" onClick={() => void revokeKey(k.id)}>
+                Revoke
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {revealedKey !== null && (
+        <p className="keyreveal">
+          New key — shown once: <code>{revealedKey}</code>
+        </p>
+      )}
+      <div className="keyrow">
+        <input
+          placeholder="Key name"
+          value={keyName}
+          onChange={(e) => setKeyName(e.target.value)}
+        />
+        <button
+          type="button"
+          disabled={!keyName.trim()}
+          onClick={() => void createKey()}
+        >
+          Add key
+        </button>
+      </div>
+      <p className="muted">
+        Headless access: <a href="/api/openapi.json">OpenAPI spec</a>
+      </p>
+
+      <ConfigBackupSection />
+
+      <p className="muted">Control MCP server</p>
+      <div className="tedithead">
+        <label className="switch">
+          <input
+            type="checkbox"
+            aria-label="Control MCP enabled"
+            checked={mcpEnabled}
+            onChange={() => {
+              const next = !mcpEnabled;
+              setMcpEnabled(next);
+              api("/api/settings", {
+                method: "PUT",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ control_mcp_enabled: next }),
+              }).catch((e) => alert(e.message));
+            }}
+          />
+          <span className="knob" />
+          <span className="state">{mcpEnabled ? "Enabled" : "Disabled"}</span>
+        </label>
+        <code>/mcp</code>
+      </div>
+    </>
   );
 }
 
@@ -4179,6 +4525,162 @@ interface ContextBreakdownData {
   free: number | null;
 }
 
+const FILE_PREVIEW_LIMIT = 256 * 1024;
+
+interface WorkspaceEntry {
+  name: string;
+  type: "dir" | "file";
+  size_bytes: number;
+  modified_at: number;
+}
+
+export function fmtBytes(n: number): string {
+  if (n >= 1e9) return `${(n / 1073741824).toFixed(1)} GB`;
+  if (n >= 1e6) return `${(n / 1048576).toFixed(1)} MB`;
+  if (n >= 1e3) return `${(n / 1024).toFixed(1)} KB`;
+  return `${n} B`;
+}
+
+// specs/machines/workspace-browser.md — read-only browse of data/workspaces/<bot-id>.
+export function BotFiles({ botId }: { botId: string }) {
+  const [path, setPath] = useState("");
+  const [data, setData] = useState<{
+    path: string;
+    entries: WorkspaceEntry[];
+  } | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [selected, setSelected] = useState<WorkspaceEntry | null>(null);
+  const [fileText, setFileText] = useState<string | null>(null);
+  const [binary, setBinary] = useState(false);
+  const [truncated, setTruncated] = useState(false);
+  const [loadingFile, setLoadingFile] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void api<{ path: string; entries: WorkspaceEntry[] }>(
+      `/api/bots/${botId}/workspace?path=${encodeURIComponent(path)}`,
+    )
+      .then((d) => active && setData(d))
+      .catch(() => active && setData({ path, entries: [] }));
+    return () => {
+      active = false;
+    };
+  }, [botId, path, refreshKey]);
+
+  const fileUrl = (p: string) =>
+    `/api/bots/${botId}/workspace/file?path=${encodeURIComponent(p)}`;
+  const joinPath = (name: string) => (path ? `${path}/${name}` : name);
+
+  const openEntry = async (entry: WorkspaceEntry) => {
+    if (entry.type === "dir") {
+      setSelected(null);
+      setPath(joinPath(entry.name));
+      return;
+    }
+    setSelected(entry);
+    setFileText(null);
+    setBinary(false);
+    setTruncated(false);
+    if (entry.size_bytes > FILE_PREVIEW_LIMIT) return;
+    setLoadingFile(true);
+    try {
+      const res = await fetch(fileUrl(joinPath(entry.name)));
+      if (!res.ok) throw new Error(String(res.status));
+      const buf = new Uint8Array(await res.arrayBuffer());
+      setTruncated(buf.byteLength < entry.size_bytes);
+      try {
+        setFileText(new TextDecoder("utf-8", { fatal: true }).decode(buf));
+      } catch {
+        setBinary(true);
+      }
+    } catch {
+      setBinary(true);
+    } finally {
+      setLoadingFile(false);
+    }
+  };
+
+  const crumbs = path ? path.split("/") : [];
+  return (
+    <section>
+      <div className="actions">
+        <nav className="crumbs" aria-label="Workspace path">
+          <button
+            type="button"
+            onClick={() => {
+              setSelected(null);
+              setPath("");
+            }}
+          >
+            workspace
+          </button>
+          {crumbs.map((seg, i) => (
+            <span key={seg}>
+              /{" "}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelected(null);
+                  setPath(crumbs.slice(0, i + 1).join("/"));
+                }}
+              >
+                {seg}
+              </button>
+            </span>
+          ))}
+        </nav>
+        <button
+          type="button"
+          onClick={() => {
+            setSelected(null);
+            setRefreshKey((k) => k + 1);
+          }}
+        >
+          Refresh
+        </button>
+      </div>
+      {(data?.entries.length ?? 0) === 0 && (
+        <p className="muted">Empty directory.</p>
+      )}
+      {(data?.entries ?? []).map((entry) => (
+        <div key={entry.name} className="filerow">
+          <button type="button" onClick={() => void openEntry(entry)}>
+            {entry.type === "dir" ? `${entry.name}/` : entry.name}
+          </button>
+          {entry.type === "file" && (
+            <span className="muted">{fmtBytes(entry.size_bytes)}</span>
+          )}
+          <span className="muted">
+            {new Date(entry.modified_at).toLocaleString()}
+          </span>
+        </div>
+      ))}
+      {selected && (
+        <article className="fileview">
+          <div className="actions">
+            <strong>{selected.name}</strong>
+            <a href={fileUrl(joinPath(selected.name))}>Download</a>
+          </div>
+          {selected.size_bytes > FILE_PREVIEW_LIMIT ? (
+            <p className="muted">Larger than 256 KB — download only.</p>
+          ) : loadingFile ? (
+            <p className="muted">Loading…</p>
+          ) : binary ? (
+            <p className="muted">Binary file — download to inspect.</p>
+          ) : (
+            fileText !== null && (
+              <>
+                {truncated && <p className="muted">Truncated at 256 KB.</p>}
+                <pre>{fileText}</pre>
+              </>
+            )
+          )}
+        </article>
+      )}
+    </section>
+  );
+}
+
 export function BotStats({
   botId,
   running = false,
@@ -4400,9 +4902,11 @@ function parseWatchdogHours(value: string): number | null | "invalid" {
 export function BotGeneral({
   bot,
   onChanged,
+  onCancel = () => undefined,
 }: {
   bot: Bot | undefined;
   onChanged: () => void;
+  onCancel?: () => void;
 }) {
   const [roles, setRoles] = useState<Role[]>([]);
   const [name, setName] = useState(bot?.name ?? "");
@@ -4420,7 +4924,6 @@ export function BotGeneral({
   );
   const [defaultModel, setDefaultModel] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [toggling, setToggling] = useState(false);
   const [pending, setPending] = useState<"delete" | "clear" | "restart" | null>(
     null,
   );
@@ -4526,30 +5029,6 @@ export function BotGeneral({
             off.
           </p>
         )}
-        <div className="actions">
-          <button
-            type="button"
-            disabled={busy || !dirty || !name.trim()}
-            onClick={() => {
-              setBusy(true);
-              patchBot({
-                name: name.trim(),
-                instructions,
-                model_id: modelId || null,
-                role_id: roleId || null,
-                machine_id: machineId || null,
-                watchdog_hours:
-                  parsedWatchdog === "invalid" ? watchdogHours : parsedWatchdog,
-              })
-                .then(onChanged)
-                .catch((e) => alert(e.message))
-                .finally(() => setBusy(false));
-            }}
-          >
-            Save
-          </button>
-          <UnsavedNote dirty={dirty} />
-        </div>
       </div>
       <p className="statusline">
         Status:{" "}
@@ -4564,53 +5043,6 @@ export function BotGeneral({
       <BotTags botId={bot.id} />
       <BotSecrets botId={bot.id} />
       <BotTeams botId={bot.id} />
-      <div className="actions">
-        <label className="switch">
-          <input
-            type="checkbox"
-            aria-label="Bot enabled"
-            checked={bot.enabled !== 0}
-            disabled={toggling}
-            onChange={() => {
-              setToggling(true);
-              patchBot({ enabled: bot.enabled === 0 })
-                .then(onChanged)
-                .catch((e) => alert(e.message))
-                .finally(() => setToggling(false));
-            }}
-          />
-          <span className="knob" />
-          <span className="state">{bot.enabled ? "Enabled" : "Disabled"}</span>
-        </label>
-        {bot.run_state === "running" && (
-          <button
-            type="button"
-            onClick={() =>
-              api(`/api/bots/${bot.id}/interrupt`, { method: "POST" })
-                .then(onChanged)
-                .catch((e) => alert(e.message))
-            }
-          >
-            Stop
-          </button>
-        )}
-        <button type="button" onClick={() => setPending("restart")}>
-          Restart machine
-        </button>
-        <button type="button" onClick={() => setPending("clear")}>
-          Clear memory
-        </button>
-        <button type="button" onClick={() => void openTemplateDraft()}>
-          Save as template…
-        </button>
-        <button
-          type="button"
-          className="danger"
-          onClick={() => setPending("delete")}
-        >
-          Delete
-        </button>
-      </div>
       <p className="rolepick">
         Role{" "}
         <select
@@ -4685,6 +5117,49 @@ export function BotGeneral({
           Preview
         </button>
       </p>
+      <div className="botdetailactions">
+        <UnsavedNote dirty={dirty} />
+        <button
+          type="button"
+          disabled={busy || !dirty || !name.trim()}
+          onClick={() => {
+            setBusy(true);
+            patchBot({
+              name: name.trim(),
+              instructions,
+              model_id: modelId || null,
+              role_id: roleId || null,
+              machine_id: machineId || null,
+              watchdog_hours:
+                parsedWatchdog === "invalid" ? watchdogHours : parsedWatchdog,
+            })
+              .then(onChanged)
+              .catch((e) => alert(e.message))
+              .finally(() => setBusy(false));
+          }}
+        >
+          Save
+        </button>
+        <button type="button" onClick={() => setPending("restart")}>
+          Restart machine
+        </button>
+        <button type="button" onClick={() => setPending("clear")}>
+          Clear memory
+        </button>
+        <button type="button" onClick={() => void openTemplateDraft()}>
+          Save as template…
+        </button>
+        <button
+          type="button"
+          className="danger"
+          onClick={() => setPending("delete")}
+        >
+          Delete
+        </button>
+        <button type="button" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
       {pending === "delete" && (
         <ConfirmDialog
           text={`Delete bot ${bot.name}? This removes the bot, its triggers and run history.`}
@@ -4749,13 +5224,6 @@ export function anyDirtyLabel(): string | null {
 export function clearAllDirty(): void {
   dirtyEditors.clear();
   bumpDirty();
-}
-
-function subscribeDirty(l: () => void): () => void {
-  dirtyListeners.add(l);
-  return () => {
-    dirtyListeners.delete(l);
-  };
 }
 
 export function formDirty(
@@ -5461,14 +5929,59 @@ interface Skill {
   import_info?: string | null;
 }
 
+export type McpEnvMode = "literal" | "secret";
+
+interface McpSecretRef {
+  secret: string;
+}
+
+export type McpEnvValue = string | McpSecretRef;
+
 interface McpServer {
   id: string;
   name: string;
   transport: "stdio";
   command: string;
   args: string[];
-  env: Record<string, string>;
+  env: Record<string, McpEnvValue>;
   enabled: number;
+}
+
+interface McpEnvRow {
+  key: string;
+  mode: McpEnvMode;
+  value: string;
+}
+
+function isMcpSecretRef(value: unknown): value is McpSecretRef {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    typeof (value as { secret?: unknown }).secret === "string"
+  );
+}
+
+export function mcpEnvRowsFromRecord(
+  env: Record<string, McpEnvValue>,
+): McpEnvRow[] {
+  return Object.entries(env).map(([key, value]) =>
+    isMcpSecretRef(value)
+      ? { key, mode: "secret", value: value.secret }
+      : { key, mode: "literal", value },
+  );
+}
+
+export function mcpEnvMapFromRows(
+  rows: McpEnvRow[],
+): Record<string, McpEnvValue> {
+  const env: Record<string, McpEnvValue> = {};
+  for (const row of rows) {
+    const key = row.key.trim();
+    if (!key) continue;
+    env[key] = row.mode === "secret" ? { secret: row.value } : row.value;
+  }
+  return env;
 }
 
 export function IntegrationsPanel() {
@@ -5543,11 +6056,17 @@ export function IntegrationsPanel() {
                 </button>
               </header>
               <code>{[s.command, ...s.args].join(" ")}</code>
-              {Object.keys(s.env).length > 0 && (
+              {Object.entries(s.env).length > 0 && (
                 <p className="muted envline">
-                  {Object.keys(s.env)
-                    .map((k) => `${k}=••••`)
-                    .join("  ")}
+                  {Object.entries(s.env).map(([key, value]) => {
+                    const secret = isMcpSecretRef(value) ? value.secret : null;
+                    return (
+                      <span key={key} className="envchip">
+                        {`${key}=••••`}
+                        {secret && <span className="srcbadge">{secret}</span>}
+                      </span>
+                    );
+                  })}
                 </p>
               )}
               {r?.tools !== undefined && (
@@ -5587,9 +6106,9 @@ export function IntegrationsPanel() {
 
 export function SkillsPanel() {
   const [skills, setSkills] = useState<Skill[]>([]);
-  const [skillForm, setSkillForm] = useState<Skill | "new" | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
   const [removingSkill, setRemovingSkill] = useState<Skill | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
 
   const reloadSkills = useCallback(
     () =>
@@ -5607,11 +6126,8 @@ export function SkillsPanel() {
     <section>
       <div className="viewhead">
         <h2>Skills</h2>
-        <button type="button" onClick={() => setImportOpen(true)}>
-          Import
-        </button>
-        <button type="button" onClick={() => setSkillForm("new")}>
-          Add skill
+        <button type="button" onClick={() => setAddOpen(true)}>
+          + Add skill
         </button>
       </div>
       <div className="mcpsection">
@@ -5627,7 +6143,7 @@ export function SkillsPanel() {
                   {`${safeImportOrigin(sk.import_info) ?? "git"} skill`}
                 </span>
               )}
-              <button type="button" onClick={() => setSkillForm(sk)}>
+              <button type="button" onClick={() => setEditingSkill(sk)}>
                 Edit
               </button>
               <button
@@ -5656,21 +6172,21 @@ export function SkillsPanel() {
           }}
         />
       )}
-      {skillForm && (
-        <SkillModal
-          skill={skillForm === "new" ? null : skillForm}
-          onClose={() => setSkillForm(null)}
+      {addOpen && (
+        <AddSkillModal
+          onClose={() => setAddOpen(false)}
           onSaved={() => {
-            setSkillForm(null);
+            setAddOpen(false);
             void reloadSkills();
           }}
         />
       )}
-      {importOpen && (
-        <ImportSkillModal
-          onClose={() => setImportOpen(false)}
-          onImported={() => {
-            setImportOpen(false);
+      {editingSkill && (
+        <SkillModal
+          skill={editingSkill}
+          onClose={() => setEditingSkill(null)}
+          onSaved={() => {
+            setEditingSkill(null);
             void reloadSkills();
           }}
         />
@@ -5684,24 +6200,20 @@ export function SkillModal({
   onClose,
   onSaved,
 }: {
-  skill: Skill | null;
+  skill: Skill;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [name, setName] = useState(skill?.name ?? "");
-  const [description, setDescription] = useState(skill?.description ?? "");
-  const [instructions, setInstructions] = useState(skill?.instructions ?? "");
+  const [name, setName] = useState(skill.name);
+  const [description, setDescription] = useState(skill.description);
+  const [instructions, setInstructions] = useState(skill.instructions);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const dirty =
-    name !== (skill?.name ?? "") ||
-    description !== (skill?.description ?? "") ||
-    instructions !== (skill?.instructions ?? "");
-  const attemptClose = useDiscardGuard(
-    skill ? `skill ${skill.name}` : "this new skill",
-    dirty,
-    onClose,
-  );
+    name !== skill.name ||
+    description !== skill.description ||
+    instructions !== skill.instructions;
+  const attemptClose = useDiscardGuard(`skill ${skill.name}`, dirty, onClose);
 
   return (
     <div className="modal">
@@ -5712,15 +6224,15 @@ export function SkillModal({
         onClick={attemptClose}
       />
       <div className="dialog" role="dialog" aria-label="Skill">
-        <h2>{skill ? "Edit skill" : "Add skill"}</h2>
+        <h2>Edit skill</h2>
         <form
           onSubmit={async (e) => {
             e.preventDefault();
             setBusy(true);
             setError(null);
             try {
-              await api(skill ? `/api/skills/${skill.id}` : "/api/skills", {
-                method: skill ? "PATCH" : "POST",
+              await api(`/api/skills/${skill.id}`, {
+                method: "PATCH",
                 headers: { "content-type": "application/json" },
                 body: JSON.stringify({ name, description, instructions }),
               });
@@ -5760,7 +6272,7 @@ export function SkillModal({
           {error && <p className="error">{error}</p>}
           <div className="actions">
             <button type="submit" disabled={busy}>
-              {busy ? "Saving…" : skill ? "Save" : "Create"}
+              {busy ? "Saving…" : "Save"}
             </button>
             <UnsavedNote dirty={dirty} />
             <button type="button" onClick={attemptClose}>
@@ -5773,10 +6285,158 @@ export function SkillModal({
   );
 }
 
-export function findDuplicateEnvKey(rows: [string, string][]): string | null {
+function CreateSkillForm({
+  onSaved,
+  onDirtyChange,
+}: {
+  onSaved: () => void;
+  onDirtyChange: (dirty: boolean) => void;
+}) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [instructions, setInstructions] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const dirty = name !== "" || description !== "" || instructions !== "";
+
+  useEffect(() => {
+    onDirtyChange(dirty);
+  }, [dirty, onDirtyChange]);
+
+  return (
+    <form
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        setError(null);
+        try {
+          await api("/api/skills", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ name, description, instructions }),
+          });
+          onSaved();
+        } catch (err) {
+          setError(err instanceof Error ? err.message : String(err));
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <label>
+        Name
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
+      </label>
+      <label>
+        Description (optional)
+        <input
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </label>
+      <label>
+        Instructions (markdown)
+        <textarea
+          className="fixed"
+          rows={12}
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
+          required
+        />
+      </label>
+      {error && <p className="error">{error}</p>}
+      <div className="actions">
+        <button type="submit" disabled={busy}>
+          {busy ? "Creating…" : "Create"}
+        </button>
+        <UnsavedNote dirty={dirty} />
+      </div>
+    </form>
+  );
+}
+
+export function AddSkillModal({
+  onClose,
+  onSaved,
+}: {
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [tab, setTab] = useState<"create" | "import">("create");
+  const [formKey, setFormKey] = useState(0);
+  const [createDirty, setCreateDirty] = useState(false);
+  const attemptClose = useDiscardGuard("this new skill", createDirty, onClose);
+  const guard = useNavGuard();
+
+  function switchTab(next: "create" | "import") {
+    if (next === tab) return;
+    guard(() => {
+      setCreateDirty(false);
+      if (tab === "create") setFormKey((key) => key + 1);
+      setTab(next);
+    });
+  }
+
+  return (
+    <div className="modal">
+      <button
+        type="button"
+        className="mscrim"
+        aria-label="Close"
+        onClick={attemptClose}
+      />
+      <div className="dialog tabs" role="dialog" aria-label="Add skill">
+        <div className="viewhead">
+          <h2>Add skill</h2>
+          <button
+            type="button"
+            className="close"
+            aria-label="Cancel"
+            onClick={attemptClose}
+          >
+            ×
+          </button>
+        </div>
+        <nav className="mtabs">
+          {(
+            [
+              ["create", "Create"],
+              ["import", "Import"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              className={tab === id ? "sel" : ""}
+              onClick={() => switchTab(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+        <div className="tabbody">
+          {tab === "create" && (
+            <CreateSkillForm
+              key={formKey}
+              onSaved={onSaved}
+              onDirtyChange={setCreateDirty}
+            />
+          )}
+          {tab === "import" && <ImportSkillsPane onImported={onSaved} />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function findDuplicateEnvKey(rows: { key: string }[]): string | null {
   const seen = new Set<string>();
-  for (const [key] of rows) {
-    const trimmed = key.trim();
+  for (const row of rows) {
+    const trimmed = row.key.trim();
     if (!trimmed) continue;
     if (seen.has(trimmed)) return trimmed;
     seen.add(trimmed);
@@ -5796,13 +6456,27 @@ export function McpServerModal({
   const [name, setName] = useState(server?.name ?? "");
   const [command, setCommand] = useState(server?.command ?? "");
   const [args, setArgs] = useState((server?.args ?? []).join("\n"));
-  const [envRows, setEnvRows] = useState<[string, string][]>(() => {
-    const entries = Object.entries(server?.env ?? {}) as [string, string][];
-    return entries.length > 0 ? entries : [["", ""]];
+  const [envRows, setEnvRows] = useState<McpEnvRow[]>(() => {
+    const rows = mcpEnvRowsFromRecord(server?.env ?? {});
+    return rows.length > 0 ? rows : [{ key: "", mode: "literal", value: "" }];
   });
+  const [secrets, setSecrets] = useState<SecretMeta[]>([]);
   const [enabled, setEnabled] = useState(server ? server.enabled === 1 : true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void api<SecretMeta[]>("/api/secrets")
+      .then((items) => {
+        if (live) setSecrets(items);
+      })
+      .catch(() => {
+        if (live) setSecrets([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
   const snap = useRef({
     name: server?.name ?? "",
     command: server?.command ?? "",
@@ -5842,11 +6516,6 @@ export function McpServerModal({
             }
             setBusy(true);
             setError(null);
-            const envMap: Record<string, string> = {};
-            for (const [k, v] of envRows) {
-              const key = k.trim();
-              if (key) envMap[key] = v;
-            }
             const body = {
               name,
               command,
@@ -5854,7 +6523,7 @@ export function McpServerModal({
                 .split("\n")
                 .map((a) => a.trim())
                 .filter(Boolean),
-              env: envMap,
+              env: mcpEnvMapFromRows(envRows),
               enabled,
             };
             try {
@@ -5902,30 +6571,97 @@ export function McpServerModal({
           </label>
           <fieldset className="envrows">
             <legend>Env vars</legend>
-            {envRows.map(([k, v], i) => (
+            {envRows.map((row, i) => (
               <div className="envrow" key={i}>
                 <input
                   placeholder="KEY"
-                  value={k}
+                  value={row.key}
                   onChange={(e) =>
                     setEnvRows(
                       envRows.map((r, j) =>
-                        j === i ? [e.target.value, r[1]] : r,
+                        j === i ? { ...r, key: e.target.value } : r,
                       ),
                     )
                   }
                 />
-                <input
-                  placeholder="value"
-                  value={v}
-                  onChange={(e) =>
-                    setEnvRows(
-                      envRows.map((r, j) =>
-                        j === i ? [r[0], e.target.value] : r,
-                      ),
-                    )
-                  }
-                />
+                <div className="envvalue">
+                  <div className="themegroup envmode">
+                    <button
+                      type="button"
+                      aria-label={`Use a literal value for env var ${i + 1}`}
+                      className={row.mode === "literal" ? "sel" : ""}
+                      onClick={() =>
+                        setEnvRows(
+                          envRows.map((r, j) =>
+                            j === i ? { ...r, mode: "literal" } : r,
+                          ),
+                        )
+                      }
+                    >
+                      Literal
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Use a secret reference for env var ${i + 1}`}
+                      className={row.mode === "secret" ? "sel" : ""}
+                      onClick={() =>
+                        setEnvRows(
+                          envRows.map((r, j) => {
+                            if (j !== i) return r;
+                            const known = secrets.some(
+                              (s) => s.name === r.value,
+                            );
+                            return {
+                              ...r,
+                              mode: "secret",
+                              value: known ? r.value : "",
+                            };
+                          }),
+                        )
+                      }
+                    >
+                      Secret
+                    </button>
+                  </div>
+                  {row.mode === "literal" ? (
+                    <input
+                      placeholder="value"
+                      value={row.value}
+                      onChange={(e) =>
+                        setEnvRows(
+                          envRows.map((r, j) =>
+                            j === i ? { ...r, value: e.target.value } : r,
+                          ),
+                        )
+                      }
+                    />
+                  ) : (
+                    <select
+                      aria-label={`Env var ${i + 1} secret`}
+                      value={row.value}
+                      onChange={(e) =>
+                        setEnvRows(
+                          envRows.map((r, j) =>
+                            j === i ? { ...r, value: e.target.value } : r,
+                          ),
+                        )
+                      }
+                    >
+                      <option value="">Select a secret…</option>
+                      {row.value &&
+                        !secrets.some((s) => s.name === row.value) && (
+                          <option
+                            value={row.value}
+                          >{`${row.value} (missing)`}</option>
+                        )}
+                      {secrets.map((secret) => (
+                        <option key={secret.id} value={secret.name}>
+                          {secret.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
                 <button
                   type="button"
                   className="danger ghost"
@@ -5939,7 +6675,12 @@ export function McpServerModal({
             <button
               type="button"
               className="linklike"
-              onClick={() => setEnvRows([...envRows, ["", ""]])}
+              onClick={() =>
+                setEnvRows([
+                  ...envRows,
+                  { key: "", mode: "literal", value: "" },
+                ])
+              }
             >
               + Add variable
             </button>
@@ -7061,13 +7802,7 @@ interface SkillPreviewRow {
   content_hash: string;
 }
 
-export function ImportSkillModal({
-  onClose,
-  onImported,
-}: {
-  onClose: () => void;
-  onImported: () => void;
-}) {
+function ImportSkillsPane({ onImported }: { onImported: () => void }) {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [source, setSource] = useState("");
@@ -7130,121 +7865,109 @@ export function ImportSkillModal({
   };
 
   return (
-    <div className="modal">
-      <button
-        type="button"
-        className="mscrim"
-        aria-label="Close"
-        onClick={onClose}
-      />
-      <div className="dialog" role="dialog" aria-label="Import skill">
-        <h2>Import skills</h2>
-        <label className="field">
-          Search skills.sh
-          <input
-            value={query}
-            placeholder="pdf, testing, ..."
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                void search();
-              }
-            }}
-          />
-        </label>
-        <div className="actions">
-          <button
-            type="button"
-            disabled={busy || !query.trim()}
-            onClick={() => void search()}
-          >
-            Search
-          </button>
-        </div>
-        {hits && (
-          <ul className="srclist">
-            {hits.length === 0 && <li className="muted">No matches.</li>}
-            {hits.map((h) => (
-              <li key={h.id}>
-                <span>
-                  {h.name}{" "}
-                  <em className="muted">
-                    ({h.source}
-                    {h.installs !== null ? ` · ${h.installs} installs` : ""})
-                  </em>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setSource(`${h.source}@${h.skill_id}`)}
-                >
-                  Use
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <label className="field">
-          Git source
-          <input
-            value={source}
-            placeholder="owner/repo, https://…/tree/main/skills/pdf@pdf#v1.2"
-            onChange={(e) => setSource(e.target.value)}
-          />
-        </label>
-        <div className="actions">
-          <button
-            type="button"
-            disabled={busy || !source.trim()}
-            onClick={() => void preview()}
-          >
-            Preview
-          </button>
-        </div>
-        {previews.length > 0 && (
-          <ul className="srclist">
-            {previews.map((p) => (
-              <li key={p.folder}>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={picked.has(p.folder)}
-                    onChange={() =>
-                      setPicked((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(p.folder)) next.delete(p.folder);
-                        else next.add(p.folder);
-                        return next;
-                      })
-                    }
-                  />{" "}
-                  <strong>{p.name}</strong>{" "}
-                  <em className="muted">
-                    {p.folder} · {p.file_count} files ·{" "}
-                    {(p.total_size / 1024).toFixed(0)} KB
-                  </em>
-                </label>
-              </li>
-            ))}
-          </ul>
-        )}
-        {error && <p className="error">{error}</p>}
-        <div className="actions">
-          <button
-            type="button"
-            disabled={busy || picked.size === 0}
-            onClick={() => void doImport()}
-          >
-            Import{" "}
-            {picked.size > 0
-              ? `${picked.size} skill${picked.size > 1 ? "s" : ""}`
-              : ""}
-          </button>
-          <button type="button" onClick={onClose}>
-            Cancel
-          </button>
-        </div>
+    <>
+      <label className="field">
+        Search skills.sh
+        <input
+          value={query}
+          placeholder="pdf, testing, ..."
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void search();
+            }
+          }}
+        />
+      </label>
+      <div className="actions">
+        <button
+          type="button"
+          disabled={busy || !query.trim()}
+          onClick={() => void search()}
+        >
+          Search
+        </button>
       </div>
-    </div>
+      {hits && (
+        <ul className="srclist">
+          {hits.length === 0 && <li className="muted">No matches.</li>}
+          {hits.map((h) => (
+            <li key={h.id}>
+              <span>
+                {h.name}{" "}
+                <em className="muted">
+                  ({h.source}
+                  {h.installs !== null ? ` · ${h.installs} installs` : ""})
+                </em>
+              </span>
+              <button
+                type="button"
+                onClick={() => setSource(`${h.source}@${h.skill_id}`)}
+              >
+                Use
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <label className="field">
+        Git source
+        <input
+          value={source}
+          placeholder="owner/repo, https://…/tree/main/skills/pdf@pdf#v1.2"
+          onChange={(e) => setSource(e.target.value)}
+        />
+      </label>
+      <div className="actions">
+        <button
+          type="button"
+          disabled={busy || !source.trim()}
+          onClick={() => void preview()}
+        >
+          Preview
+        </button>
+      </div>
+      {previews.length > 0 && (
+        <ul className="srclist">
+          {previews.map((p) => (
+            <li key={p.folder}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={picked.has(p.folder)}
+                  onChange={() =>
+                    setPicked((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(p.folder)) next.delete(p.folder);
+                      else next.add(p.folder);
+                      return next;
+                    })
+                  }
+                />{" "}
+                <strong>{p.name}</strong>{" "}
+                <em className="muted">
+                  {p.folder} · {p.file_count} files ·{" "}
+                  {(p.total_size / 1024).toFixed(0)} KB
+                </em>
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
+      {error && <p className="error">{error}</p>}
+      <div className="actions">
+        <button
+          type="button"
+          disabled={busy || picked.size === 0}
+          onClick={() => void doImport()}
+        >
+          Import{" "}
+          {picked.size > 0
+            ? `${picked.size} skill${picked.size > 1 ? "s" : ""}`
+            : ""}
+        </button>
+      </div>
+    </>
   );
 }

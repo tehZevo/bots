@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import type { McpServerRow } from "./db.ts";
+import { type McpServerRow, resolveMcpEnv } from "./db.ts";
 
 const HANDSHAKE_TIMEOUT_MS = 20_000;
 
@@ -23,7 +23,7 @@ export function mcpChildEnv(server: McpServerRow): Record<string, string> {
   const base: Record<string, string> = {};
   if (typeof process.env.PATH === "string") base.PATH = process.env.PATH;
   if (typeof process.env.HOME === "string") base.HOME = process.env.HOME;
-  return { ...base, ...server.env };
+  return { ...base, ...resolveMcpEnv(server.env) };
 }
 
 export interface McpSession {

@@ -6,7 +6,7 @@ Everything the UI does is available headlessly under `/api` (JSON), documented a
 
 Every route requires a session cookie (web UI login) or `Authorization: Bearer <api key>`; anything else answers `401 { error }`. Open exceptions: `/api/health`, the auth routes below, and webhook endpoints (`POST /api/webhooks/:triggerId`), which authenticate with their trigger secret instead. Cookie state changes are CSRF-guarded: same-origin `Origin` when present, JSON bodies otherwise.
 
-Create keys in **Settings → API keys**: each value is `bots_` + 40 hex chars, shown exactly once and stored hashed; the list shows name, created-at and last-used (updated at most once per minute). Revoking fails closed — requests with a revoked or malformed key get `401 { "error": "invalid api key" }`.
+Create keys in **Settings → System → API keys**: each value is `bots_` + 40 hex chars, shown exactly once and stored hashed; the list shows name, created-at and last-used (updated at most once per minute). Revoking fails closed — requests with a revoked or malformed key get `401 { "error": "invalid api key" }`. For UI key management, account setup and browser-approved CLI sign-in, see [Accounts & access](/authentication).
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -67,9 +67,18 @@ Both routes require a browser session and reject API-key bearer authentication w
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/pause` | `{ paused }` — the server-wide pause state |
-| POST | `/api/pause` | `{ paused: bool }` — hold or resume every bot; anything injected while held drains on resume |
+| GET | `/api/pause` | `{ paused, reason? }` — the server-wide pause state; `reason: "breaker"` while a tripped spend circuit breaker holds it |
+| POST | `/api/pause` | `{ paused: bool }` — hold or resume every bot; anything injected while held drains on resume; Resume answers 409 with usage vs cap while the breaker is over its cap |
 | POST | `/api/stop-all` | Panic button: interrupts every running loop and arms the pause — `{ stopped: <count> }`; idempotent (nothing running still pauses) |
+
+## Spend circuit breaker
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/breaker` | `{ limit_tokens, tokens_30d, exceeded }` — the server-wide trailing-30-day cap and usage (`limit_tokens: 0` = unlimited) |
+| PUT | `/api/breaker` | `{ limit_tokens: int ≥ 0 }` — set or clear (0) the cap; bringing it under usage re-arms resume — 400 on a non-integer or negative value |
+
+The breaker is checked when a run reaches its terminal status; crossing the cap arms the global pause and raises one notification. See [Bots](/bots) and [Settings](/getting-started).
 
 ## Triggers
 
@@ -89,11 +98,24 @@ Both routes require a browser session and reject API-key bearer authentication w
 | PATCH | `/api/templates/:id` | Partial update (same validation) |
 | DELETE | `/api/templates/:id` | Delete — bots created from it are untouched |
 
-See [Bots → Templates](/bots#templates) for the UI flow.
+See [Templates](/templates) for the UI flow.
+
+## Secrets
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/secrets` | List `{ id, name, key, created_at }` — values hidden |
+| POST | `/api/secrets` | Create — `{ name, key, value }`; duplicate name or invalid env-var key → `400` |
+| GET | `/api/secrets/:secretId` | Read metadata without the value |
+| GET | `/api/secrets/:secretId/value` | Reveal the current plaintext value for an authorized action |
+| PATCH | `/api/secrets/:secretId` | Update supplied fields; replacing `value` is destructive |
+| DELETE | `/api/secrets/:secretId` | Remove — running sandboxes must restart to drop its variable |
+
+Bots return their `secret_ids` in the bot API and accept updates through `PATCH /api/bots/:id`; teams support `secret_ids` on their PATCH route. See [Secrets](/secrets) for injection and redaction behavior.
 
 ## Control MCP (`/mcp`)
 
-External agents drive the same surface over MCP at streamable HTTP `POST /mcp`, authenticated with an API key (`Authorization: Bearer bots_…`; session cookies don't apply). JSON-RPC methods: `initialize`, `tools/list`, `tools/call`. Tools are flat verbs whose results mirror the REST payloads exactly: `bots_list`, `bot_get`, `bot_create`, `bot_set_role`, `run_now`, `interrupt`, `runs_tail` (accepts `limit`, max 100). A **Settings → Control MCP** switch enables the endpoint; while disabled `/mcp` returns `404`. Unknown or revoked keys are rejected with `401` before any JSON-RPC method runs.
+External agents drive the same surface over MCP at streamable HTTP `POST /mcp`, authenticated with an API key (`Authorization: Bearer bots_…`; session cookies don't apply). JSON-RPC methods: `initialize`, `tools/list`, `tools/call`. Tools are flat verbs whose results mirror the REST payloads exactly: `bots_list`, `bot_get`, `bot_create`, `bot_set_role`, `run_now`, `interrupt`, `runs_tail` (accepts `limit`, max 100). A **Settings → System → Control MCP** switch enables the endpoint; while disabled `/mcp` returns `404`. Unknown or revoked keys are rejected with `401` before any JSON-RPC method runs.
 
 ## Notifications
 
@@ -107,7 +129,7 @@ Created automatically when a run ends `error` (deduped per run). See [Notificati
 
 ## Roles, skills & MCP servers
 
-CRUD on `/api/roles`, `/api/skills`, `/api/mcp-servers`. Roles accept `instructions` plus capability grants `mcp_server_ids: []` and `skill_ids: []`; unknown ids → `400`. Skills require `name` + `instructions`; MCP servers require unique `name`, non-empty `command`, optional `args[]`, `env{}`; `POST /api/mcp-servers/:id/test` runs the handshake.
+CRUD on `/api/roles`, `/api/skills`, `/api/mcp-servers`. Roles accept `instructions` plus capability grants `mcp_server_ids: []` and `skill_ids: []`; unknown ids → `400`. Skills require `name` + `instructions`; MCP servers require unique `name`, non-empty `command`, optional `args[]`, and `env{}` whose values are either literal strings or `{ "secret": "<managed secret name>" }` references (unknown or deleted names → `400`); `POST /api/mcp-servers/:id/test` runs the handshake.
 
 Skill import (never writes until confirmed): `GET /api/skills/search?q=` proxies skills.sh candidates, `POST /api/skills/preview` resolves a source (`owner/repo`, repo URL with optional `/tree/<ref>/<path>`, `@<skill>` filter, `#<ref>` pin) into per-`SKILL.md` previews with commit, file count, size and content hash, and `POST /api/skills/import { source, folders[] }` stores the selected bundles byte-for-byte plus immutable provenance (`import_info` on the skill row) — rejecting unreachable sources, oversized bundles (>200 files or >5 MB) and invalid frontmatter with nothing saved.
 
