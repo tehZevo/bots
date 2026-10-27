@@ -4,7 +4,6 @@ Behaviors agreed on but not yet specced in detail. Each becomes its own spec dir
 
 - **External chat services** — external chat platforms (Slack, Discord, Telegram, …) as trigger sources with reply delivery; web chat is already specced in `specs/chat/messages.md`.
 - **Approvals** — a human-approval layer for sensitive tool actions that the agent cannot bypass.
-- **Durable agent harness** — explore `@earendil-works/pi-durable` (or a similar durable runtime) as the agent loop: conversations, model turns and tool calls are committed to storage before display, so a process death mid-turn resumes where it stopped instead of losing the turn; still experimental upstream, so evaluate the API churn and whether it replaces or wraps the current pi loop.
 - **Team DM reply storms** — guard bot↔bot `send_message` loops (depth cap or similar); currently mitigated only because nothing auto-replies and injections merge into active loops.
 - **Per-user ownership** — per-user bots, teams and credentials on top of the shared multi-user accounts (`auth/multi-user.md`); placeholder tokens so models never see secrets.
 - **CLI** — first-class command-line client (`bots <verb>`) driving the documented REST API with the same API keys: bot CRUD, run now/interrupt, trigger management, logs tail, template instantiation; scriptable output (`--json`) for cron/CI use.

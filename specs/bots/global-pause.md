@@ -5,4 +5,4 @@
 - A bot already running when the pause lands finishes its current turn and then goes quiet; the run ends `ok`, and its messages stay in context.
 - Pausing is not disabling: each bot keeps its enabled flag, instructions and triggers, and its own health color is unchanged (`status-colors.md`). The status bar shows the global paused state instead.
 - Messages injected while paused are held, not dropped, and drain when the bots resume; a resumed bot picks up its pending work and starts a new run.
-- The paused state is persisted on the server and survives restarts; `GET /api/pause` returns `{ "paused": boolean }` and `POST /api/pause` sets it.
+- The paused state is persisted on the server and survives restarts; `GET /api/pause` returns `{ "paused": boolean }` and `POST /api/pause` sets it. A pause armed by the spend circuit breaker refuses Resume until usage drops under the cap or the cap changes (`../usage/circuit-breaker.md`).

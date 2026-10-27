@@ -12,8 +12,6 @@ Judgement calls baked into the current implementation that deserve a deliberate 
   _Lean: acceptable until approvals exist, then confirm with the user before nuking a working loop._
 - **Provider API key storage** — provider keys are planned for plaintext rows in SQLite (see `specs/llm/providers.md`).
   _Lean: keep plaintext behind a single-file volume; encrypt per-user once ownership exists._
-- **Per-bot model overrides** — the API and run path accept a per-bot `model_id`, but no UI exposes the picker; the settings default covers every bot in practice.
-  _Lean: surface the picker once per-user ownership defines who may pick which models._
 - **Live team-prompt updates** — team membership/role info is injected into a bot's system prompt; unclear whether and how to update it mid-run when teams change (vs rebuild at next run start).
   _Lean: rebuild at next run start; revisit live update if staleness causes real issues._
 - **MCP child execution boundary** — an MCP server runs as a host process with the orchestrator's filesystem and network access, unlike bot shell commands which are containerized (`specs/machines/sandbox.md`); the env allowlist (`specs/mcp/child-env.md`) narrows what a child inherits, not what it can reach.

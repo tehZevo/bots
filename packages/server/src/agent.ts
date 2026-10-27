@@ -106,8 +106,8 @@ export function effectiveSystemPrompt(bot: BotRow): string {
     bot.instructions.trim(),
     role?.instructions.trim(),
     skillSection,
-    teamSection,
     ...projectParts,
+    teamSection,
   ].filter(Boolean);
   return parts.join("\n\n");
 }

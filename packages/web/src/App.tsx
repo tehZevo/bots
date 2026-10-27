@@ -2256,6 +2256,11 @@ interface Provider {
   has_key: boolean;
 }
 
+interface BotGeneralSettings {
+  default_provider_id: string | null;
+  default_model: string | null;
+}
+
 export function SettingsPanel() {
   const [theme, setTheme] = useState<Theme>(readStoredTheme);
   const [idle, setIdle] = useState(5);
@@ -4132,7 +4137,13 @@ export function BotGeneral({
   const [watchdogHours, setWatchdogHours] = useState(
     bot?.watchdog_hours == null ? "" : String(bot.watchdog_hours),
   );
+  const [modelId, setModelId] = useState(bot?.model_id ?? "");
   const [machines, setMachines] = useState<Machine[]>([]);
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [defaultProviderId, setDefaultProviderId] = useState<string | null>(
+    null,
+  );
+  const [defaultModel, setDefaultModel] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [pending, setPending] = useState<"delete" | "clear" | "restart" | null>(
@@ -4164,15 +4175,36 @@ export function BotGeneral({
     void api<Machine[]>("/api/machines")
       .then((ms) => setMachines(ms.filter((m) => !m.builtin)))
       .catch(() => setMachines([]));
+    void api<Provider[]>("/api/providers").then(setProviders, () =>
+      setProviders([]),
+    );
+    void api<BotGeneralSettings>("/api/settings")
+      .then((settings) => {
+        setDefaultProviderId(settings.default_provider_id);
+        setDefaultModel(settings.default_model);
+      })
+      .catch(() => undefined);
   }, []);
 
   const parsedWatchdog = parseWatchdogHours(watchdogHours);
+
+  const modelOptions = Array.from(
+    new Set([
+      ...(bot?.model_id ? [bot.model_id] : []),
+      ...(defaultProviderId
+        ? (providers.find((p) => p.id === defaultProviderId)?.models ?? [])
+        : []),
+      ...(defaultModel ? [defaultModel] : []),
+    ]),
+  );
+
   const dirty =
     !!bot &&
     (name.trim() !== bot.name ||
       instructions !== bot.instructions ||
       roleId !== (bot.role_id ?? "") ||
       machineId !== (bot.machine_id ?? "") ||
+      modelId !== (bot.model_id ?? "") ||
       parsedWatchdog === "invalid" ||
       parsedWatchdog !== (bot.watchdog_hours ?? null));
   useDirtyGuard(bot ? `the bot ${bot.name}` : "this bot", dirty);
@@ -4228,6 +4260,7 @@ export function BotGeneral({
               patchBot({
                 name: name.trim(),
                 instructions,
+                model_id: modelId || null,
                 role_id: roleId || null,
                 machine_id: machineId || null,
                 watchdog_hours:
@@ -4329,6 +4362,21 @@ export function BotGeneral({
           {machines.map((m) => (
             <option key={m.id} value={m.id}>
               {m.name}
+            </option>
+          ))}
+        </select>
+      </p>
+      <p className="rolepick">
+        Model{" "}
+        <select
+          value={modelId}
+          aria-label="Bot model"
+          onChange={(e) => setModelId(e.target.value)}
+        >
+          <option value="">Server default</option>
+          {modelOptions.map((m) => (
+            <option key={m} value={m}>
+              {m}
             </option>
           ))}
         </select>
@@ -5003,6 +5051,7 @@ export function ChatSidebar({
         key={bot.id}
         botId={bot.id}
         botName={bot.name}
+        enabled={bot.enabled === 1}
         working={bot.run_state === "running"}
       />
     </aside>
@@ -5012,10 +5061,12 @@ export function ChatSidebar({
 export function Chat({
   botId,
   botName,
+  enabled = true,
   working = false,
 }: {
   botId: string;
   botName: string;
+  enabled?: boolean;
   working?: boolean;
 }) {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
@@ -5059,7 +5110,7 @@ export function Chat({
 
   const send = async () => {
     const text = draft.trim();
-    if (!text || sending) return;
+    if (!text || sending || !enabled) return;
     setSending(true);
     setErr(null);
     pendingRef.current = text;
@@ -5116,9 +5167,12 @@ export function Chat({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder="Message the bot…"
-          disabled={sending}
+          disabled={sending || !enabled}
         />
-        <button type="submit" disabled={sending || !draft.trim()}>
+        <button
+          type="submit"
+          disabled={sending || !enabled || !draft.trim()}
+        >
           {sending ? "Sending…" : "Send"}
         </button>
       </form>
