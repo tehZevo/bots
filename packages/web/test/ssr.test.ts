@@ -41,6 +41,9 @@ const {
   formDirty,
   App,
   SettingsPanel,
+  SettingsGeneral,
+  SettingsProviders,
+  SettingsSystem,
   RolesPanel,
   TeamsPanel,
   BotTeams,
@@ -53,6 +56,7 @@ const {
   BotProjects,
   MachinesPanel,
   SkillsPanel,
+  AddSkillModal,
   IntegrationsPanel,
   BotGeneral,
   ChatSidebar,
@@ -149,6 +153,24 @@ test("Avatar renders svg in the seeded color", () => {
   );
   assert.ok(html.includes("<svg"));
   assert.ok(html.includes(avatarColor("abc")));
+
+  const active = renderToStaticMarkup(
+    React.createElement(Avatar, { name: "x", id: "abc", health: "green" }),
+  );
+  assert.match(active, /class="avatar anim-green"/);
+  assert.match(active, /--avatar-glow-strong:/);
+
+  const blocked = renderToStaticMarkup(
+    React.createElement(Avatar, { name: "x", id: "abc", health: "red" }),
+  );
+  assert.match(blocked, /class="avatar anim-red"/);
+  assert.match(blocked, /--avatar-glow:transparent/);
+
+  const disabled = renderToStaticMarkup(
+    React.createElement(Avatar, { name: "x", id: "abc", health: "gray" }),
+  );
+  assert.match(disabled, /class="avatar anim-gray"/);
+  assert.match(disabled, /color:#6b7280/);
 });
 
 test("StatusDot renders per health with title", () => {
@@ -263,6 +285,8 @@ test("panels and tab bodies render with stubbed fetch", () => {
   });
   const generalHtml = renderToStaticMarkup(withBot);
   assert.ok(generalHtml.includes("Save"));
+  assert.match(generalHtml, /class="botdetailactions"/);
+  assert.ok(generalHtml.includes("Cancel"));
   assert.match(generalHtml, /disabled=""/);
   assert.ok(!generalHtml.includes("Unsaved changes"));
   for (const C of [Chat, Triggers])
@@ -271,12 +295,51 @@ test("panels and tab bodies render with stubbed fetch", () => {
     );
 });
 
+test("settings tabs separate preferences, providers, and system", () => {
+  const settings = renderToStaticMarkup(React.createElement(SettingsPanel));
+  assert.match(settings, /aria-label="Settings sections"/);
+  assert.match(settings, /Notification sounds/);
+  assert.doesNotMatch(settings, /LLM providers|API keys/);
+
+  const general = renderToStaticMarkup(React.createElement(SettingsGeneral));
+  assert.match(general, /Change password/);
+  assert.match(general, /Sandbox idle timeout/);
+  assert.doesNotMatch(general, /LLM providers|Logout/);
+
+  const providers = renderToStaticMarkup(
+    React.createElement(SettingsProviders),
+  );
+  assert.match(providers, /LLM providers/);
+  assert.match(providers, /Add provider/);
+  assert.doesNotMatch(providers, /Notification sounds|API keys/);
+
+  const system = renderToStaticMarkup(React.createElement(SettingsSystem));
+  assert.match(system, /Signed in as/);
+  assert.match(system, /Logout/);
+  assert.match(system, /API keys/);
+  assert.match(system, /Control MCP enabled/);
+});
+
 test("modals render", () => {
   const noop = () => undefined;
   const modals: [unknown, Record<string, unknown>][] = [
     [AddBotModal, { usedNames: ["A"], onClose: noop, onCreated: noop }],
     [RoleFormModal, { role: null, onClose: noop, onSaved: noop }],
-    [SkillModal, { skill: null, onClose: noop, onSaved: noop }],
+    [AddSkillModal, { onClose: noop, onSaved: noop }],
+    [
+      SkillModal,
+      {
+        skill: {
+          id: "s1",
+          name: "Existing",
+          description: "",
+          instructions: "body",
+          created_at: 0,
+        },
+        onClose: noop,
+        onSaved: noop,
+      },
+    ],
     [McpServerModal, { server: null, onClose: noop, onSaved: noop }],
     [MachineModal, { machine: null, onClose: noop, onSaved: noop }],
     [ProviderFormModal, { provider: null, onClose: noop, onSaved: noop }],
@@ -583,7 +646,10 @@ test("chat sidebar disables composer for a disabled bot", () => {
       onClose: () => undefined,
     }),
   );
-  assert.match(html, /<input[^>]+placeholder="Message the bot…"[^>]+disabled=""/);
+  assert.match(
+    html,
+    /<input[^>]+placeholder="Message the bot…"[^>]+disabled=""/,
+  );
   assert.match(
     html,
     /<button[^>]*type="submit"[^>]+disabled="">Send<\/button>/,

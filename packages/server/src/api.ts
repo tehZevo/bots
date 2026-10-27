@@ -87,6 +87,7 @@ import {
   insertTemplate,
   insertTrigger,
   insertUser,
+  isMcpSecretRef,
   isPaused,
   latestErrorBotIds,
   listApiKeys,
@@ -106,6 +107,7 @@ import {
   listTemplates,
   listTriggers,
   loadMessages,
+  type McpEnvValue,
   markAllNotificationsRead,
   markNotificationRead,
   type ProviderRow,
@@ -2603,10 +2605,21 @@ export function createApp() {
     const args = Array.isArray(input.args)
       ? input.args.filter((a): a is string => typeof a === "string")
       : [];
-    const env: Record<string, string> = {};
+    const env: Record<string, McpEnvValue> = {};
     if (input.env && typeof input.env === "object" && !Array.isArray(input.env))
-      for (const [k, v] of Object.entries(input.env))
-        if (typeof v === "string") env[k] = v;
+      for (const [k, v] of Object.entries(input.env)) {
+        if (typeof v === "string") {
+          env[k] = v;
+        } else if (isMcpSecretRef(v)) {
+          const secretName = v.secret.trim();
+          if (!secretName) return { error: `secret name is required for ${k}` };
+          if (!findSecretByName(secretName))
+            return { error: `unknown secret "${secretName}"` };
+          env[k] = { secret: secretName };
+        } else {
+          return { error: `invalid env value for ${k}` };
+        }
+      }
     const enabled = input.enabled === false ? 0 : 1;
     return { name, command, args, env, enabled };
   }
