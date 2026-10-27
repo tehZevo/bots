@@ -149,6 +149,24 @@ test("Avatar renders svg in the seeded color", () => {
   );
   assert.ok(html.includes("<svg"));
   assert.ok(html.includes(avatarColor("abc")));
+
+  const active = renderToStaticMarkup(
+    React.createElement(Avatar, { name: "x", id: "abc", health: "green" }),
+  );
+  assert.match(active, /class="avatar anim-green"/);
+  assert.match(active, /--avatar-glow-strong:/);
+
+  const blocked = renderToStaticMarkup(
+    React.createElement(Avatar, { name: "x", id: "abc", health: "red" }),
+  );
+  assert.match(blocked, /class="avatar anim-red"/);
+  assert.match(blocked, /--avatar-glow:transparent/);
+
+  const disabled = renderToStaticMarkup(
+    React.createElement(Avatar, { name: "x", id: "abc", health: "gray" }),
+  );
+  assert.match(disabled, /class="avatar anim-gray"/);
+  assert.match(disabled, /color:#6b7280/);
 });
 
 test("StatusDot renders per health with title", () => {
@@ -585,7 +603,10 @@ test("chat sidebar disables composer for a disabled bot", () => {
       onClose: () => undefined,
     }),
   );
-  assert.match(html, /<input[^>]+placeholder="Message the bot…"[^>]+disabled=""/);
+  assert.match(
+    html,
+    /<input[^>]+placeholder="Message the bot…"[^>]+disabled=""/,
+  );
   assert.match(
     html,
     /<button[^>]*type="submit"[^>]+disabled="">Send<\/button>/,

@@ -437,7 +437,10 @@ export function Avatar({
   const eyeRy = eyeRx * (1.8 + rand() * 0.5);
   const gaze = (rand() - 0.5) * 3;
   const droop = rand() < 0.3;
-  const col = color == null ? avatarColor(id) : AVATAR_COLORS[color];
+  const baseCol = color == null ? avatarColor(id) : AVATAR_COLORS[color];
+  const col = health === "gray" ? "#6b7280" : baseCol;
+  const glow =
+    health === "red" || health === "gray" ? "transparent" : `${baseCol}59`;
   const blinkPeriod = 3 + rand() * 5;
   const animClass = health === null ? "" : ` anim-${health}`;
   return (
@@ -445,7 +448,8 @@ export function Avatar({
       className={`avatar${animClass}`}
       style={{
         color: col,
-        ["--avatar-glow" as string]: `${col}59`,
+        ["--avatar-glow" as string]: glow,
+        ["--avatar-glow-strong" as string]: `${baseCol}a6`,
         ["--blink-period" as string]: `${blinkPeriod.toFixed(2)}s`,
         ["--blink-delay" as string]: `${(-rand() * blinkPeriod).toFixed(2)}s`,
       }}
@@ -5192,10 +5196,7 @@ export function Chat({
           placeholder="Message the bot…"
           disabled={sending || !enabled}
         />
-        <button
-          type="submit"
-          disabled={sending || !enabled || !draft.trim()}
-        >
+        <button type="submit" disabled={sending || !enabled || !draft.trim()}>
           {sending ? "Sending…" : "Send"}
         </button>
       </form>
@@ -5524,9 +5525,7 @@ export function SkillModal({
   );
 }
 
-export function findDuplicateEnvKey(
-  rows: [string, string][],
-): string | null {
+export function findDuplicateEnvKey(rows: [string, string][]): string | null {
   const seen = new Set<string>();
   for (const [key] of rows) {
     const trimmed = key.trim();

@@ -61,8 +61,4 @@ Conversation context persists across runs and survives restarts; when it grows p
 
 ## Templates
 
-Templates are reusable bundles — machine, role, description, instructions and optional starter triggers (message + schedule). Manage them under **Templates**: add from scratch, edit, or delete behind a confirm dialog; if a referenced machine or role is deleted the editor shows an inline warning.
-
-- **Save as template…** in a bot's General tab copies its fields and schedule triggers into a new, editable template named `<bot> template`.
-- The **Add bot** dialog offers a *Template* dropdown when templates exist: picking one pre-fills instructions, role and machine — everything stays editable before you hit Create.
-- Instantiating copies values into fresh rows; starter triggers are created on the new bot, and template and bot stay fully independent afterwards.
+Templates bundle machine, role, instructions and optional starter schedule triggers for reuse. Create one from scratch or use **Save as template…** in a bot’s General tab; the Add bot dialog can then prefill a new bot while leaving every field editable. See [Templates](/templates) for editing rules and independence guarantees.
