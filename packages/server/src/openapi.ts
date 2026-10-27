@@ -234,9 +234,14 @@ export function openApiDoc(): Json {
       properties: { paused: { type: "boolean" } },
     },
   });
-  add("/api/stop-all", "post", "Emergency stop: interrupt all running bots and arm the global pause", {
-    res: { type: "object", properties: { stopped: { type: "number" } } },
-  });
+  add(
+    "/api/stop-all",
+    "post",
+    "Emergency stop: interrupt all running bots and arm the global pause",
+    {
+      res: { type: "object", properties: { stopped: { type: "number" } } },
+    },
+  );
   add("/api/bots", "get", "List bots with health and run state", {
     res: { type: "array", items: ref("Bot") },
   });
@@ -272,9 +277,14 @@ export function openApiDoc(): Json {
     },
   );
   add("/api/bots/{id}/runs", "get", "Run history", { params: ["id"] });
-  add("/api/bots/{id}/runs/{runId}/transcript", "get", "Ordered replay steps for one run", {
-    params: ["id", "runId"],
-  });
+  add(
+    "/api/bots/{id}/runs/{runId}/transcript",
+    "get",
+    "Ordered replay steps for one run",
+    {
+      params: ["id", "runId"],
+    },
+  );
   add(
     "/api/bots/{id}/usage",
     "get",
@@ -291,6 +301,49 @@ export function openApiDoc(): Json {
       params: ["id"],
     },
   );
+  add(
+    "/api/bots/{id}/workspace",
+    "get",
+    "List one level of the bot's workspace directory (jailed to data/workspaces/<bot-id>)",
+    {
+      params: ["id"],
+      res: {
+        type: "object",
+        properties: {
+          path: str,
+          entries: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                name: str,
+                type: { enum: ["dir", "file"] },
+                size_bytes: { type: "number" },
+                modified_at: { type: "number" },
+              },
+            },
+          },
+        },
+      },
+    },
+  );
+  paths["/api/bots/{id}/workspace/file"] = {
+    get: {
+      summary:
+        "Download a workspace file as bytes; traversal or symlink escapes answer 400, unknown paths 404",
+      parameters: [{ name: "path", in: "query", required: false, schema: str }],
+      responses: {
+        "200": {
+          description: "ok",
+          content: {
+            "application/octet-stream": {
+              schema: { type: "string", format: "binary" },
+            },
+          },
+        },
+      },
+    },
+  };
   add("/api/bots/{id}/messages", "get", "Conversation memory", {
     params: ["id"],
   });

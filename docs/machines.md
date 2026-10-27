@@ -26,3 +26,11 @@ Both affect only *future* sandbox creations — running containers keep their cu
 ## Choosing a machine for a bot
 
 Pick a machine when creating a bot, or switch it later in the bot's **General** tab (Machine select). Switching takes effect on the next sandbox — after the idle reap, or immediately via **Restart machine** in the same tab — not mid-run. Per-bot CPU/memory limits are unrelated to machine selection and apply either way.
+
+## Workspace files
+
+The bot's workspace `data/workspaces/<bot-id>/` (bind-mounted as `/workspace`) is browsable read-only from the bot modal's **Files** tab, straight off the host — it works whether or not the sandbox container is running. One level at a time with breadcrumbs back to the root, folders first then names alphabetically, each row showing size and modified time; an empty directory says so. Refresh is manual only: the tab never polls and never wakes a container.
+
+Text files up to 256 KB open in place as monospace code (truncated with a notice); larger or binary-detected files offer Download under their original name. Nothing here mutates files — create, rename, move and delete stay the agent's job through `shell`.
+
+The API mirrors this: `GET /api/bots/:id/workspace?path=...` returns `{ path, entries: [{ name, type, size_bytes, modified_at }] }` and `GET /api/bots/:id/workspace/file?path=...` streams the bytes. Paths are jailed to the workspace root — traversal outside it and symlink escapes answer 400, unknown paths 404. Any signed-in user may read.
