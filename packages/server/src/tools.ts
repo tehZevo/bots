@@ -20,15 +20,15 @@ export function workspaceDir(botId: string): string {
   return dir;
 }
 
-const webFetchSchema = Type.Object({
+export const webFetchSchema = Type.Object({
   url: Type.String({ description: "Absolute http(s) URL to fetch" }),
 });
 
-const taskSchema = Type.Object({
+export const taskSchema = Type.Object({
   text: Type.String(),
 });
 
-const statusSchema = Type.Object({
+export const statusSchema = Type.Object({
   text: Type.String(),
   level: Type.Optional(
     Type.Union([
@@ -39,11 +39,11 @@ const statusSchema = Type.Object({
   ),
 });
 
-const shellSchema = Type.Object({
+export const shellSchema = Type.Object({
   command: Type.String({ description: "Command line to run with bash" }),
 });
 
-const readSkillFileSchema = Type.Object({
+export const readSkillFileSchema = Type.Object({
   skill_id: Type.String({ description: "Id of a granted skill" }),
   path: Type.Optional(
     Type.String({
@@ -53,7 +53,7 @@ const readSkillFileSchema = Type.Object({
   ),
 });
 
-const sendMessageSchema = Type.Object({
+export const sendMessageSchema = Type.Object({
   recipient_bot_id: Type.String({
     description: "Bot id of the teammate to message",
   }),
