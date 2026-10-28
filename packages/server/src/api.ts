@@ -36,6 +36,7 @@ import {
   createSession,
   deleteApiKey,
   deleteBot,
+  deleteHookDestination,
   deleteMachine,
   deleteMcpServer,
   deleteProject,
@@ -55,6 +56,7 @@ import {
   getApiKeyByHash,
   getBot,
   getDeviceGrantByDeviceHash,
+  getHookDestination,
   getLiveDeviceGrantByUserCode,
   getMachine,
   getMcpServer,
@@ -74,10 +76,12 @@ import {
   getTrigger,
   getUserByEmail,
   getUserById,
+  type HookDestinationRow,
   hashPassword,
   insertApiKey,
   insertBot,
   insertDeviceGrant,
+  insertHookDestination,
   insertMachine,
   insertMcpServer,
   insertProject,
@@ -96,6 +100,8 @@ import {
   latestErrorBotIds,
   listApiKeys,
   listBots,
+  listHookDeliveries,
+  listHookDestinations,
   listMachines,
   listMcpServers,
   listMessagesForRun,
@@ -143,6 +149,7 @@ import {
   touchDeviceGrantPoll,
   unreadNotificationCount,
   updateBot,
+  updateHookDestination,
   updateMachine,
   updateMcpServer,
   updateProject,
@@ -155,6 +162,7 @@ import {
   upsertPushSubscription,
   verifyPassword,
 } from "./db.ts";
+import { HOOK_EVENT_TYPES, sendHookTest } from "./hooks.ts";
 import { testMcpConnection } from "./mcp.ts";
 import { openApiDoc } from "./openapi.ts";
 import { vapidPublicKey } from "./push.ts";
@@ -1313,6 +1321,155 @@ export function createApp() {
     if (!removePushSubscriptionOwned(endpoint, user.id))
       return c.json({ error: "not found" }, 404);
     return c.json({ ok: true });
+  });
+
+  function hookResponse(destination: HookDestinationRow) {
+    const { secret, ...rest } = destination;
+    return { ...rest, has_secret: secret.length > 0 };
+  }
+
+  async function parseHookInput(c: Context) {
+    const body = (await c.req.json().catch(() => null)) as {
+      name?: unknown;
+      url?: unknown;
+      secret?: unknown;
+      event_types?: unknown;
+      enabled?: unknown;
+    } | null;
+    if (!body || typeof body !== "object") return null;
+
+    const errors: string[] = [];
+    const str = (value: unknown): string | undefined =>
+      typeof value === "string" ? value.trim() : undefined;
+    const name = str(body.name);
+    const rawUrl = str(body.url);
+    let url: string | undefined;
+    if (rawUrl) {
+      try {
+        const parsedUrl = new URL(rawUrl);
+        if (parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:")
+          url = parsedUrl.href;
+        else errors.push("url must be http or https");
+      } catch {
+        errors.push("url must be an absolute URL");
+      }
+    }
+
+    let eventTypes: string[] | undefined;
+    if (body.event_types !== undefined) {
+      if (
+        !Array.isArray(body.event_types) ||
+        !body.event_types.every((x) => typeof x === "string")
+      ) {
+        errors.push("event_types must be an array of strings");
+      } else {
+        const selected = new Set(body.event_types as string[]);
+        for (const eventType of selected) {
+          if (!(HOOK_EVENT_TYPES as readonly string[]).includes(eventType))
+            errors.push(`unknown event type: ${eventType}`);
+        }
+        eventTypes = HOOK_EVENT_TYPES.filter((x) => selected.has(x));
+      }
+    }
+
+    let enabled: number | undefined;
+    if (body.enabled !== undefined) {
+      if (typeof body.enabled === "boolean") enabled = body.enabled ? 1 : 0;
+      else if (body.enabled === 0 || body.enabled === 1) enabled = body.enabled;
+      else errors.push("enabled must be a boolean");
+    }
+
+    return {
+      name,
+      url,
+      secret: str(body.secret),
+      eventTypes,
+      enabled,
+      errors,
+    };
+  }
+
+  app.get("/api/hooks", (c) =>
+    c.json(listHookDestinations().map(hookResponse)),
+  );
+
+  app.post("/api/hooks", async (c) => {
+    const parsed = await parseHookInput(c);
+    if (!parsed) return c.json({ error: "invalid body" }, 400);
+    const errors = [...parsed.errors];
+    if (!parsed.name) errors.push("name is required");
+    if (!parsed.url) errors.push("url must be an absolute http or https URL");
+    if (!parsed.secret) errors.push("secret is required");
+    if (errors.length > 0) return c.json({ error: errors.join("; ") }, 400);
+
+    const destination = {
+      id: randomUUID(),
+      name: parsed.name as string,
+      url: parsed.url as string,
+      secret: parsed.secret as string,
+      event_types: parsed.eventTypes ?? [],
+      enabled: parsed.enabled ?? 1,
+      created_at: Date.now(),
+    };
+    insertHookDestination(destination);
+    return c.json(hookResponse(destination), 201);
+  });
+
+  app.put("/api/hooks/:id", async (c) => {
+    const existing = getHookDestination(c.req.param("id"));
+    if (!existing) return c.json({ error: "not found" }, 404);
+    const parsed = await parseHookInput(c);
+    if (!parsed) return c.json({ error: "invalid body" }, 400);
+    const errors = [...parsed.errors];
+    if (parsed.name === undefined || !parsed.name)
+      errors.push("name is required");
+    if (parsed.url === undefined || !parsed.url)
+      errors.push("url must be an absolute http or https URL");
+    if (errors.length > 0) return c.json({ error: errors.join("; ") }, 400);
+
+    updateHookDestination(existing.id, {
+      name: parsed.name as string,
+      url: parsed.url as string,
+      secret: parsed.secret || existing.secret,
+      event_types: parsed.eventTypes ?? existing.event_types,
+      enabled: parsed.enabled ?? existing.enabled,
+    });
+    return c.json(
+      hookResponse(getHookDestination(existing.id) as HookDestinationRow),
+    );
+  });
+
+  app.delete("/api/hooks/:id", (c) => {
+    if (!deleteHookDestination(c.req.param("id")))
+      return c.json({ error: "not found" }, 404);
+    return c.json({ ok: true });
+  });
+
+  app.get("/api/hooks/:id/deliveries", (c) => {
+    const destination = getHookDestination(c.req.param("id"));
+    if (!destination) return c.json({ error: "not found" }, 404);
+    const raw = c.req.query("limit");
+    let limit = 100;
+    if (raw !== undefined) {
+      const parsed = Number(raw);
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 250)
+        return c.json({ error: "limit must be an integer from 1 to 250" }, 400);
+      limit = parsed;
+    }
+    return c.json(
+      listHookDeliveries(destination.id, limit).map(
+        ({ destination_id, ...row }) => row,
+      ),
+    );
+  });
+
+  app.post("/api/hooks/:id/test", async (c) => {
+    const destination = getHookDestination(c.req.param("id"));
+    if (!destination) return c.json({ error: "not found" }, 404);
+    if (!destination.enabled)
+      return c.json({ error: "destination is disabled" }, 409);
+    const result = await sendHookTest(destination);
+    return c.json(result);
   });
 
   app.get("/api/notifications", (c) => {

@@ -1,3 +1,5 @@
+import { HOOK_EVENT_TYPES } from "./hooks.ts";
+
 type Json = Record<string, unknown>;
 
 const ref = (name: string): Json => ({ $ref: `#/components/schemas/${name}` });
@@ -681,6 +683,57 @@ export function openApiDoc(): Json {
     },
   );
 
+  add("/api/hooks", "get", "List event destinations (secrets hidden)", {
+    res: { type: "array", items: ref("HookDestination") },
+  });
+  add("/api/hooks", "post", "Create an event destination", {
+    body: ref("HookDestinationInput"),
+    res: ref("HookDestination"),
+  });
+  add("/api/hooks/{id}", "put", "Update an event destination", {
+    params: ["id"],
+    body: ref("HookDestinationInput"),
+    res: ref("HookDestination"),
+  });
+  add("/api/hooks/{id}", "delete", "Delete an event destination", {
+    params: ["id"],
+  });
+  add(
+    "/api/hooks/{id}/deliveries",
+    "get",
+    "List recent hook delivery attempts",
+    {
+      params: ["id"],
+      res: { type: "array", items: ref("HookDelivery") },
+    },
+  );
+
+  paths["/api/hooks/{id}/test"] = {
+    post: {
+      summary: "Send a ping event to an event destination",
+      parameters: [{ name: "id", in: "path", required: true, schema: str }],
+      responses: {
+        "200": {
+          description: "test response",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  ok: { type: "boolean" },
+                  status: numOrNone,
+                  duration_ms: { type: "integer" },
+                  error: strOrNone,
+                },
+              },
+            },
+          },
+        },
+        409: error4xx("destination is disabled"),
+      },
+    },
+  };
+
   add("/api/secrets", "get", "List secrets (values hidden)", {
     res: { type: "array", items: ref("Secret") },
   });
@@ -951,6 +1004,48 @@ export function openApiDoc(): Json {
             name: str,
             created_at: { type: "integer" },
             last_used_at: numOrNone,
+          },
+        },
+        HookDestinationInput: {
+          type: "object",
+          required: ["name", "url"],
+          properties: {
+            name: str,
+            url: str,
+            secret: str,
+            event_types: {
+              type: "array",
+              items: { enum: [...HOOK_EVENT_TYPES] },
+            },
+            enabled: { type: "boolean" },
+          },
+        },
+        HookDestination: {
+          type: "object",
+          properties: {
+            id: str,
+            name: str,
+            url: str,
+            event_types: {
+              type: "array",
+              items: { enum: [...HOOK_EVENT_TYPES] },
+            },
+            enabled: { type: "integer" },
+            created_at: { type: "integer" },
+            has_secret: { type: "boolean" },
+          },
+        },
+        HookDelivery: {
+          type: "object",
+          properties: {
+            id: str,
+            event_type: str,
+            status: { enum: ["ok", "error"] },
+            http_status: numOrNone,
+            duration_ms: { type: "integer" },
+            attempt: { type: "integer" },
+            error: strOrNone,
+            created_at: { type: "integer" },
           },
         },
       },
