@@ -34,6 +34,7 @@ export function durableStoragePath(): string {
 export function durableSettings(): HarnessSettings {
   return {
     extensions: [],
+    // Durable generation owns model retries; SDK retries stay disabled so waits are stored rather than held in a provider client.
     stream: { maxRetries: 0, maxRetryDelayMs: 60_000 },
     retry: { enabled: true, maxRetries: 3, baseDelayMs: 1000 },
     compaction: {

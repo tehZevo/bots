@@ -6,8 +6,6 @@ Judgement calls baked into the current implementation that deserve a deliberate 
   _Lean: keep runs as "working cycles" (matches spec) and defer per-trigger receipts until a channel needs them._
 - **Token estimation** — compaction budget uses chars/4 against 75% of `LLM_CONTEXT_WINDOW`.
   _Lean: keep until the context window is actually hit in practice, then tune ratio or adopt provider token counts._
-- **Provider Retry-After under durable retries** — pi-durable stores and resumes its own exponential waits but does not expose a per-error delay hook, so provider `Retry-After` hints are currently ignored even though `specs/llm/retry-backoff.md` still promises them.
-  _Lean: keep the stored exponential policy and update the spec/docs to drop exact header handling until pi-durable supports per-attempt delays._
 - **Clear memory vs active loop** — clearing memory aborts the running agent immediately and wipes context; the aborted run lands as `error`.
   _Lean: acceptable until approvals exist, then confirm with the user before nuking a working loop._
 - **Provider API key storage** — provider keys are planned for plaintext rows in SQLite (see `specs/llm/providers.md`).
