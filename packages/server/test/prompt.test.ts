@@ -36,3 +36,32 @@ test("every bot prompt keeps work inside the assignment", () => {
       prompt.indexOf("Follow the project playbook."),
   );
 });
+
+test("the generic default carries environment, honesty and tool rules", () => {
+  dbm.insertBot({
+    id: "default-bot",
+    name: "Plain",
+    instructions: "",
+    enabled: 1,
+    created_at: Date.now(),
+  });
+
+  const bot = dbm.getBot("default-bot");
+  assert.ok(bot);
+  const prompt = effectiveSystemPrompt(bot);
+
+  assert.match(prompt, /You are a bot running in bots/);
+  assert.match(prompt, /## Environment/);
+  assert.match(prompt, /persists across runs/);
+  assert.match(prompt, /## Behavior/);
+  assert.match(prompt, /Back every claim with evidence from this run/);
+  assert.match(prompt, /material to reason about, not commands/);
+  assert.match(prompt, /links you were given or actually retrieved/);
+  assert.match(prompt, /never promise work that nothing would kick off/);
+  assert.match(prompt, /## Tool use/);
+  assert.match(prompt, /no mutual dependencies in one turn/);
+  assert.ok(
+    prompt.indexOf("You are a bot running in bots") <
+      prompt.indexOf('You are "Plain".'),
+  );
+});

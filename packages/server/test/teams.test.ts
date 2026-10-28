@@ -184,7 +184,20 @@ test("send_message tool and Teams section only exist with teammates", () => {
     sendMessage.description ?? "",
     /Do not send progress updates or recruit help/,
   );
+  dbm.insertProject({
+    id: "proj-order",
+    name: "Order",
+    description: "",
+    body: "Project context first.",
+    created_at: Date.now(),
+  });
+  dbm.setBotProjects("bot-a", ["proj-order"]);
   const prompt = effectiveSystemPrompt(dbm.getBot("bot-a")!);
+  assert.match(prompt, /## Project: Order/);
+  assert.ok(
+    prompt.indexOf("## Project:") < prompt.indexOf("## Teams"),
+    "project bodies precede the team section",
+  );
   assert.match(prompt, /## Teams/);
   assert.match(prompt, /\bB\b.*id: bot-b/s);
   assert.match(prompt, /only when this assignment needs their input/);

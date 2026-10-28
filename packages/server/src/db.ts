@@ -26,6 +26,9 @@ export interface BotRow {
   status: string | null;
   status_level: "ok" | "issue" | "blocked" | null;
   token_budget: number | null;
+  watchdog_hours: number | null;
+  watchdog_tripped: number;
+  watchdog_run_started_at: number | null;
   created_at: number;
 }
 
@@ -55,7 +58,14 @@ export interface RunRow {
   id: string;
   bot_id: string;
   status: "running" | "ok" | "error";
-  trigger: "schedule" | "manual" | "chat" | "webhook" | "dm" | "continuous";
+  trigger:
+    | "schedule"
+    | "manual"
+    | "chat"
+    | "webhook"
+    | "dm"
+    | "continuous"
+    | "watchdog";
   started_at: number;
   finished_at: number | null;
   output: string | null;
@@ -85,6 +95,10 @@ export interface MessageRow {
 mkdirSync(dirname(config.databasePath), { recursive: true });
 const db = new Database(config.databasePath);
 db.pragma("journal_mode = WAL");
+
+export function runInTransaction<T>(fn: () => T): T {
+  return db.transaction(fn)();
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS bots (
@@ -173,7 +187,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
-    run_id TEXT,
+    run_id TEXT REFERENCES runs(id) ON DELETE CASCADE,
     role TEXT NOT NULL,
     payload TEXT NOT NULL,
     created_at INTEGER NOT NULL
@@ -475,6 +489,69 @@ if (!botColumns.has("machine_id"))
     "ALTER TABLE bots ADD COLUMN machine_id TEXT REFERENCES machines(id)",
   ).run();
 
+if (!botColumns.has("watchdog_hours"))
+  db.prepare("ALTER TABLE bots ADD COLUMN watchdog_hours INTEGER").run();
+if (!botColumns.has("watchdog_tripped"))
+  db.prepare(
+    "ALTER TABLE bots ADD COLUMN watchdog_tripped INTEGER NOT NULL DEFAULT 0",
+  ).run();
+if (!botColumns.has("watchdog_run_started_at"))
+  db.prepare(
+    "ALTER TABLE bots ADD COLUMN watchdog_run_started_at INTEGER",
+  ).run();
+
+db.exec(`
+  UPDATE messages SET run_id = NULL WHERE run_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM runs WHERE runs.id = messages.run_id
+  );
+  UPDATE bots SET machine_id = NULL WHERE machine_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM machines WHERE machines.id = bots.machine_id
+  );
+  UPDATE bots SET role_id = NULL WHERE role_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM roles WHERE roles.id = bots.role_id
+  );
+  UPDATE templates SET machine_id = NULL WHERE machine_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM machines WHERE machines.id = templates.machine_id
+  );
+  UPDATE templates SET role_id = NULL WHERE role_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM roles WHERE roles.id = templates.role_id
+  );
+  DELETE FROM run_usage WHERE NOT EXISTS (
+    SELECT 1 FROM runs WHERE runs.id = run_usage.run_id
+  );
+`);
+
+const messageForeignKeys = new Set(
+  (
+    db.prepare("PRAGMA foreign_key_list(messages)").all() as {
+      from: string;
+      table: string;
+    }[]
+  ).map((fk) => `${fk.from}->${fk.table}`),
+);
+if (!messageForeignKeys.has("run_id->runs")) {
+  const migrate = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE messages_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+        run_id TEXT REFERENCES runs(id) ON DELETE CASCADE,
+        role TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      INSERT INTO messages_new (id, bot_id, run_id, role, payload, created_at)
+      SELECT id, bot_id, run_id, role, payload, created_at FROM messages ORDER BY id;
+      DROP TABLE messages;
+      ALTER TABLE messages_new RENAME TO messages;
+      CREATE INDEX IF NOT EXISTS idx_messages_bot ON messages (bot_id, id);
+    `);
+  });
+  migrate();
+}
+
+db.pragma("foreign_keys = ON");
+
 export function listBots(): BotRow[] {
   return db.prepare("SELECT * FROM bots ORDER BY created_at").all() as BotRow[];
 }
@@ -493,6 +570,9 @@ type NewBot = Omit<
   | "avatar_shape"
   | "avatar_color"
   | "sound"
+  | "watchdog_hours"
+  | "watchdog_tripped"
+  | "watchdog_run_started_at"
 > &
   Partial<
     Pick<
@@ -503,13 +583,14 @@ type NewBot = Omit<
       | "avatar_shape"
       | "avatar_color"
       | "sound"
+      | "watchdog_hours"
     >
   >;
 
 export function insertBot(bot: NewBot): void {
   db.prepare(
-    `INSERT INTO bots (id, name, instructions, model_id, role_id, machine_id, avatar_shape, avatar_color, sound, enabled, created_at)
-     VALUES (@id, @name, @instructions, @model_id, @role_id, @machine_id, @avatar_shape, @avatar_color, @sound, @enabled, @created_at)`,
+    `INSERT INTO bots (id, name, instructions, model_id, role_id, machine_id, avatar_shape, avatar_color, sound, watchdog_hours, enabled, created_at)
+     VALUES (@id, @name, @instructions, @model_id, @role_id, @machine_id, @avatar_shape, @avatar_color, @sound, @watchdog_hours, @enabled, @created_at)`,
   ).run({
     model_id: null,
     role_id: null,
@@ -517,6 +598,7 @@ export function insertBot(bot: NewBot): void {
     avatar_shape: null,
     avatar_color: null,
     sound: null,
+    watchdog_hours: null,
     ...bot,
   });
 }
@@ -577,6 +659,9 @@ export function setMachineBuild(
 
 export function deleteMachine(id: string): void {
   db.prepare("UPDATE bots SET machine_id = NULL WHERE machine_id = ?").run(id);
+  db.prepare("UPDATE templates SET machine_id = NULL WHERE machine_id = ?").run(
+    id,
+  );
   db.prepare("DELETE FROM machines WHERE id = ?").run(id);
 }
 
@@ -593,8 +678,25 @@ export function botsUsingMachine(
 export function updateBot(id: string, patch: Partial<BotRow>): void {
   const keys = Object.keys(patch).filter((k) => k !== "id");
   if (keys.length === 0) return;
+  let needsWatchdogReset = false;
+  if (keys.includes("enabled") || keys.includes("watchdog_hours")) {
+    const current = getBot(id);
+    if (current) {
+      if (
+        patch.enabled !== undefined &&
+        Number(patch.enabled) !== Number(current.enabled)
+      )
+        needsWatchdogReset = true;
+      if (
+        patch.watchdog_hours !== undefined &&
+        patch.watchdog_hours !== current.watchdog_hours
+      )
+        needsWatchdogReset = true;
+    }
+  }
   const sets = keys.map((k) => `${k} = @${k}`).join(", ");
   db.prepare(`UPDATE bots SET ${sets} WHERE id = @id`).run({ ...patch, id });
+  if (needsWatchdogReset) resetWatchdog(id);
 }
 
 export function deleteBot(id: string): void {
@@ -670,6 +772,7 @@ export function updateRole(id: string, patch: Partial<RoleRow>): void {
 
 export function deleteRole(id: string): void {
   db.prepare("UPDATE bots SET role_id = NULL WHERE role_id = ?").run(id);
+  db.prepare("UPDATE templates SET role_id = NULL WHERE role_id = ?").run(id);
   db.prepare("DELETE FROM roles WHERE id = ?").run(id);
 }
 
@@ -762,6 +865,34 @@ export function removeTeamMember(teamId: string, botId: string): void {
     teamId,
     botId,
   );
+}
+
+export function teamIdsByBot(): Map<string, { id: string; leader: boolean }[]> {
+  const map = new Map<string, { id: string; leader: boolean }[]>();
+  for (const row of db
+    .prepare(
+      "SELECT bot_id, team_id, leader FROM team_members ORDER BY team_id",
+    )
+    .all() as { bot_id: string; team_id: string; leader: number }[]) {
+    const list = map.get(row.bot_id) ?? [];
+    list.push({ id: row.team_id, leader: row.leader === 1 });
+    map.set(row.bot_id, list);
+  }
+  return map;
+}
+
+export function setTeamMembershipsForBot(
+  botId: string,
+  memberships: { team_id: string; leader: boolean }[],
+): void {
+  db.prepare("DELETE FROM team_members WHERE bot_id = ?").run(botId);
+  const ins = db.prepare(
+    `INSERT INTO team_members (team_id, bot_id, leader) VALUES (?, ?, ?)
+     ON CONFLICT (team_id, bot_id) DO UPDATE SET leader = excluded.leader`,
+  );
+  for (const m of new Map(memberships.map((x) => [x.team_id, x])).values()) {
+    ins.run(m.team_id, botId, m.leader ? 1 : 0);
+  }
 }
 
 export interface TeammateRow {
@@ -1128,6 +1259,18 @@ export function secretEnvForBot(botId: string): Record<string, string> {
   return env;
 }
 
+// specs/secrets/redaction.md — assigned secret values, keyed by their name.
+export function redactionSecretsForBot(
+  botId: string,
+): { name: string; value: string }[] {
+  const byKey = new Map<string, { name: string; value: string }>();
+  for (const s of teamSecretRowsForBot(botId))
+    byKey.set(s.key, { name: s.key, value: s.value });
+  for (const s of botSecretRows(botId))
+    byKey.set(s.key, { name: s.key, value: s.value });
+  return [...byKey.values()];
+}
+
 function hasTable(name: string): boolean {
   return (
     db
@@ -1199,11 +1342,31 @@ export function dueTriggers(now: number): TriggerRow[] {
     .all(now) as TriggerRow[];
 }
 
+function setWatchdogActivity(botId: string, startedAt: number | null): void {
+  const current = db
+    .prepare("SELECT watchdog_tripped FROM bots WHERE id = ?")
+    .get(botId) as { watchdog_tripped?: number } | undefined;
+  db.prepare(
+    "UPDATE bots SET watchdog_run_started_at = ?, watchdog_tripped = 0 WHERE id = ?",
+  ).run(startedAt, botId);
+  if (current?.watchdog_tripped) setBotStatus(botId, null);
+}
+
+export function markWatchdogActivity(botId: string, startedAt: number): void {
+  setWatchdogActivity(botId, startedAt);
+}
+
+export function resetWatchdog(botId: string): void {
+  setWatchdogActivity(botId, null);
+}
+
 export function insertRun(run: RunRow): void {
   db.prepare(
     `INSERT INTO runs (id, bot_id, status, trigger, started_at, finished_at, output, error)
      VALUES (@id, @bot_id, @status, @trigger, @started_at, @finished_at, @output, @error)`,
   ).run(run);
+  if (run.trigger !== "watchdog")
+    markWatchdogActivity(run.bot_id, run.started_at);
 }
 
 let onNewNotification: ((n: NotificationRow) => void) | null = null;
@@ -1303,6 +1466,7 @@ export function finishRun(
   output: string | null,
   error: string | null,
 ): void {
+  const finishedAt = Date.now();
   const update = db.prepare(
     "UPDATE runs SET status = ?, finished_at = ?, output = ?, error = ? WHERE id = ?",
   );
@@ -1311,12 +1475,14 @@ export function finishRun(
      LEFT JOIN bots b ON b.id = r.bot_id WHERE r.id = ?`,
   );
   const tx = db.transaction(() => {
-    update.run(status, Date.now(), output, error, id);
-    if (status !== "error") return;
-
+    update.run(status, finishedAt, output, error, id);
     const info = getInfo.get(id) as
       | { bot_id: string | null; trigger: string | null; name: string | null }
       | undefined;
+    if (info?.bot_id && info.trigger !== "watchdog")
+      markWatchdogActivity(info.bot_id, finishedAt);
+    if (status !== "error") return;
+
     createNotification({
       kind: "run_error",
       title: `${info?.name ?? "Bot"}: run failed`,
@@ -1330,6 +1496,49 @@ export function finishRun(
 
   const info = getInfo.get(id) as { bot_id: string | null } | undefined;
   if (info?.bot_id) armContinuousTriggers(info.bot_id);
+}
+
+export function tripWatchdog(
+  botId: string,
+  name: string,
+  hours: number,
+  now = Date.now(),
+): void {
+  const runId = randomUUID();
+  const message = `watchdog: no completed run in ${hours}h`;
+  insertRun({
+    id: runId,
+    bot_id: botId,
+    status: "error",
+    trigger: "watchdog",
+    started_at: now,
+    finished_at: now,
+    output: null,
+    error: message,
+  });
+  db.prepare("UPDATE bots SET watchdog_tripped = 1 WHERE id = ?").run(botId);
+  setBotStatus(botId, message, "blocked");
+  createNotification({
+    kind: "watchdog",
+    title: `${name}: watchdog tripped`,
+    body: message,
+    botId,
+    dedupeKey: `watchdog:${runId}`,
+  });
+}
+
+export function evaluateWatchdogs(now = Date.now()): void {
+  if (isPaused()) return;
+  const due = db
+    .prepare(
+      `SELECT id, name, watchdog_hours FROM bots
+       WHERE enabled = 1 AND watchdog_hours IS NOT NULL AND watchdog_tripped = 0
+         AND watchdog_run_started_at IS NOT NULL
+         AND ? > watchdog_run_started_at + (watchdog_hours * 3600000)`,
+    )
+    .all(now) as { id: string; name: string; watchdog_hours: number }[];
+  for (const bot of due)
+    tripWatchdog(bot.id, bot.name, bot.watchdog_hours, now);
 }
 
 export function continuousIntervalMs(schedule: string): number | null {
@@ -1422,6 +1631,43 @@ export function listRuns(botId: string, limit = 50): RunRow[] {
       "SELECT * FROM runs WHERE bot_id = ? ORDER BY started_at DESC LIMIT ?",
     )
     .all(botId, limit) as RunRow[];
+}
+
+export function getRun(id: string): RunRow | undefined {
+  return db.prepare("SELECT * FROM runs WHERE id = ?").get(id) as
+    | RunRow
+    | undefined;
+}
+
+// specs/runs/drill-down.md — deleting a run also removes its linked transcript rows.
+export function deleteRun(runId: string): void {
+  const remove = db.transaction(() => {
+    db.prepare("DELETE FROM messages WHERE run_id = ?").run(runId);
+    db.prepare("DELETE FROM run_usage WHERE run_id = ?").run(runId);
+    db.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+  });
+  remove();
+}
+
+// specs/runs/drill-down.md — chronological replay rows for one run.
+export function listMessagesForRun(runId: string): MessageRow[] {
+  return db
+    .prepare(
+      "SELECT * FROM messages WHERE run_id = ? ORDER BY created_at ASC, id ASC",
+    )
+    .all(runId) as MessageRow[];
+}
+
+export function getRunUsage(runId: string): UsageTotals | null {
+  const row = db
+    .prepare(
+      `SELECT COALESCE(SUM(input), 0) AS input, COALESCE(SUM(output), 0) AS output,
+       COALESCE(SUM(cache_read), 0) AS cache_read, COALESCE(SUM(cache_write), 0) AS cache_write
+       FROM run_usage WHERE run_id = ?`,
+    )
+    .get(runId) as TokenUsage;
+  const total = row.input + row.output + row.cache_read + row.cache_write;
+  return total > 0 ? { ...row, total } : null;
 }
 
 export function appendMessage(
@@ -1720,13 +1966,120 @@ export function botUsageTotals(botId: string): {
   return { lifetime: sumUsage(botId), last30d: sumUsage(botId, since) };
 }
 
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+export function sumUsageAll(since?: number): UsageTotals {
+  const sql = `SELECT COALESCE(SUM(input), 0) AS input, COALESCE(SUM(output), 0) AS output,
+       COALESCE(SUM(cache_read), 0) AS cache_read,
+       COALESCE(SUM(cache_write), 0) AS cache_write
+   FROM run_usage${since ? " WHERE created_at >= ?" : ""}`;
+  const row = (
+    since ? db.prepare(sql).get(since) : db.prepare(sql).get()
+  ) as TokenUsage;
+  return {
+    ...row,
+    total: row.input + row.output + row.cache_read + row.cache_write,
+  };
+}
+
+// specs/usage/circuit-breaker.md — server-wide trailing-30-day token cap.
+export function getBreakerLimit(): number {
+  const raw = getSetting("breaker_limit_tokens");
+  const n = raw ? Number(raw) : 0;
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+export function isBreakerArmed(): boolean {
+  return getSetting("breaker_tripped") === "1";
+}
+
+export function setBreakerArmed(armed: boolean): void {
+  if (armed) setSetting("breaker_tripped", "1");
+  else deleteSetting("breaker_tripped");
+}
+
+export function breakerState(): {
+  limit_tokens: number;
+  tokens_30d: number;
+  exceeded: boolean;
+} {
+  const limit = getBreakerLimit();
+  const tokens30d = sumUsageAll(Date.now() - THIRTY_DAYS_MS).total;
+  return {
+    limit_tokens: limit,
+    tokens_30d: tokens30d,
+    exceeded: limit > 0 && tokens30d > limit,
+  };
+}
+
+export function setBreakerLimit(limit: number): void {
+  if (limit > 0) setSetting("breaker_limit_tokens", String(limit));
+  else deleteSetting("breaker_limit_tokens");
+  const state = breakerState();
+  if (!state.exceeded) setBreakerArmed(false);
+}
+
+export function checkSpendBreaker(): boolean {
+  const state = breakerState();
+  if (!state.exceeded) return false;
+  const wasArmed = isBreakerArmed();
+  setBreakerArmed(true);
+  setPaused(true);
+  if (!wasArmed)
+    createNotification({
+      kind: "breaker",
+      title: "Spend circuit breaker tripped",
+      body: `Trailing 30-day usage of ${state.tokens_30d.toLocaleString()} tokens passed the cap of ${state.limit_tokens.toLocaleString()}. All bots are paused; raise or clear the cap to resume.`,
+      dedupeKey: `breaker:${Date.now()}`,
+    });
+  return true;
+}
+
+export interface McpSecretRef {
+  secret: string;
+}
+
+export type McpEnvValue = string | McpSecretRef;
+
+export function isMcpSecretRef(value: unknown): value is McpSecretRef {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    typeof (value as { secret?: unknown }).secret === "string"
+  );
+}
+
+function normalizeMcpEnv(raw: unknown): Record<string, McpEnvValue> {
+  const env: Record<string, McpEnvValue> = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return env;
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === "string") env[key] = value;
+    else if (isMcpSecretRef(value)) env[key] = { secret: value.secret };
+  }
+  return env;
+}
+
+// specs/mcp/env-secrets.md — references resolve at spawn time, never in stored config.
+export function resolveMcpEnv(
+  env: Record<string, McpEnvValue>,
+): Record<string, string> {
+  const resolved: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (isMcpSecretRef(value))
+      resolved[key] = findSecretByName(value.secret)?.value ?? "";
+    else resolved[key] = value;
+  }
+  return resolved;
+}
+
 export interface McpServerRow {
   id: string;
   name: string;
   transport: "stdio";
   command: string;
   args: string[];
-  env: Record<string, string>;
+  env: Record<string, McpEnvValue>;
   enabled: number;
   created_at: number;
 }
@@ -1750,7 +2103,6 @@ if (!skillCols.has("import_info")) {
   db.prepare("ALTER TABLE skills ADD COLUMN import_info TEXT").run();
 }
 
-
 db.exec(
   `CREATE TABLE IF NOT EXISTS mcp_servers (
     id TEXT PRIMARY KEY,
@@ -1770,7 +2122,7 @@ function hydrateMcp(
   return {
     ...row,
     args: JSON.parse(row.args) as string[],
-    env: JSON.parse(row.env) as Record<string, string>,
+    env: normalizeMcpEnv(JSON.parse(row.env)),
   };
 }
 
@@ -1810,13 +2162,17 @@ export function insertSkill(skill: SkillRow): void {
 
 export function updateSkill(
   id: string,
-  fields: Partial<Pick<SkillRow, "name" | "description" | "instructions">>,
+  fields: Partial<
+    Pick<SkillRow, "name" | "description" | "instructions"> & {
+      import_info: string | null;
+    }
+  >,
 ): void {
-  const sets = Object.keys(fields)
-    .map((k) => `${k} = ?`)
-    .join(", ");
+  const entries = Object.entries(fields);
+  if (entries.length === 0) return;
+  const sets = entries.map(([k]) => `${k} = ?`).join(", ");
   db.prepare(`UPDATE skills SET ${sets} WHERE id = ?`).run(
-    ...Object.values(fields),
+    ...entries.map(([, v]) => v),
     id,
   );
 }
@@ -1975,6 +2331,22 @@ export function listApiKeys(userId: string): ApiKeyRow[] {
     .all(userId) as ApiKeyRow[];
 }
 
+export function listAllApiKeys(): (ApiKeyRow & { hash: string })[] {
+  return db
+    .prepare(
+      "SELECT id, name, hash, user_id, created_at, last_used_at FROM api_keys ORDER BY created_at",
+    )
+    .all() as (ApiKeyRow & { hash: string })[];
+}
+
+export function getApiKeyById(id: string): ApiKeyRow | undefined {
+  return db
+    .prepare(
+      "SELECT id, name, user_id, created_at, last_used_at FROM api_keys WHERE id = ?",
+    )
+    .get(id) as ApiKeyRow | undefined;
+}
+
 export function getApiKeyByHash(hash: string): ApiKeyRow | undefined {
   return db
     .prepare(
@@ -1985,6 +2357,17 @@ export function getApiKeyByHash(hash: string): ApiKeyRow | undefined {
 
 export function touchApiKey(id: string, ts: number): void {
   db.prepare("UPDATE api_keys SET last_used_at = ? WHERE id = ?").run(ts, id);
+}
+
+export function updateApiKey(
+  id: string,
+  patch: Partial<{ name: string; hash: string; created_at: number }>,
+): void {
+  const entries = Object.entries(patch).filter(([, v]) => v !== undefined);
+  if (entries.length === 0) return;
+  db.prepare(
+    `UPDATE api_keys SET ${entries.map(([k]) => `${k} = @${k}`).join(", ")} WHERE id = @id`,
+  ).run({ ...Object.fromEntries(entries), id });
 }
 
 export function deleteApiKey(id: string, userId: string): boolean {

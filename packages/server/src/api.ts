@@ -17,13 +17,17 @@ import {
   isLoopActive,
   resetBotRuntime,
   resumePendingInjections,
+  stopAllLoops,
 } from "./agent.ts";
+import { exportConfigBackup, importConfigBackup } from "./backup.ts";
 import { repoRoot } from "./config.ts";
 import {
   approveDeviceGrant,
   botSecretIds,
   botsUsingMachine,
   botUsageTotals,
+  breakerState,
+  checkSpendBreaker,
   claimDeviceGrant,
   clearDeviceGrants,
   clearMessages,
@@ -58,6 +62,8 @@ import {
   getProject,
   getProvider,
   getRole,
+  getRun,
+  getRunUsage,
   getSecret,
   getSessionUser,
   getSetting,
@@ -84,12 +90,15 @@ import {
   insertTemplate,
   insertTrigger,
   insertUser,
+  isBreakerArmed,
+  isMcpSecretRef,
   isPaused,
   latestErrorBotIds,
   listApiKeys,
   listBots,
   listMachines,
   listMcpServers,
+  listMessagesForRun,
   listNotifications,
   listProjects,
   listProviders,
@@ -102,6 +111,7 @@ import {
   listTemplates,
   listTriggers,
   loadMessages,
+  type McpEnvValue,
   markAllNotificationsRead,
   markNotificationRead,
   type ProviderRow,
@@ -115,6 +125,8 @@ import {
   setBotProjects,
   setBotSecret,
   setBotTags,
+  setBreakerArmed,
+  setBreakerLimit,
   setMachineBuild,
   setPaused,
   setSetting,
@@ -146,6 +158,7 @@ import {
 import { testMcpConnection } from "./mcp.ts";
 import { openApiDoc } from "./openapi.ts";
 import { vapidPublicKey } from "./push.ts";
+import { getRetryWaits } from "./runwaits.ts";
 import {
   defaultImageRef,
   idleMinutes,
@@ -168,6 +181,11 @@ import {
   searchSkillsSh,
   storeBundle,
 } from "./skillimport.ts";
+import {
+  listWorkspace,
+  readWorkspaceFile,
+  WorkspaceError,
+} from "./workspace.ts";
 
 const DEFAULT_MANUAL_MESSAGE = "Continue with your current work.";
 
@@ -190,6 +208,7 @@ interface BotInput {
   sound?: unknown;
   enabled?: unknown;
   token_budget?: unknown;
+  watchdog_hours?: unknown;
 }
 
 const AVATAR_OPTIONS_COUNT = 12;
@@ -245,6 +264,19 @@ function toBotPayload(input: BotInput) {
       return { error: "token_budget must be a positive integer or null" };
     token_budget = n;
   }
+  let watchdog_hours: number | null = null;
+  if (input.watchdog_hours !== undefined && input.watchdog_hours !== null) {
+    if (
+      typeof input.watchdog_hours !== "number" ||
+      !Number.isInteger(input.watchdog_hours) ||
+      input.watchdog_hours < 1 ||
+      input.watchdog_hours > 720
+    )
+      return {
+        error: "watchdog_hours must be a whole number from 1 to 720 or null",
+      };
+    watchdog_hours = input.watchdog_hours;
+  }
   let sound: string | null = null;
   if (typeof input.sound === "string" && input.sound.trim()) {
     if (!SOUND_CHOICES.has(input.sound.trim()))
@@ -271,6 +303,7 @@ function toBotPayload(input: BotInput) {
     avatar_shape: shape,
     avatar_color: color,
     token_budget,
+    watchdog_hours,
   };
 }
 
@@ -380,6 +413,13 @@ export interface AuthUser {
   id: string;
   email: string;
   keyId?: string;
+}
+
+function denyApiKey(c: Context): Response | undefined {
+  const user = c.get("user") as AuthUser;
+  return user.keyId
+    ? c.json({ error: "session authentication required" }, 403)
+    : undefined;
 }
 
 // --- device authorization (RFC 8628) ----------------------------------------
@@ -763,7 +803,14 @@ export function createApp() {
     }),
   );
 
-  app.get("/api/pause", (c) => c.json({ paused: isPaused() }));
+  app.get("/api/pause", (c) => {
+    const armed = isBreakerArmed() && breakerState().exceeded;
+    return c.json(
+      armed
+        ? { paused: isPaused(), reason: "breaker" }
+        : { paused: isPaused() },
+    );
+  });
 
   app.post("/api/pause", async (c) => {
     const body = (await c.req.json().catch(() => null)) as {
@@ -771,9 +818,44 @@ export function createApp() {
     } | null;
     if (typeof body?.paused !== "boolean")
       return c.json({ error: "paused must be a boolean" }, 400);
+    if (!body.paused && isBreakerArmed()) {
+      const state = breakerState();
+      if (state.exceeded)
+        return c.json(
+          {
+            error: `Spend circuit breaker tripped: ${state.tokens_30d.toLocaleString()} tokens used of a ${state.limit_tokens.toLocaleString()} cap (trailing 30 days). Raise or clear the cap in Settings to resume.`,
+          },
+          409,
+        );
+      setBreakerArmed(false);
+    }
     setPaused(body.paused);
     if (!body.paused) resumePendingInjections();
     return c.json({ paused: body.paused });
+  });
+
+  // specs/usage/circuit-breaker.md — server-wide trailing-30-day token cap.
+  app.get("/api/breaker", (c) => c.json(breakerState()));
+
+  app.put("/api/breaker", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      limit_tokens?: unknown;
+    } | null;
+    const raw = body?.limit_tokens;
+    if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0)
+      return c.json(
+        { error: "limit_tokens must be a non-negative integer" },
+        400,
+      );
+    setBreakerLimit(raw);
+    return c.json(breakerState());
+  });
+
+  // specs/bots/emergency-stop.md — panic button: interrupt everything, then arm the pause.
+  app.post("/api/stop-all", (c) => {
+    const stopped = stopAllLoops();
+    setPaused(true);
+    return c.json({ stopped });
   });
 
   app.put("/api/settings", async (c) => {
@@ -1062,6 +1144,24 @@ export function createApp() {
     const value = header?.startsWith("Bearer ") ? header.slice(7).trim() : "";
     if (!API_KEY_RE.test(value))
       return c.json({ error: "api key required" }, 401);
+    const apiKeyRow = getApiKeyByHash(
+      createHash("sha256").update(value).digest("hex"),
+    );
+    if (!apiKeyRow) return c.json({ error: "invalid api key" }, 401);
+    const now = Date.now();
+    if (
+      apiKeyRow.last_used_at === null ||
+      now - apiKeyRow.last_used_at >= 60_000
+    )
+      touchApiKey(apiKeyRow.id, now);
+    const owner = apiKeyRow.user_id
+      ? getUserById(apiKeyRow.user_id)
+      : undefined;
+    c.set("user", {
+      id: owner?.id ?? "",
+      email: owner?.email ?? "api-key",
+      keyId: apiKeyRow.id,
+    });
 
     const msg = (await c.req.json().catch(() => null)) as {
       jsonrpc?: string;
@@ -1423,6 +1523,8 @@ export function createApp() {
     if ("error" in payload) return c.json({ error: payload.error }, 400);
     const bot = {
       id: randomUUID(),
+      watchdog_tripped: 0,
+      watchdog_run_started_at: null,
       current_task: null,
       current_task_updated_at: null,
       status: null,
@@ -1540,6 +1642,39 @@ export function createApp() {
     if (!found) return c.json({ error: "not found" }, 404);
     deleteSecret(found.id);
     return c.json({ ok: true });
+  });
+
+  app.get("/api/backup/config", (c) => {
+    const denied = denyApiKey(c);
+    if (denied) return denied;
+    try {
+      const includeValues = ["true", "1"].includes(
+        c.req.query("include_values")?.toLowerCase() ?? "",
+      );
+      return c.json(exportConfigBackup(includeValues));
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        500,
+      );
+    }
+  });
+
+  app.post("/api/backup/config", async (c) => {
+    const denied = denyApiKey(c);
+    if (denied) return denied;
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body !== "object" || Array.isArray(body))
+      return c.json({ error: "invalid backup body" }, 400);
+    try {
+      const result = importConfigBackup(body, (c.get("user") as AuthUser).id);
+      return "error" in result ? c.json(result, 400) : c.json(result);
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        500,
+      );
+    }
   });
 
   app.get("/api/roles", (c) => c.json(listRoles()));
@@ -1982,6 +2117,40 @@ export function createApp() {
     return c.json({ ...botUsageTotals(bot.id), budget: bot.token_budget });
   });
 
+  // specs/machines/workspace-browser.md — read-only host view of the workspace.
+  app.get("/api/bots/:id/workspace", (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    const path = c.req.query("path") ?? "";
+    try {
+      return c.json(listWorkspace(bot.id, path));
+    } catch (err) {
+      if (err instanceof WorkspaceError)
+        return c.json({ error: err.message }, err.status as 400);
+      throw err;
+    }
+  });
+
+  app.get("/api/bots/:id/workspace/file", (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    const path = c.req.query("path") ?? "";
+    try {
+      const bytes = readWorkspaceFile(bot.id, path);
+      const name = path.split("/").filter(Boolean).pop() ?? "file";
+      return new Response(new Uint8Array(bytes), {
+        headers: {
+          "content-type": "application/octet-stream",
+          "content-disposition": `attachment; filename="${encodeURIComponent(name)}"`,
+        },
+      });
+    } catch (err) {
+      if (err instanceof WorkspaceError)
+        return c.json({ error: err.message }, err.status as 400);
+      throw err;
+    }
+  });
+
   app.get("/api/bots/:id/context-usage", (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
@@ -2106,6 +2275,104 @@ export function createApp() {
         current_task_updated_at: bot.current_task_updated_at,
       })),
     );
+  });
+
+  // specs/runs/drill-down.md — inline replay of one run's persisted messages.
+  app.get("/api/bots/:id/runs/:runId/transcript", (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    const run = getRun(c.req.param("runId"));
+    if (!run || run.bot_id !== bot.id)
+      return c.json({ error: "not found" }, 404);
+    type Step = {
+      kind: "user" | "assistant" | "tool_call" | "tool_result";
+      name?: string;
+      text?: string;
+      args?: string;
+      at: number;
+      duration_ms?: number | null;
+      is_error?: boolean;
+      retry_wait_ms?: number;
+    };
+    const steps: Step[] = [];
+    for (const row of listMessagesForRun(run.id)) {
+      let msg: {
+        role?: string;
+        content?: unknown;
+        toolName?: string;
+        isError?: boolean;
+        durationMs?: number;
+      };
+      try {
+        msg = JSON.parse(row.payload);
+      } catch {
+        continue;
+      }
+      const blocks = Array.isArray(msg.content)
+        ? (msg.content as {
+            type?: string;
+            text?: string;
+            name?: string;
+            arguments?: unknown;
+          }[])
+        : [];
+      const text = blocks
+        .filter((b) => b.type === "text" && typeof b.text === "string")
+        .map((b) => b.text as string)
+        .join("\n");
+      if (msg.role === "user") {
+        steps.push({
+          kind: "user",
+          text: typeof msg.content === "string" ? msg.content : text,
+          at: row.created_at,
+        });
+      } else if (msg.role === "assistant") {
+        steps.push({ kind: "assistant", text, at: row.created_at });
+        for (const b of blocks) {
+          if (b.type !== "toolCall") continue;
+          let args = "";
+          try {
+            args = JSON.stringify(b.arguments ?? {});
+          } catch {
+            args = "{}";
+          }
+          steps.push({
+            kind: "tool_call",
+            name: b.name,
+            args: args.length > 300 ? `${args.slice(0, 300)}…` : args,
+            at: row.created_at,
+          });
+        }
+      } else if (msg.role === "toolResult") {
+        steps.push({
+          kind: "tool_result",
+          name: msg.toolName,
+          text,
+          is_error: Boolean(msg.isError),
+          duration_ms:
+            typeof msg.durationMs === "number" ? msg.durationMs : null,
+          at: row.created_at,
+        });
+      }
+    }
+    // Mark retry waits on the first assistant step that completed after one began.
+    for (const w of getRetryWaits(run.id)) {
+      const step = steps.find(
+        (s) => s.kind === "assistant" && !s.retry_wait_ms && s.at >= w.at,
+      );
+      if (step) step.retry_wait_ms = (step.retry_wait_ms ?? 0) + w.ms;
+    }
+    return c.json({
+      run: {
+        id: run.id,
+        status: run.status,
+        trigger: run.trigger,
+        started_at: run.started_at,
+        finished_at: run.finished_at,
+      },
+      usage: getRunUsage(run.id),
+      steps,
+    });
   });
 
   app.get("/api/bots/:id/messages", (c) => {
@@ -2387,7 +2654,10 @@ export function createApp() {
         return c.json({ error: "selection does not match the source" }, 400);
       const bundles = selected.map((p) => {
         const fm = parseFrontmatter(
-          readFileSync(join((cloned as ClonedRepo).dir, p.folder, "SKILL.md"), "utf8"),
+          readFileSync(
+            join((cloned as ClonedRepo).dir, p.folder, "SKILL.md"),
+            "utf8",
+          ),
         );
         if (!fm)
           return {
@@ -2455,10 +2725,21 @@ export function createApp() {
     const args = Array.isArray(input.args)
       ? input.args.filter((a): a is string => typeof a === "string")
       : [];
-    const env: Record<string, string> = {};
+    const env: Record<string, McpEnvValue> = {};
     if (input.env && typeof input.env === "object" && !Array.isArray(input.env))
-      for (const [k, v] of Object.entries(input.env))
-        if (typeof v === "string") env[k] = v;
+      for (const [k, v] of Object.entries(input.env)) {
+        if (typeof v === "string") {
+          env[k] = v;
+        } else if (isMcpSecretRef(v)) {
+          const secretName = v.secret.trim();
+          if (!secretName) return { error: `secret name is required for ${k}` };
+          if (!findSecretByName(secretName))
+            return { error: `unknown secret "${secretName}"` };
+          env[k] = { secret: secretName };
+        } else {
+          return { error: `invalid env value for ${k}` };
+        }
+      }
     const enabled = input.enabled === false ? 0 : 1;
     return { name, command, args, env, enabled };
   }

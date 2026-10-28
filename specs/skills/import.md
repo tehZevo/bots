@@ -1,5 +1,6 @@
 # Skill import
 
+- Import is the **Import** tab of **"+ Add skill"**; switching tabs or closing before confirming writes nothing (`manage.md`).
 - A skill can be written by hand (`manage.md`) or imported from a source; an imported skill stores the whole bundle — `SKILL.md` plus references, scripts and assets — not only its instruction text.
 - Sources: a skills.sh lookup by name or keyword, or a Git source given as `owner/repo`, a repository URL, an optional `/tree/<ref>/<path>` subpath, an optional `@<skill>` name filter, and an optional `#<ref>` branch, tag or commit. An omitted ref means the repository's default branch.
 - Import runs in two steps: resolve the source into a preview, then confirm. Resolving lists every discoverable `SKILL.md` with its frontmatter name and description without writing anything; the user selects one, several or all.
