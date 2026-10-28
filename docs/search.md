@@ -1,6 +1,6 @@
 # Search & commands
 
-The status bar carries a **Search** control — or press ` (backtick) anywhere, even mid-typing — to open one overlay for finding records and running common actions. The overlay is transient: opening or typing in it does not add browser history, and Escape or an outside click closes it.
+The status bar carries a **Search** control — or press ` (backtick) anywhere outside a text field — to open one overlay for finding records and running common actions. The overlay is transient: opening or typing in it does not add browser history, and Escape or an outside click closes it.
 
 ## Find records
 
