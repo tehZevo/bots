@@ -7,3 +7,4 @@
 - An assigned secret is injected into that bot's sandbox container as an environment variable named by its key when the container starts (`../machines/sandbox.md`); the bot's own secrets take precedence over an inherited team secret with the same key.
 - Secret values never enter the system prompt, a trigger message or the run log; they are visible to the agent only as an environment variable of its own commands.
 - Replacing a secret's value is destructive and asks for confirmation first (`../ui/confirm.md`); secrets are managed via `/api/secrets`.
+- Values are encrypted at rest with `SECRETS_KEY` and decrypted only in server memory; a bare database copy or volume backup yields no plaintext (`storage.md`).

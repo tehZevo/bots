@@ -1,6 +1,6 @@
 # Global search
 
-- The status bar carries a Search control opening an overlay: one input plus grouped live results; Escape or outside click closes it (`../bots/dashboard.md`, `navigation.md`).
+- The status bar carries a Search control opening an overlay: one input plus grouped live results; Escape or outside click closes it (`../bots/dashboard.md`, `navigation.md`). The backtick key opens it globally except inside text inputs, textareas and contenteditable fields, where the key keeps typing its character; Search advertises the shortcut on its control.
 - Groups cover bots (name, instructions), roles (name, instructions), skills, Projects, tags, teams and templates (name + description fields): case-insensitive substring matching — no fuzzy ranking.
 - Queries hit the server only after 2 characters settle (~300 ms); each group caps at 8 matches; a truncated group shows how many more matched.
 - Rows show entity name plus kind-specific context (role on bots, bot count on tags/teams, description preview elsewhere) with the matched substring highlighted.
