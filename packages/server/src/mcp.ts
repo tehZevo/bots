@@ -1,5 +1,13 @@
 import { spawn } from "node:child_process";
-import { type McpServerRow, resolveMcpEnv } from "./db.ts";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
+import {
+  type BotRow,
+  getMcpServer,
+  getRole,
+  listMcpServers,
+  type McpServerRow,
+  resolveMcpEnv,
+} from "./db.ts";
 
 const HANDSHAKE_TIMEOUT_MS = 20_000;
 
@@ -137,4 +145,62 @@ export async function testMcpConnection(
     session.close();
     void stderrNote;
   }
+}
+
+const MCP_NAME_SAFE = /[^a-zA-Z0-9_-]/g;
+
+export interface RoleMcpTools {
+  sessions: McpSession[];
+  tools: AgentTool<never>[];
+}
+
+export async function connectRoleTools(bot: BotRow): Promise<RoleMcpTools> {
+  const role = bot.role_id ? getRole(bot.role_id) : undefined;
+  const ids = (role?.mcp_server_ids ?? []).filter((id) =>
+    listMcpServers().some((m) => m.id === id && m.enabled === 1),
+  );
+  const sessions: McpSession[] = [];
+  const tools: AgentTool<never>[] = [];
+  for (const id of ids) {
+    const server = getMcpServer(id);
+    if (!server) continue;
+    try {
+      const session = await connectMcpServer(server);
+      sessions.push(session);
+      const prefix = server.name.replace(MCP_NAME_SAFE, "_");
+      for (const def of await session.listTools()) {
+        const toolName = `${prefix}_${def.name}`.slice(0, 64);
+        tools.push({
+          name: toolName,
+          label: `${server.name}: ${def.name}`,
+          description: def.description ?? `Call ${def.name} on ${server.name}`,
+          parameters: (def.inputSchema ?? {}) as never,
+          execute: async (_id: string, params: unknown) => {
+            try {
+              const text = await session.callTool(def.name, params);
+              return {
+                content: [{ type: "text" as const, text }],
+                details: {},
+              };
+            } catch (err) {
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: `mcp call failed (${server.name}/${def.name}): ${
+                      err instanceof Error ? err.message : String(err)
+                    }`,
+                  },
+                ],
+                details: {},
+              };
+            }
+          },
+        } as AgentTool<never>);
+      }
+    } catch {
+      // server unreachable at loop start: skip its tools, keep the loop alive
+    }
+  }
+  return { sessions, tools };
 }
