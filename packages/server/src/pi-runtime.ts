@@ -52,11 +52,13 @@ export async function openDurableHarness(input?: Storage): Promise<Harness> {
     input ?? (await openNodeSqliteStorage(durableStoragePath()));
   storage = openedStorage;
   registerBotsProvider(models);
-  return Harness.open(
+  const openedHarness = await Harness.open(
     openedStorage,
     { models, registry, settings: durableSettings(), onReport: report },
     BACKGROUND_CONTEXT,
   );
+  openedHarness.resume();
+  return openedHarness;
 }
 
 function report(error: unknown): void {
