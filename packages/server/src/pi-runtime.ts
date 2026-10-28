@@ -17,9 +17,14 @@ const models = createModels();
 
 let harness: Harness | undefined;
 let opening: Promise<Harness> | undefined;
+let storage: Storage | undefined;
 
 export function getDurableRegistry(): Registry<ToolRegistration> {
   return registry;
+}
+
+export function getDurableStorage(): Storage | undefined {
+  return storage;
 }
 
 export function durableStoragePath(): string {
@@ -42,10 +47,13 @@ export function durableSettings(): HarnessSettings {
   };
 }
 
-export async function openDurableHarness(storage?: Storage): Promise<Harness> {
+export async function openDurableHarness(input?: Storage): Promise<Harness> {
+  const openedStorage =
+    input ?? (await openNodeSqliteStorage(durableStoragePath()));
+  storage = openedStorage;
   registerBotsProvider(models);
   return Harness.open(
-    storage ?? (await openNodeSqliteStorage(durableStoragePath())),
+    openedStorage,
     { models, registry, settings: durableSettings(), onReport: report },
     BACKGROUND_CONTEXT,
   );
@@ -60,7 +68,6 @@ export async function initDurableRuntime(): Promise<Harness> {
   opening ??= openDurableHarness().then((opened) => {
     harness = opened;
     opening = undefined;
-    opened.resume();
     return opened;
   });
   try {
@@ -73,4 +80,17 @@ export async function initDurableRuntime(): Promise<Harness> {
 
 export function getDurableHarness(): Harness | undefined {
   return harness;
+}
+
+export async function closeDurableRuntime(): Promise<void> {
+  const current = harness;
+  const openedStorage = storage;
+  harness = undefined;
+  opening = undefined;
+  storage = undefined;
+  try {
+    if (current) await current.close(BACKGROUND_CONTEXT);
+  } finally {
+    if (openedStorage) await openedStorage.close(BACKGROUND_CONTEXT);
+  }
 }

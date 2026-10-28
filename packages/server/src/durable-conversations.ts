@@ -8,9 +8,10 @@ import type {
   Harness,
 } from "@earendil-works/pi-durable";
 import {
-  appendMessages,
   deleteBotConversation,
   getBotConversation,
+  markDurableEntriesProjected,
+  projectDurableEntryMessages,
   setBotConversation,
 } from "./db.ts";
 import { BOTS_PROVIDER_ID } from "./pi-provider.ts";
@@ -24,7 +25,7 @@ function isLlmMessage(message: Message): boolean {
   return LLM_ROLES.has(message.role);
 }
 
-async function scanEntries(
+export async function scanConversationEntries(
   conversation: Conversation,
 ): Promise<readonly EntryRecord[]> {
   const entries: EntryRecord[] = [];
@@ -89,7 +90,7 @@ export async function ensureBotConversation(
 export async function readConversationMessages(
   conversation: Conversation,
 ): Promise<Message[]> {
-  const entries = await scanEntries(conversation);
+  const entries = await scanConversationEntries(conversation);
   const messages: Message[] = [];
   for (const entry of entries) {
     if (!entry.model) continue;
@@ -116,28 +117,29 @@ export class DurableMessageMirror {
 
   constructor(private readonly conversation: Conversation) {}
 
-  async initialize(): Promise<void> {
-    for (const entry of await scanEntries(this.conversation)) {
-      this.seen.add(entry.id as unknown as string);
-    }
+  async initialize(botId: string): Promise<void> {
+    const ids = (await scanConversationEntries(this.conversation)).map(
+      (entry) => String(entry.id),
+    );
+    for (const id of ids) this.seen.add(id);
+    markDurableEntriesProjected(botId, ids);
   }
 
   appendEntry(botId: string, runId: string | null, entry: EntryRecord): number {
-    const id = entry.id as unknown as string;
+    const id = String(entry.id);
     if (this.seen.has(id)) return 0;
+    const rows = rowsForEntry(entry);
+    projectDurableEntryMessages(botId, runId, id, rows);
     this.seen.add(id);
-    const fresh = rowsForEntry(entry);
-    if (fresh.length > 0) appendMessages(botId, runId, fresh);
-    return fresh.length;
+    return rows.length;
   }
 
   async appendNewMessages(
     botId: string,
     runId: string | null,
   ): Promise<number> {
-    const entries = await scanEntries(this.conversation);
     let appended = 0;
-    for (const entry of entries) {
+    for (const entry of await scanConversationEntries(this.conversation)) {
       appended += this.appendEntry(botId, runId, entry);
     }
     return appended;

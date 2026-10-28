@@ -62,7 +62,7 @@ test("durable bot conversations seed legacy history and mirror only new entries"
     );
 
     const mirror = new conversations.DurableMessageMirror(conversation);
-    await mirror.initialize();
+    await mirror.initialize("mirror-bot");
     assert.equal(await mirror.appendNewMessages("mirror-bot", null), 0);
 
     await conversations.appendHistoryEntries(conversation, [
