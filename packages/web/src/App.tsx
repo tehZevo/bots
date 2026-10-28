@@ -60,6 +60,7 @@ interface Bot {
   avatar_color: number | null;
   sound: string | null;
   enabled: number;
+  archived: number;
   created_at: number;
   run_state: "running" | "enabled" | "disabled";
   health: "green" | "blue" | "yellow" | "red" | "gray";
@@ -772,14 +773,15 @@ export function BotCard({
     });
   }, []);
 
+  const unavailable = !bot.enabled || Boolean(bot.archived);
   const quickActions: { label: string; run: () => void; disabled?: boolean }[] =
     [
-      { label: "Open chat", run: onChat, disabled: !bot.enabled },
-      { label: "Run now", run: onRun, disabled: !bot.enabled || paused },
+      { label: "Open chat", run: onChat, disabled: unavailable },
+      { label: "Run now", run: onRun, disabled: unavailable || paused },
       ...(bot.run_state === "running" ? [{ label: "Stop", run: onStop }] : []),
       { label: "Settings", run: onSettings },
       { label: "Clear memory", run: onClearMemory },
-      { label: "Delete", run: onDelete, disabled: !bot.enabled },
+      { label: "Delete", run: onDelete, disabled: unavailable },
     ];
 
   useEffect(() => {
@@ -823,7 +825,7 @@ export function BotCard({
     <div className="cardwrap">
       <button
         type="button"
-        className="card"
+        className={`card${bot.archived ? " archived" : ""}`}
         data-bot-card={bot.id}
         aria-label={`${bot.name} (${bot.status})`}
         onClick={() => onChat()}
@@ -838,6 +840,9 @@ export function BotCard({
           />
           <span className="cardtext">
             <strong title={bot.name}>{bot.name}</strong>
+            {bot.archived ? (
+              <span className="archivebadge">Archived</span>
+            ) : null}
             {bot.role_name ? (
               <em className="cardrole" title={bot.role_name}>
                 ({bot.role_name})
@@ -1092,6 +1097,7 @@ export function App() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [tagSel, setTagSel] = useState<string[]>([]);
+  const [includeArchived, setIncludeArchived] = useState(false);
   const [runs, setRuns] = useState<Run[]>([]);
   const [replayRun, setReplayRun] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -1115,7 +1121,7 @@ export function App() {
         pauseData,
         breakerData,
       ] = await Promise.all([
-        api<Bot[]>("/api/bots"),
+        api<Bot[]>(`/api/bots${includeArchived ? "?archived=1" : ""}`),
         api<NotificationsResponse>("/api/notifications"),
         api<Role[]>("/api/roles"),
         api<Tag[]>("/api/tags").catch(() => []),
@@ -1145,7 +1151,7 @@ export function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, []);
+  }, [includeArchived]);
 
   useEffect(() => {
     void load();
@@ -1232,6 +1238,24 @@ export function App() {
 
   const openSearchEntity = (match: SearchMatch) => {
     setSearchOpen(false);
+    if (match.type === "archived_bots") {
+      discardGuard(() => {
+        void (async () => {
+          try {
+            const rows = await api<Bot[]>("/api/bots?archived=1");
+            if (!rows.some((bot) => bot.id === match.id)) return;
+            setIncludeArchived(true);
+            setBots(rows);
+            switchTab("bots");
+            setOpenBot(match.id);
+            setDetailOpen(true);
+          } catch {
+            /* the periodic reload will retry */
+          }
+        })();
+      });
+      return;
+    }
     if (match.type === "bots") {
       discardGuard(() => {
         setChatBot(match.id);
@@ -1627,6 +1651,14 @@ export function App() {
                       </div>
                     </details>
                   )}
+                  <label className="filtertoggle">
+                    <input
+                      type="checkbox"
+                      checked={includeArchived}
+                      onChange={(e) => setIncludeArchived(e.target.checked)}
+                    />{" "}
+                    Include archived
+                  </label>
                 </div>
                 <div className="cards">
                   {visibleBots.map((bot) => (
@@ -1635,7 +1667,14 @@ export function App() {
                       bot={bot}
                       poking={!!poking[bot.id]}
                       paused={paused}
-                      onChat={() => setChatBot(bot.id)}
+                      onChat={() => {
+                        if (bot.archived) {
+                          setOpenBot(bot.id);
+                          setDetailOpen(true);
+                        } else {
+                          setChatBot(bot.id);
+                        }
+                      }}
                       onRun={() => poke(bot)}
                       onStop={() =>
                         void api(`/api/bots/${bot.id}/interrupt`, {
@@ -1760,6 +1799,9 @@ export function App() {
                     />
                   )}
                   <h2>{openBotRow.name}</h2>
+                  {openBotRow.archived ? (
+                    <span className="archivebadge detailarchive">Archived</span>
+                  ) : null}
                   {openBotRow.current_task && !openBotRow.status && (
                     <p className="taskline">
                       {openBotRow.current_task}
@@ -1791,7 +1833,7 @@ export function App() {
                         type="checkbox"
                         aria-label="Bot enabled"
                         checked={openBotRow.enabled !== 0}
-                        disabled={headerBusy}
+                        disabled={headerBusy || Boolean(openBotRow.archived)}
                         onChange={() => {
                           setHeaderBusy(true);
                           void api(`/api/bots/${openBotRow.id}`, {
@@ -1808,7 +1850,9 @@ export function App() {
                       />
                       <span className="knob" />
                       <span className="state">
-                        {openBotRow.enabled ? "Enabled" : "Disabled"}
+                        {openBotRow.archived || !openBotRow.enabled
+                          ? "Disabled"
+                          : "Enabled"}
                       </span>
                     </label>
                     {openBotRow.run_state === "running" && (
@@ -5405,9 +5449,9 @@ export function BotGeneral({
   );
   const [defaultModel, setDefaultModel] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [pending, setPending] = useState<"delete" | "clear" | "restart" | null>(
-    null,
-  );
+  const [pending, setPending] = useState<
+    "delete" | "clear" | "restart" | "archive" | null
+  >(null);
   const [tplDraft, setTplDraft] = useState<
     (Omit<Template, "id" | "created_at"> & { id?: string }) | null
   >(null);
@@ -5475,6 +5519,12 @@ export function BotGeneral({
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
+
+  const archiveBot = () => {
+    void api(`/api/bots/${bot.id}/archive`, { method: "POST" })
+      .then(onChanged)
+      .catch((err) => alert(err.message));
+  };
 
   return (
     <>
@@ -5630,6 +5680,28 @@ export function BotGeneral({
         <button type="button" onClick={() => void openTemplateDraft()}>
           Save as template…
         </button>
+        {bot.archived ? (
+          <button
+            type="button"
+            onClick={() => {
+              void api(`/api/bots/${bot.id}/unarchive`, { method: "POST" })
+                .then(onChanged)
+                .catch((err) => alert(err.message));
+            }}
+          >
+            Unarchive
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              if (bot.run_state === "running") setPending("archive");
+              else archiveBot();
+            }}
+          >
+            Archive
+          </button>
+        )}
         <button
           type="button"
           className="danger"
@@ -5683,6 +5755,17 @@ export function BotGeneral({
             api(`/api/bots/${bot.id}/restart-machine`, { method: "POST" })
               .then(onChanged)
               .catch((e) => alert(e.message));
+          }}
+        />
+      )}
+      {pending === "archive" && (
+        <ConfirmDialog
+          text={`Archive bot ${bot.name}? Its running task is stopped first; it stays disabled until you unarchive and enable it.`}
+          confirmLabel="Archive bot"
+          onCancel={() => setPending(null)}
+          onConfirm={() => {
+            setPending(null);
+            archiveBot();
           }}
         />
       )}
@@ -5757,6 +5840,7 @@ export function useDiscardGuard(
 
 type SearchEntityType =
   | "bots"
+  | "archived_bots"
   | "roles"
   | "skills"
   | "projects"
@@ -5777,7 +5861,10 @@ interface SearchGroupResponse {
   matches: SearchMatch[];
 }
 
-type PendingEntityEditType = Exclude<SearchEntityType, "bots">;
+type PendingEntityEditType = Exclude<
+  SearchEntityType,
+  "bots" | "archived_bots"
+>;
 
 interface PendingEntityEdit {
   type: PendingEntityEditType;
@@ -5786,6 +5873,7 @@ interface PendingEntityEdit {
 
 const SEARCH_LABELS: Record<SearchEntityType, string> = {
   bots: "Bots",
+  archived_bots: "Archived bots",
   roles: "Roles",
   skills: "Skills",
   projects: "Projects",
@@ -5917,13 +6005,18 @@ export function SearchOverlay({
     const sortedBots = [...bots].sort((a, b) => a.name.localeCompare(b.name));
     const botCommands: SearchCommand[] = sortedBots.flatMap((bot) => {
       const running = bot.run_state === "running";
+      const unavailableReason = bot.archived
+        ? "Bot archived"
+        : !bot.enabled
+          ? "Bot disabled"
+          : undefined;
       return [
         {
           id: `run-${bot.id}`,
           label: `Run ${bot.name}`,
           group: "Bot actions" as const,
           bot,
-          disabledReason: !bot.enabled ? "Bot disabled" : undefined,
+          disabledReason: unavailableReason,
           run: async () => {
             await api(`/api/bots/${bot.id}/run`, { method: "POST" });
           },
@@ -5943,7 +6036,8 @@ export function SearchOverlay({
           label: `Enable ${bot.name}`,
           group: "Bot actions" as const,
           bot,
-          disabledReason: bot.enabled ? "Already enabled" : undefined,
+          disabledReason:
+            unavailableReason ?? (bot.enabled ? "Already enabled" : undefined),
           run: async () => {
             await api(`/api/bots/${bot.id}`, {
               method: "PATCH",
@@ -5957,7 +6051,7 @@ export function SearchOverlay({
           label: `Disable ${bot.name}`,
           group: "Bot actions" as const,
           bot,
-          disabledReason: bot.enabled ? undefined : "Already disabled",
+          disabledReason: unavailableReason ? "Already disabled" : undefined,
           run: async () => {
             await api(`/api/bots/${bot.id}`, {
               method: "PATCH",
