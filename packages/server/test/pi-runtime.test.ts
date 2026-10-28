@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { test } from "node:test";
 
 process.env.DATABASE_PATH = join(
@@ -10,7 +10,9 @@ process.env.DATABASE_PATH = join(
 );
 
 const { config } = await import("../src/config.ts");
-const { durableSettings } = await import("../src/pi-runtime.ts");
+const { durableSettings, durableStoragePath } = await import(
+  "../src/pi-runtime.ts"
+);
 
 test("durable settings disable SDK retries and background compaction", () => {
   const settings = durableSettings();
@@ -25,4 +27,11 @@ test("durable settings disable SDK retries and background compaction", () => {
   );
   assert.equal(settings.compaction?.backgroundTokens, 0);
   assert.equal(settings.steeringMode, "all");
+});
+
+test("Harness storage sits beside the configured application database", () => {
+  const durablePath = durableStoragePath();
+
+  assert.equal(dirname(durablePath), dirname(config.databasePath));
+  assert.equal(basename(durablePath), "pi-durable.sqlite");
 });
