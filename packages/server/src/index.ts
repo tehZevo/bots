@@ -4,6 +4,7 @@ import { serve } from "@hono/node-server";
 import { createApp } from "./api.ts";
 import { config, dataDir } from "./config.ts";
 import { clearDeviceGrants, sweepInterruptedRuns } from "./db.ts";
+import { attachHookEvents } from "./hooks.ts";
 import { attachPushNotifications } from "./push.ts";
 import { startSandboxReaper } from "./sandbox.ts";
 import { startScheduler } from "./scheduler.ts";
@@ -14,6 +15,7 @@ const swept = sweepInterruptedRuns();
 if (swept > 0) console.log(`finalized ${swept} interrupted run(s)`);
 clearDeviceGrants(); // pending device grants never survive a restart
 attachPushNotifications();
+attachHookEvents();
 
 const app = createApp();
 startScheduler();

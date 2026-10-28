@@ -92,6 +92,47 @@ export interface MessageRow {
   created_at: number;
 }
 
+export type HookEventType =
+  | "run.finished"
+  | "bot.blocked"
+  | "bot.recovered"
+  | "notification.created"
+  | "breaker.tripped";
+
+export type AppEventType = HookEventType | "ping";
+
+export interface AppEvent {
+  id: string;
+  type: AppEventType;
+  occurred_at: number;
+  data: unknown;
+}
+
+let onAppEvent: ((event: AppEvent) => void) | null = null;
+
+export function setOnAppEvent(cb: ((event: AppEvent) => void) | null): void {
+  onAppEvent = cb;
+}
+
+function emitAppEvent(type: AppEventType, data: unknown): void {
+  if (!onAppEvent) return;
+  const event: AppEvent = {
+    id: randomUUID(),
+    type,
+    occurred_at: Date.now(),
+    data,
+  };
+  try {
+    onAppEvent(event);
+  } catch (error) {
+    console.error("app event listener failed:", error);
+  }
+}
+
+export function publishAppEvent(type: AppEventType, data: unknown): void {
+  emitAppEvent(type, data);
+}
+
 mkdirSync(dirname(config.databasePath), { recursive: true });
 const db = new Database(config.databasePath);
 db.pragma("journal_mode = WAL");
@@ -287,6 +328,31 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications (created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_pending_bot ON pending_injections (bot_id, id);
   CREATE INDEX IF NOT EXISTS idx_run_usage_bot ON run_usage (bot_id, created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS event_destinations (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    url TEXT NOT NULL,
+    secret TEXT NOT NULL DEFAULT '',
+    event_types TEXT NOT NULL DEFAULT '[]',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS hook_deliveries (
+    id TEXT PRIMARY KEY,
+    destination_id TEXT NOT NULL REFERENCES event_destinations(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('ok', 'error')),
+    http_status INTEGER,
+    duration_ms INTEGER NOT NULL,
+    attempt INTEGER NOT NULL DEFAULT 1,
+    error TEXT,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_hook_deliveries_destination
+    ON hook_deliveries (destination_id, created_at DESC);
 `);
 
 db.prepare(
@@ -1377,7 +1443,15 @@ export function createNotification(input: {
       row.dedupe_key,
       row.created_at,
     );
-  if (result.changes > 0 && onNewNotification) onNewNotification(row);
+  if (result.changes > 0) {
+    if (onNewNotification) onNewNotification(row);
+    emitAppEvent("notification.created", {
+      id: row.id,
+      kind: row.kind,
+      title: row.title,
+      bot_id: row.bot_id,
+    });
+  }
 }
 
 export interface PushSubscriptionRow {
@@ -1439,13 +1513,18 @@ export function finishRun(
     "UPDATE runs SET status = ?, finished_at = ?, output = ?, error = ? WHERE id = ?",
   );
   const getInfo = db.prepare(
-    `SELECT r.bot_id, r.trigger, b.name FROM runs r
+    `SELECT r.bot_id, r.status, r.trigger, b.name FROM runs r
      LEFT JOIN bots b ON b.id = r.bot_id WHERE r.id = ?`,
   );
   const tx = db.transaction(() => {
     update.run(status, finishedAt, output, error, id);
     const info = getInfo.get(id) as
-      | { bot_id: string | null; trigger: string | null; name: string | null }
+      | {
+          bot_id: string | null;
+          status: string;
+          trigger: string | null;
+          name: string | null;
+        }
       | undefined;
     if (info?.bot_id && info.trigger !== "watchdog")
       markWatchdogActivity(info.bot_id, finishedAt);
@@ -1462,7 +1541,23 @@ export function finishRun(
   });
   tx();
 
-  const info = getInfo.get(id) as { bot_id: string | null } | undefined;
+  const info = getInfo.get(id) as
+    | {
+        bot_id: string | null;
+        status: string;
+        trigger: string | null;
+        name: string | null;
+      }
+    | undefined;
+  if (info?.bot_id) {
+    emitAppEvent("run.finished", {
+      id,
+      status: info.status,
+      source: info.trigger ?? "manual",
+      bot: { id: info.bot_id, name: info.name ?? "" },
+      tokens: getRunUsage(id),
+    });
+  }
   if (info?.bot_id) armContinuousTriggers(info.bot_id);
 }
 
@@ -1711,22 +1806,56 @@ export function clearMessages(botId: string): void {
   setBotStatus(botId, null);
 }
 
+interface BotStatusInfo {
+  name: string;
+  status_level: "ok" | "issue" | "blocked" | null;
+}
+
+function getBotStatusInfo(botId: string): BotStatusInfo | undefined {
+  return db
+    .prepare("SELECT name, status_level FROM bots WHERE id = ?")
+    .get(botId) as BotStatusInfo | undefined;
+}
+
+function emitBotBlockTransitions(
+  botId: string,
+  previous: BotStatusInfo | undefined,
+  nextLevel: "ok" | "issue" | "blocked" | null,
+  status: string | null = null,
+): void {
+  if (!previous) return;
+  const wasBlocked = previous.status_level === "blocked";
+  const isBlocked = nextLevel === "blocked";
+  if (isBlocked && !wasBlocked) {
+    emitAppEvent("bot.blocked", {
+      bot: { id: botId, name: previous.name },
+      status,
+    });
+  } else if (wasBlocked && !isBlocked) {
+    emitAppEvent("bot.recovered", { bot: { id: botId, name: previous.name } });
+  }
+}
+
 export function setBotStatus(
   botId: string,
   text: string | null,
   level: "ok" | "issue" | "blocked" = "ok",
 ): void {
   const value = text && text.trim() ? text.trim() : null;
+  const previous = getBotStatusInfo(botId);
   db.prepare(
     "UPDATE bots SET status = ?, status_level = ?, current_task_updated_at = ? WHERE id = ?",
   ).run(value, value ? level : null, value ? Date.now() : null, botId);
+  emitBotBlockTransitions(botId, previous, value ? level : null, value);
 }
 
 export function setCurrentTask(botId: string, text: string | null): void {
   const value = text && text.trim() ? text.trim() : null;
+  const previous = getBotStatusInfo(botId);
   db.prepare(
     "UPDATE bots SET current_task = ?, status = NULL, status_level = NULL, current_task_updated_at = ? WHERE id = ?",
   ).run(value, value ? Date.now() : null, botId);
+  emitBotBlockTransitions(botId, previous, null);
 }
 
 export { db };
@@ -1810,6 +1939,184 @@ export function updateProvider(
 
 export function deleteProvider(id: string): boolean {
   return db.prepare("DELETE FROM providers WHERE id = ?").run(id).changes > 0;
+}
+
+export interface HookDestinationRow {
+  id: string;
+  name: string;
+  url: string;
+  secret: string;
+  event_types: string[];
+  enabled: number;
+  created_at: number;
+}
+
+interface DbHookDestinationRow {
+  id: string;
+  name: string;
+  url: string;
+  secret: string;
+  event_types: string;
+  enabled: number;
+  created_at: number;
+}
+
+export interface HookDeliveryRow {
+  id: string;
+  destination_id: string;
+  event_type: AppEventType;
+  status: "ok" | "error";
+  http_status: number | null;
+  duration_ms: number;
+  attempt: number;
+  error: string | null;
+  created_at: number;
+}
+
+function toHookDestination(row: DbHookDestinationRow): HookDestinationRow {
+  let eventTypes: unknown = [];
+  try {
+    eventTypes = JSON.parse(row.event_types);
+  } catch {
+    eventTypes = [];
+  }
+  return {
+    ...row,
+    event_types: Array.isArray(eventTypes)
+      ? eventTypes.filter((x): x is string => typeof x === "string")
+      : [],
+  };
+}
+
+export function listHookDestinations(): HookDestinationRow[] {
+  const rows = db
+    .prepare(
+      "SELECT * FROM event_destinations ORDER BY name COLLATE NOCASE, created_at DESC",
+    )
+    .all() as DbHookDestinationRow[];
+  return rows.map(toHookDestination);
+}
+
+export function getHookDestination(id: string): HookDestinationRow | undefined {
+  const row = db
+    .prepare("SELECT * FROM event_destinations WHERE id = ?")
+    .get(id) as DbHookDestinationRow | undefined;
+  return row ? toHookDestination(row) : undefined;
+}
+
+export function insertHookDestination(d: HookDestinationRow): void {
+  db.prepare(
+    `INSERT INTO event_destinations
+      (id, name, url, secret, event_types, enabled, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    d.id,
+    d.name,
+    d.url,
+    d.secret,
+    JSON.stringify(d.event_types),
+    d.enabled,
+    d.created_at,
+  );
+}
+
+export function updateHookDestination(
+  id: string,
+  fields: Partial<Omit<HookDestinationRow, "id">>,
+): boolean {
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  for (const key of [
+    "name",
+    "url",
+    "secret",
+    "event_types",
+    "enabled",
+  ] as const) {
+    if (fields[key] !== undefined) {
+      sets.push(`${key} = ?`);
+      vals.push(
+        key === "event_types"
+          ? JSON.stringify(fields.event_types)
+          : fields[key],
+      );
+    }
+  }
+  if (sets.length === 0) return false;
+  vals.push(id);
+  const result = db
+    .prepare(`UPDATE event_destinations SET ${sets.join(", ")} WHERE id = ?`)
+    .run(...vals);
+  return result.changes > 0;
+}
+
+export function deleteHookDestination(id: string): boolean {
+  const tx = db.transaction((destinationId: string) => {
+    db.prepare("DELETE FROM hook_deliveries WHERE destination_id = ?").run(
+      destinationId,
+    );
+    return (
+      db
+        .prepare("DELETE FROM event_destinations WHERE id = ?")
+        .run(destinationId).changes > 0
+    );
+  });
+  return tx(id);
+}
+
+export function insertHookDelivery(row: {
+  id?: string;
+  destination_id: string;
+  event_type: AppEventType;
+  status: "ok" | "error";
+  http_status: number | null;
+  duration_ms: number;
+  attempt?: number;
+  error?: string | null;
+  created_at?: number;
+}): HookDeliveryRow {
+  const full: HookDeliveryRow = {
+    id: row.id ?? randomUUID(),
+    destination_id: row.destination_id,
+    event_type: row.event_type,
+    status: row.status,
+    http_status: row.http_status,
+    duration_ms: row.duration_ms,
+    attempt: row.attempt ?? 1,
+    error: row.error ?? null,
+    created_at: row.created_at ?? Date.now(),
+  };
+  db.prepare(
+    `INSERT INTO hook_deliveries
+      (id, destination_id, event_type, status, http_status, duration_ms, attempt, error, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    full.id,
+    full.destination_id,
+    full.event_type,
+    full.status,
+    full.http_status,
+    full.duration_ms,
+    full.attempt,
+    full.error,
+    full.created_at,
+  );
+  return full;
+}
+
+export function listHookDeliveries(
+  destinationId: string,
+  limit = 100,
+): HookDeliveryRow[] {
+  const rows = db
+    .prepare(
+      `SELECT * FROM hook_deliveries
+       WHERE destination_id = ?
+       ORDER BY created_at DESC, rowid DESC
+       LIMIT ?`,
+    )
+    .all(destinationId, limit) as HookDeliveryRow[];
+  return rows.map((row) => ({ ...row }));
 }
 
 export function getSetting(key: string): string | undefined {

@@ -18,4 +18,6 @@ features:
     details: Reusable instructions plus granted skills and MCP tools, assigned per role.
   - title: Fires itself
     details: Cron and @every schedules, webhook endpoints with bearer secrets, chat injection.
+  - title: Outbound events
+    details: Signed event webhooks for runs, bot health, notifications, and spend breakers — with retries and delivery logs.
 ---

@@ -109,6 +109,19 @@ External agents drive the same surface over MCP at streamable HTTP `POST /mcp`, 
 
 Created automatically when a run ends `error` (deduped per run). See [Notifications](/notifications).
 
+## Event destinations
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/hooks` | List `{ id, name, url, event_types[], enabled }`; secrets hidden |
+| POST | `/api/hooks` | Create `{ name, url, secret, event_types[] }` — `secret` required |
+| PUT | `/api/hooks/:id` | Update a destination; omit or blank `secret` to keep the current value |
+| DELETE | `/api/hooks/:id` | Remove destination and delivery logs |
+| GET | `/api/hooks/:id/deliveries` | Recent attempts newest first; `?limit=` 1–250 (default 100) |
+| POST | `/api/hooks/:id/test` | Send a manual `ping`; returns status/latency — `409` when disabled |
+
+Outbound deliveries POST `{ id, type, occurred_at, data }` with `X-Bots-Signature: sha256=<hmac>` and never block runs. Supported events are `run.finished`, `bot.blocked`, `bot.recovered`, `notification.created`, and `breaker.tripped`; while globally paused only `breaker.tripped` fires automatically. See [Event destinations](/event-destinations).
+
 ## Roles, skills & MCP servers
 
 CRUD on `/api/roles`, `/api/skills`, `/api/mcp-servers`. Roles accept `instructions` plus capability grants `mcp_server_ids: []` and `skill_ids: []`; unknown ids → `400`. Skills require `name` + `instructions`; MCP servers require unique `name`, non-empty `command`, optional `args[]`, and `env{}` whose values are either literal strings or `{ "secret": "<managed secret name>" }` references (unknown or deleted names → `400`); `POST /api/mcp-servers/:id/test` runs the handshake.
