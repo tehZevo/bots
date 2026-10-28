@@ -4,6 +4,12 @@ import { serve } from "@hono/node-server";
 import { createApp } from "./api.ts";
 import { config, dataDir } from "./config.ts";
 import { clearDeviceGrants, sweepInterruptedRuns } from "./db.ts";
+import {
+  DEV_SEED_EMAIL,
+  DEV_SEED_KEY_NAME,
+  DEV_SEED_PASSWORD,
+  seedDevCredentials,
+} from "./dev-auth.ts";
 import { recoverDurableRuns } from "./durable-runs.ts";
 import { attachHookEvents } from "./hooks.ts";
 import { initDurableRuntime } from "./pi-runtime.ts";
@@ -15,6 +21,13 @@ async function main(): Promise<void> {
   mkdirSync(dirname(config.databasePath), { recursive: true });
 
   clearDeviceGrants(); // pending device grants never survive a restart
+
+  const devSeed = seedDevCredentials();
+  if (devSeed?.apiKey) {
+    console.log(
+      `dev credentials seeded — ${DEV_SEED_EMAIL} / ${DEV_SEED_PASSWORD}, API key "${DEV_SEED_KEY_NAME}": ${devSeed.apiKey}`,
+    );
+  }
 
   try {
     await initDurableRuntime();
