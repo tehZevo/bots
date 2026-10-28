@@ -1838,6 +1838,88 @@ export function clearMessages(botId: string): void {
   setBotStatus(botId, null);
 }
 
+db.exec(
+  `CREATE TABLE IF NOT EXISTS bot_conversations (
+    bot_id TEXT PRIMARY KEY REFERENCES bots(id) ON DELETE CASCADE,
+    conversation_id TEXT NOT NULL UNIQUE,
+    current_run_id TEXT
+  );`,
+);
+
+export function getBotConversation(botId: string): string | undefined {
+  const row = db
+    .prepare("SELECT conversation_id FROM bot_conversations WHERE bot_id = ?")
+    .get(botId) as { conversation_id: string } | undefined;
+  return row?.conversation_id;
+}
+
+export function setBotConversation(
+  botId: string,
+  conversationId: string,
+): void {
+  db.prepare(
+    `INSERT INTO bot_conversations (bot_id, conversation_id)
+     VALUES (?, ?)
+     ON CONFLICT(bot_id) DO UPDATE SET conversation_id = excluded.conversation_id`,
+  ).run(botId, conversationId);
+}
+
+export function listBotConversations(): {
+  bot_id: string;
+  conversation_id: string;
+}[] {
+  return db
+    .prepare(
+      "SELECT bot_id, conversation_id FROM bot_conversations ORDER BY bot_id",
+    )
+    .all() as { bot_id: string; conversation_id: string }[];
+}
+
+export function deleteBotConversation(botId: string): void {
+  db.prepare("DELETE FROM bot_conversations WHERE bot_id = ?").run(botId);
+}
+
+export function setCurrentRunForBot(botId: string, runId: string | null): void {
+  db.prepare(
+    "UPDATE bot_conversations SET current_run_id = ? WHERE bot_id = ?",
+  ).run(runId, botId);
+}
+
+export function getCurrentRunForBot(botId: string): string | null {
+  const row = db
+    .prepare("SELECT current_run_id FROM bot_conversations WHERE bot_id = ?")
+    .get(botId) as { current_run_id: string | null } | undefined;
+  return row?.current_run_id ?? null;
+}
+
+export function latestRunningRunForBot(botId: string): string | null {
+  const row = db
+    .prepare(
+      `SELECT id FROM runs WHERE bot_id = ? AND status = 'running'
+       ORDER BY started_at DESC LIMIT 1`,
+    )
+    .get(botId) as { id: string } | undefined;
+  return row?.id ?? null;
+}
+
+export function sweepUnresumableRuns(resumableBotIds: Set<string>): number {
+  const stale = db
+    .prepare("SELECT bot_id, id FROM runs WHERE status = 'running'")
+    .all() as { bot_id: string; id: string }[];
+  let swept = 0;
+  for (const run of stale) {
+    if (resumableBotIds.has(run.bot_id)) continue;
+    finishRun(
+      run.id,
+      "error",
+      null,
+      resumableBotIds.size === 0 ? "interrupted" : "not resumable",
+    );
+    swept++;
+  }
+  return swept;
+}
+
 interface BotStatusInfo {
   name: string;
   status_level: "ok" | "issue" | "blocked" | null;
