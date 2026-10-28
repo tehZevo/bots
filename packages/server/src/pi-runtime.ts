@@ -3,6 +3,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels } from "@earendil-works/pi-ai/models";
 import type {
   HarnessSettings,
+  Registry,
   Storage,
   ToolRegistration,
 } from "@earendil-works/pi-durable";
@@ -16,6 +17,10 @@ const models = createModels();
 
 let harness: Harness | undefined;
 let opening: Promise<Harness> | undefined;
+
+export function getDurableRegistry(): Registry<ToolRegistration> {
+  return registry;
+}
 
 export function durableStoragePath(): string {
   return resolve(dirname(config.databasePath), "pi-durable.sqlite");

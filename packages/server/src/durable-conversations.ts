@@ -61,7 +61,7 @@ export async function ensureBotConversation(
   harness: Harness,
   botId: string,
   modelId: string,
-  history: readonly Message[] = [],
+  history: readonly Message[] | (() => readonly Message[]) = [],
 ): Promise<Conversation> {
   const mapping = getBotConversation(botId);
   if (mapping) {
@@ -81,7 +81,8 @@ export async function ensureBotConversation(
     BACKGROUND_CONTEXT,
   );
   setBotConversation(botId, String(conversation.id));
-  await appendHistoryEntries(conversation, history.filter(isLlmMessage));
+  const seed = typeof history === "function" ? history() : history;
+  await appendHistoryEntries(conversation, seed.filter(isLlmMessage));
   return conversation;
 }
 
@@ -99,6 +100,17 @@ export async function readConversationMessages(
   return messages;
 }
 
+function rowsForEntry(
+  entry: EntryRecord,
+): { role: string; payload: unknown }[] {
+  const rows: { role: string; payload: unknown }[] = [];
+  for (const message of entry.model ?? []) {
+    if (!isLlmMessage(message)) continue;
+    rows.push({ role: message.role, payload: message });
+  }
+  return rows;
+}
+
 export class DurableMessageMirror {
   private readonly seen = new Set<string>();
 
@@ -110,22 +122,25 @@ export class DurableMessageMirror {
     }
   }
 
+  appendEntry(botId: string, runId: string | null, entry: EntryRecord): number {
+    const id = entry.id as unknown as string;
+    if (this.seen.has(id)) return 0;
+    this.seen.add(id);
+    const fresh = rowsForEntry(entry);
+    if (fresh.length > 0) appendMessages(botId, runId, fresh);
+    return fresh.length;
+  }
+
   async appendNewMessages(
     botId: string,
     runId: string | null,
   ): Promise<number> {
     const entries = await scanEntries(this.conversation);
-    const fresh: { role: string; payload: unknown }[] = [];
+    let appended = 0;
     for (const entry of entries) {
-      if (this.seen.has(entry.id as unknown as string)) continue;
-      this.seen.add(entry.id as unknown as string);
-      for (const message of entry.model ?? []) {
-        if (!isLlmMessage(message)) continue;
-        fresh.push({ role: message.role, payload: message });
-      }
+      appended += this.appendEntry(botId, runId, entry);
     }
-    if (fresh.length > 0) appendMessages(botId, runId, fresh);
-    return fresh.length;
+    return appended;
   }
 }
 
