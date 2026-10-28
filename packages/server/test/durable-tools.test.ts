@@ -9,8 +9,9 @@ process.env.DATABASE_PATH = join(
   "t.db",
 );
 
-await import("../src/db.ts");
-const { baseHarnessTools } = await import("../src/durable-tools.ts");
+const dbm = await import("../src/db.ts");
+const durableTools = await import("../src/durable-tools.ts");
+const { baseHarnessTools } = durableTools;
 
 test("base Harness tools mirror the legacy baseline and conditional tools", () => {
   const names = (botId: string, dm?: (id: string, text: string) => string) =>
@@ -42,4 +43,26 @@ test("base Harness tools mirror the legacy baseline and conditional tools", () =
   ]).map((tool) => tool.name);
 
   assert.ok(withSkill.includes("read_skill_file"));
+});
+
+test("durable tool hooks redact text before persistence", () => {
+  dbm.insertProvider({
+    id: "openai",
+    name: "OpenAI",
+    base_url: "https://example.test/v1",
+    api_key: "test-secret-key",
+    models: [],
+    created_at: Date.now(),
+  });
+
+  const result = durableTools.redactedToolResult("redact-bot", {
+    output: [{ type: "text", text: "key test-secret-key" }],
+  });
+  assert.match(
+    (result.output as { text?: string }[])[0]?.text ?? "",
+    /\[REDACTED:OpenAI\]/,
+  );
+
+  const hooks = durableTools.toolRedactionHooks("redact-bot");
+  assert.equal(hooks[0].task, "pi.tool");
 });

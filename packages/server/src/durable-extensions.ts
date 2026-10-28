@@ -4,7 +4,11 @@ import type {
   ToolRegistration,
 } from "@earendil-works/pi-durable";
 import { type BotRow, teammatesOf } from "./db.ts";
-import { baseHarnessTools, wrapLegacyTools } from "./durable-tools.ts";
+import {
+  baseHarnessTools,
+  toolRedactionHooks,
+  wrapLegacyTools,
+} from "./durable-tools.ts";
 import { connectRoleTools, type McpSession } from "./mcp.ts";
 import { effectiveSystemPrompt } from "./prompt.ts";
 import { grantedSkills } from "./skillfiles.ts";
@@ -38,6 +42,7 @@ export function installBotExtension(
   const extension: Extension<ToolRegistration> = {
     name: botExtensionName(bot.id),
     tools: baseHarnessTools(bot.id, dm, grantedSkills(bot)),
+    hooks: toolRedactionHooks(bot.id),
     sections: [
       {
         key: "bots",
@@ -58,6 +63,7 @@ export async function installMcpExtension(
   const extension: Extension<ToolRegistration> = {
     name: mcpExtensionName(bot.id),
     tools: wrapLegacyTools(mcp.tools),
+    hooks: toolRedactionHooks(bot.id),
   };
   registry.install(extension);
   return { extension, sessions: mcp.sessions };
