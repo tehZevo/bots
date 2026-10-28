@@ -34,6 +34,7 @@ export default defineConfig({
           { text: "Tags", link: "/tags" },
           { text: "Secrets", link: "/secrets" },
           { text: "Notifications", link: "/notifications" },
+          { text: "Event destinations", link: "/event-destinations" },
           { text: "Editors & unsaved changes", link: "/editors" },
         ],
       },

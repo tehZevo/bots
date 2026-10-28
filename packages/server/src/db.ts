@@ -92,9 +92,54 @@ export interface MessageRow {
   created_at: number;
 }
 
+export type HookEventType =
+  | "run.finished"
+  | "bot.blocked"
+  | "bot.recovered"
+  | "notification.created"
+  | "breaker.tripped";
+
+export type AppEventType = HookEventType | "ping";
+
+export interface AppEvent {
+  id: string;
+  type: AppEventType;
+  occurred_at: number;
+  data: unknown;
+}
+
+let onAppEvent: ((event: AppEvent) => void) | null = null;
+
+export function setOnAppEvent(cb: ((event: AppEvent) => void) | null): void {
+  onAppEvent = cb;
+}
+
+function emitAppEvent(type: AppEventType, data: unknown): void {
+  if (!onAppEvent) return;
+  const event: AppEvent = {
+    id: randomUUID(),
+    type,
+    occurred_at: Date.now(),
+    data,
+  };
+  try {
+    onAppEvent(event);
+  } catch (error) {
+    console.error("app event listener failed:", error);
+  }
+}
+
+export function publishAppEvent(type: AppEventType, data: unknown): void {
+  emitAppEvent(type, data);
+}
+
 mkdirSync(dirname(config.databasePath), { recursive: true });
 const db = new Database(config.databasePath);
 db.pragma("journal_mode = WAL");
+
+export function runInTransaction<T>(fn: () => T): T {
+  return db.transaction(fn)();
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS bots (
@@ -287,6 +332,31 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications (created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_pending_bot ON pending_injections (bot_id, id);
   CREATE INDEX IF NOT EXISTS idx_run_usage_bot ON run_usage (bot_id, created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS event_destinations (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    url TEXT NOT NULL,
+    secret TEXT NOT NULL DEFAULT '',
+    event_types TEXT NOT NULL DEFAULT '[]',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS hook_deliveries (
+    id TEXT PRIMARY KEY,
+    destination_id TEXT NOT NULL REFERENCES event_destinations(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('ok', 'error')),
+    http_status INTEGER,
+    duration_ms INTEGER NOT NULL,
+    attempt INTEGER NOT NULL DEFAULT 1,
+    error TEXT,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_hook_deliveries_destination
+    ON hook_deliveries (destination_id, created_at DESC);
 `);
 
 db.prepare(
@@ -863,6 +933,34 @@ export function removeTeamMember(teamId: string, botId: string): void {
   );
 }
 
+export function teamIdsByBot(): Map<string, { id: string; leader: boolean }[]> {
+  const map = new Map<string, { id: string; leader: boolean }[]>();
+  for (const row of db
+    .prepare(
+      "SELECT bot_id, team_id, leader FROM team_members ORDER BY team_id",
+    )
+    .all() as { bot_id: string; team_id: string; leader: number }[]) {
+    const list = map.get(row.bot_id) ?? [];
+    list.push({ id: row.team_id, leader: row.leader === 1 });
+    map.set(row.bot_id, list);
+  }
+  return map;
+}
+
+export function setTeamMembershipsForBot(
+  botId: string,
+  memberships: { team_id: string; leader: boolean }[],
+): void {
+  db.prepare("DELETE FROM team_members WHERE bot_id = ?").run(botId);
+  const ins = db.prepare(
+    `INSERT INTO team_members (team_id, bot_id, leader) VALUES (?, ?, ?)
+     ON CONFLICT (team_id, bot_id) DO UPDATE SET leader = excluded.leader`,
+  );
+  for (const m of new Map(memberships.map((x) => [x.team_id, x])).values()) {
+    ins.run(m.team_id, botId, m.leader ? 1 : 0);
+  }
+}
+
 export interface TeammateRow {
   id: string;
   name: string;
@@ -1377,7 +1475,15 @@ export function createNotification(input: {
       row.dedupe_key,
       row.created_at,
     );
-  if (result.changes > 0 && onNewNotification) onNewNotification(row);
+  if (result.changes > 0) {
+    if (onNewNotification) onNewNotification(row);
+    emitAppEvent("notification.created", {
+      id: row.id,
+      kind: row.kind,
+      title: row.title,
+      bot_id: row.bot_id,
+    });
+  }
 }
 
 export interface PushSubscriptionRow {
@@ -1439,13 +1545,18 @@ export function finishRun(
     "UPDATE runs SET status = ?, finished_at = ?, output = ?, error = ? WHERE id = ?",
   );
   const getInfo = db.prepare(
-    `SELECT r.bot_id, r.trigger, b.name FROM runs r
+    `SELECT r.bot_id, r.status, r.trigger, b.name FROM runs r
      LEFT JOIN bots b ON b.id = r.bot_id WHERE r.id = ?`,
   );
   const tx = db.transaction(() => {
     update.run(status, finishedAt, output, error, id);
     const info = getInfo.get(id) as
-      | { bot_id: string | null; trigger: string | null; name: string | null }
+      | {
+          bot_id: string | null;
+          status: string;
+          trigger: string | null;
+          name: string | null;
+        }
       | undefined;
     if (info?.bot_id && info.trigger !== "watchdog")
       markWatchdogActivity(info.bot_id, finishedAt);
@@ -1462,7 +1573,23 @@ export function finishRun(
   });
   tx();
 
-  const info = getInfo.get(id) as { bot_id: string | null } | undefined;
+  const info = getInfo.get(id) as
+    | {
+        bot_id: string | null;
+        status: string;
+        trigger: string | null;
+        name: string | null;
+      }
+    | undefined;
+  if (info?.bot_id) {
+    emitAppEvent("run.finished", {
+      id,
+      status: info.status,
+      source: info.trigger ?? "manual",
+      bot: { id: info.bot_id, name: info.name ?? "" },
+      tokens: getRunUsage(id),
+    });
+  }
   if (info?.bot_id) armContinuousTriggers(info.bot_id);
 }
 
@@ -1711,22 +1838,56 @@ export function clearMessages(botId: string): void {
   setBotStatus(botId, null);
 }
 
+interface BotStatusInfo {
+  name: string;
+  status_level: "ok" | "issue" | "blocked" | null;
+}
+
+function getBotStatusInfo(botId: string): BotStatusInfo | undefined {
+  return db
+    .prepare("SELECT name, status_level FROM bots WHERE id = ?")
+    .get(botId) as BotStatusInfo | undefined;
+}
+
+function emitBotBlockTransitions(
+  botId: string,
+  previous: BotStatusInfo | undefined,
+  nextLevel: "ok" | "issue" | "blocked" | null,
+  status: string | null = null,
+): void {
+  if (!previous) return;
+  const wasBlocked = previous.status_level === "blocked";
+  const isBlocked = nextLevel === "blocked";
+  if (isBlocked && !wasBlocked) {
+    emitAppEvent("bot.blocked", {
+      bot: { id: botId, name: previous.name },
+      status,
+    });
+  } else if (wasBlocked && !isBlocked) {
+    emitAppEvent("bot.recovered", { bot: { id: botId, name: previous.name } });
+  }
+}
+
 export function setBotStatus(
   botId: string,
   text: string | null,
   level: "ok" | "issue" | "blocked" = "ok",
 ): void {
   const value = text && text.trim() ? text.trim() : null;
+  const previous = getBotStatusInfo(botId);
   db.prepare(
     "UPDATE bots SET status = ?, status_level = ?, current_task_updated_at = ? WHERE id = ?",
   ).run(value, value ? level : null, value ? Date.now() : null, botId);
+  emitBotBlockTransitions(botId, previous, value ? level : null, value);
 }
 
 export function setCurrentTask(botId: string, text: string | null): void {
   const value = text && text.trim() ? text.trim() : null;
+  const previous = getBotStatusInfo(botId);
   db.prepare(
     "UPDATE bots SET current_task = ?, status = NULL, status_level = NULL, current_task_updated_at = ? WHERE id = ?",
   ).run(value, value ? Date.now() : null, botId);
+  emitBotBlockTransitions(botId, previous, null);
 }
 
 export { db };
@@ -1810,6 +1971,184 @@ export function updateProvider(
 
 export function deleteProvider(id: string): boolean {
   return db.prepare("DELETE FROM providers WHERE id = ?").run(id).changes > 0;
+}
+
+export interface HookDestinationRow {
+  id: string;
+  name: string;
+  url: string;
+  secret: string;
+  event_types: string[];
+  enabled: number;
+  created_at: number;
+}
+
+interface DbHookDestinationRow {
+  id: string;
+  name: string;
+  url: string;
+  secret: string;
+  event_types: string;
+  enabled: number;
+  created_at: number;
+}
+
+export interface HookDeliveryRow {
+  id: string;
+  destination_id: string;
+  event_type: AppEventType;
+  status: "ok" | "error";
+  http_status: number | null;
+  duration_ms: number;
+  attempt: number;
+  error: string | null;
+  created_at: number;
+}
+
+function toHookDestination(row: DbHookDestinationRow): HookDestinationRow {
+  let eventTypes: unknown = [];
+  try {
+    eventTypes = JSON.parse(row.event_types);
+  } catch {
+    eventTypes = [];
+  }
+  return {
+    ...row,
+    event_types: Array.isArray(eventTypes)
+      ? eventTypes.filter((x): x is string => typeof x === "string")
+      : [],
+  };
+}
+
+export function listHookDestinations(): HookDestinationRow[] {
+  const rows = db
+    .prepare(
+      "SELECT * FROM event_destinations ORDER BY name COLLATE NOCASE, created_at DESC",
+    )
+    .all() as DbHookDestinationRow[];
+  return rows.map(toHookDestination);
+}
+
+export function getHookDestination(id: string): HookDestinationRow | undefined {
+  const row = db
+    .prepare("SELECT * FROM event_destinations WHERE id = ?")
+    .get(id) as DbHookDestinationRow | undefined;
+  return row ? toHookDestination(row) : undefined;
+}
+
+export function insertHookDestination(d: HookDestinationRow): void {
+  db.prepare(
+    `INSERT INTO event_destinations
+      (id, name, url, secret, event_types, enabled, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    d.id,
+    d.name,
+    d.url,
+    d.secret,
+    JSON.stringify(d.event_types),
+    d.enabled,
+    d.created_at,
+  );
+}
+
+export function updateHookDestination(
+  id: string,
+  fields: Partial<Omit<HookDestinationRow, "id">>,
+): boolean {
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  for (const key of [
+    "name",
+    "url",
+    "secret",
+    "event_types",
+    "enabled",
+  ] as const) {
+    if (fields[key] !== undefined) {
+      sets.push(`${key} = ?`);
+      vals.push(
+        key === "event_types"
+          ? JSON.stringify(fields.event_types)
+          : fields[key],
+      );
+    }
+  }
+  if (sets.length === 0) return false;
+  vals.push(id);
+  const result = db
+    .prepare(`UPDATE event_destinations SET ${sets.join(", ")} WHERE id = ?`)
+    .run(...vals);
+  return result.changes > 0;
+}
+
+export function deleteHookDestination(id: string): boolean {
+  const tx = db.transaction((destinationId: string) => {
+    db.prepare("DELETE FROM hook_deliveries WHERE destination_id = ?").run(
+      destinationId,
+    );
+    return (
+      db
+        .prepare("DELETE FROM event_destinations WHERE id = ?")
+        .run(destinationId).changes > 0
+    );
+  });
+  return tx(id);
+}
+
+export function insertHookDelivery(row: {
+  id?: string;
+  destination_id: string;
+  event_type: AppEventType;
+  status: "ok" | "error";
+  http_status: number | null;
+  duration_ms: number;
+  attempt?: number;
+  error?: string | null;
+  created_at?: number;
+}): HookDeliveryRow {
+  const full: HookDeliveryRow = {
+    id: row.id ?? randomUUID(),
+    destination_id: row.destination_id,
+    event_type: row.event_type,
+    status: row.status,
+    http_status: row.http_status,
+    duration_ms: row.duration_ms,
+    attempt: row.attempt ?? 1,
+    error: row.error ?? null,
+    created_at: row.created_at ?? Date.now(),
+  };
+  db.prepare(
+    `INSERT INTO hook_deliveries
+      (id, destination_id, event_type, status, http_status, duration_ms, attempt, error, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    full.id,
+    full.destination_id,
+    full.event_type,
+    full.status,
+    full.http_status,
+    full.duration_ms,
+    full.attempt,
+    full.error,
+    full.created_at,
+  );
+  return full;
+}
+
+export function listHookDeliveries(
+  destinationId: string,
+  limit = 100,
+): HookDeliveryRow[] {
+  const rows = db
+    .prepare(
+      `SELECT * FROM hook_deliveries
+       WHERE destination_id = ?
+       ORDER BY created_at DESC, rowid DESC
+       LIMIT ?`,
+    )
+    .all(destinationId, limit) as HookDeliveryRow[];
+  return rows.map((row) => ({ ...row }));
 }
 
 export function getSetting(key: string): string | undefined {
@@ -1932,6 +2271,75 @@ export function botUsageTotals(botId: string): {
 } {
   const since = Date.now() - 30 * 24 * 60 * 60 * 1000;
   return { lifetime: sumUsage(botId), last30d: sumUsage(botId, since) };
+}
+
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+export function sumUsageAll(since?: number): UsageTotals {
+  const sql = `SELECT COALESCE(SUM(input), 0) AS input, COALESCE(SUM(output), 0) AS output,
+       COALESCE(SUM(cache_read), 0) AS cache_read,
+       COALESCE(SUM(cache_write), 0) AS cache_write
+   FROM run_usage${since ? " WHERE created_at >= ?" : ""}`;
+  const row = (
+    since ? db.prepare(sql).get(since) : db.prepare(sql).get()
+  ) as TokenUsage;
+  return {
+    ...row,
+    total: row.input + row.output + row.cache_read + row.cache_write,
+  };
+}
+
+// specs/usage/circuit-breaker.md — server-wide trailing-30-day token cap.
+export function getBreakerLimit(): number {
+  const raw = getSetting("breaker_limit_tokens");
+  const n = raw ? Number(raw) : 0;
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+export function isBreakerArmed(): boolean {
+  return getSetting("breaker_tripped") === "1";
+}
+
+export function setBreakerArmed(armed: boolean): void {
+  if (armed) setSetting("breaker_tripped", "1");
+  else deleteSetting("breaker_tripped");
+}
+
+export function breakerState(): {
+  limit_tokens: number;
+  tokens_30d: number;
+  exceeded: boolean;
+} {
+  const limit = getBreakerLimit();
+  const tokens30d = sumUsageAll(Date.now() - THIRTY_DAYS_MS).total;
+  return {
+    limit_tokens: limit,
+    tokens_30d: tokens30d,
+    exceeded: limit > 0 && tokens30d > limit,
+  };
+}
+
+export function setBreakerLimit(limit: number): void {
+  if (limit > 0) setSetting("breaker_limit_tokens", String(limit));
+  else deleteSetting("breaker_limit_tokens");
+  const state = breakerState();
+  if (!state.exceeded) setBreakerArmed(false);
+}
+
+export function checkSpendBreaker(): boolean {
+  const state = breakerState();
+  if (!state.exceeded) return false;
+  const wasArmed = isBreakerArmed();
+  setBreakerArmed(true);
+  setPaused(true);
+  if (!wasArmed)
+    createNotification({
+      kind: "breaker",
+      title: "Spend circuit breaker tripped",
+      body: `Trailing 30-day usage of ${state.tokens_30d.toLocaleString()} tokens passed the cap of ${state.limit_tokens.toLocaleString()}. All bots are paused; raise or clear the cap to resume.`,
+      dedupeKey: `breaker:${Date.now()}`,
+    });
+  return true;
 }
 
 export interface McpSecretRef {
@@ -2061,13 +2469,17 @@ export function insertSkill(skill: SkillRow): void {
 
 export function updateSkill(
   id: string,
-  fields: Partial<Pick<SkillRow, "name" | "description" | "instructions">>,
+  fields: Partial<
+    Pick<SkillRow, "name" | "description" | "instructions"> & {
+      import_info: string | null;
+    }
+  >,
 ): void {
-  const sets = Object.keys(fields)
-    .map((k) => `${k} = ?`)
-    .join(", ");
+  const entries = Object.entries(fields);
+  if (entries.length === 0) return;
+  const sets = entries.map(([k]) => `${k} = ?`).join(", ");
   db.prepare(`UPDATE skills SET ${sets} WHERE id = ?`).run(
-    ...Object.values(fields),
+    ...entries.map(([, v]) => v),
     id,
   );
 }
@@ -2226,6 +2638,22 @@ export function listApiKeys(userId: string): ApiKeyRow[] {
     .all(userId) as ApiKeyRow[];
 }
 
+export function listAllApiKeys(): (ApiKeyRow & { hash: string })[] {
+  return db
+    .prepare(
+      "SELECT id, name, hash, user_id, created_at, last_used_at FROM api_keys ORDER BY created_at",
+    )
+    .all() as (ApiKeyRow & { hash: string })[];
+}
+
+export function getApiKeyById(id: string): ApiKeyRow | undefined {
+  return db
+    .prepare(
+      "SELECT id, name, user_id, created_at, last_used_at FROM api_keys WHERE id = ?",
+    )
+    .get(id) as ApiKeyRow | undefined;
+}
+
 export function getApiKeyByHash(hash: string): ApiKeyRow | undefined {
   return db
     .prepare(
@@ -2236,6 +2664,17 @@ export function getApiKeyByHash(hash: string): ApiKeyRow | undefined {
 
 export function touchApiKey(id: string, ts: number): void {
   db.prepare("UPDATE api_keys SET last_used_at = ? WHERE id = ?").run(ts, id);
+}
+
+export function updateApiKey(
+  id: string,
+  patch: Partial<{ name: string; hash: string; created_at: number }>,
+): void {
+  const entries = Object.entries(patch).filter(([, v]) => v !== undefined);
+  if (entries.length === 0) return;
+  db.prepare(
+    `UPDATE api_keys SET ${entries.map(([k]) => `${k} = @${k}`).join(", ")} WHERE id = @id`,
+  ).run({ ...Object.fromEntries(entries), id });
 }
 
 export function deleteApiKey(id: string, userId: string): boolean {

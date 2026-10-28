@@ -1,6 +1,6 @@
 # Notifications
 
-The bell in the status bar collects events that need attention. A run ending with `error` creates one notification for its bot.
+The bell in the status bar collects events that need attention. A run ending with `error` creates one notification for its bot; a server whose trailing-30-day token usage crosses the spend circuit breaker cap raises one more stating usage vs cap.
 
 Opening the bell shows notifications newest first, each with the bot and error details plus when it happened. Individual items can be marked read, or use **Mark all read**. Read state persists server-side, so refreshing the page does not bring it back.
 
@@ -12,4 +12,4 @@ Settings → **General** → **Notification sounds** (off by default) plays a sh
 
 ## Browser push
 
-Settings → **General** → **Browser push** subscribes this device (works in supported browsers, including when the site is installed as a [PWA](/pwa)). Each new notification then delivers one silent system notification even when no tab is open; clicking it focuses the app. Browsers without push support simply don't show the controls — everything else keeps working.
+On first sign-in, the app asks once for browser notification permission and subscribes this device automatically (works in supported browsers, including when the site is installed as a [PWA](/pwa)). Dismissing the prompt does not nag on later visits; change the browser's site permission manually to opt back in. Settings → **General** → **Browser push** shows current status and offers **Unsubscribe**, but no Subscribe button. Each new notification then delivers one silent system notification even when no tab is open; clicking it focuses the app. Browsers without push support simply don't show the controls — everything else keeps working.

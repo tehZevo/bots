@@ -19,12 +19,15 @@ import {
   resumePendingInjections,
   stopAllLoops,
 } from "./agent.ts";
+import { exportConfigBackup, importConfigBackup } from "./backup.ts";
 import { repoRoot } from "./config.ts";
 import {
   approveDeviceGrant,
   botSecretIds,
   botsUsingMachine,
   botUsageTotals,
+  breakerState,
+  checkSpendBreaker,
   claimDeviceGrant,
   clearDeviceGrants,
   clearMessages,
@@ -33,6 +36,7 @@ import {
   createSession,
   deleteApiKey,
   deleteBot,
+  deleteHookDestination,
   deleteMachine,
   deleteMcpServer,
   deleteProject,
@@ -52,6 +56,7 @@ import {
   getApiKeyByHash,
   getBot,
   getDeviceGrantByDeviceHash,
+  getHookDestination,
   getLiveDeviceGrantByUserCode,
   getMachine,
   getMcpServer,
@@ -71,10 +76,12 @@ import {
   getTrigger,
   getUserByEmail,
   getUserById,
+  type HookDestinationRow,
   hashPassword,
   insertApiKey,
   insertBot,
   insertDeviceGrant,
+  insertHookDestination,
   insertMachine,
   insertMcpServer,
   insertProject,
@@ -87,11 +94,14 @@ import {
   insertTemplate,
   insertTrigger,
   insertUser,
+  isBreakerArmed,
   isMcpSecretRef,
   isPaused,
   latestErrorBotIds,
   listApiKeys,
   listBots,
+  listHookDeliveries,
+  listHookDestinations,
   listMachines,
   listMcpServers,
   listMessagesForRun,
@@ -121,6 +131,8 @@ import {
   setBotProjects,
   setBotSecret,
   setBotTags,
+  setBreakerArmed,
+  setBreakerLimit,
   setMachineBuild,
   setPaused,
   setSetting,
@@ -137,6 +149,7 @@ import {
   touchDeviceGrantPoll,
   unreadNotificationCount,
   updateBot,
+  updateHookDestination,
   updateMachine,
   updateMcpServer,
   updateProject,
@@ -149,6 +162,7 @@ import {
   upsertPushSubscription,
   verifyPassword,
 } from "./db.ts";
+import { HOOK_EVENT_TYPES, sendHookTest } from "./hooks.ts";
 import { testMcpConnection } from "./mcp.ts";
 import { openApiDoc } from "./openapi.ts";
 import { vapidPublicKey } from "./push.ts";
@@ -176,6 +190,11 @@ import {
   searchSkillsSh,
   storeBundle,
 } from "./skillimport.ts";
+import {
+  listWorkspace,
+  readWorkspaceFile,
+  WorkspaceError,
+} from "./workspace.ts";
 
 const DEFAULT_MANUAL_MESSAGE = "Continue with your current work.";
 
@@ -403,6 +422,13 @@ export interface AuthUser {
   id: string;
   email: string;
   keyId?: string;
+}
+
+function denyApiKey(c: Context): Response | undefined {
+  const user = c.get("user") as AuthUser;
+  return user.keyId
+    ? c.json({ error: "session authentication required" }, 403)
+    : undefined;
 }
 
 // --- device authorization (RFC 8628) ----------------------------------------
@@ -820,7 +846,14 @@ export function createApp() {
     }),
   );
 
-  app.get("/api/pause", (c) => c.json({ paused: isPaused() }));
+  app.get("/api/pause", (c) => {
+    const armed = isBreakerArmed() && breakerState().exceeded;
+    return c.json(
+      armed
+        ? { paused: isPaused(), reason: "breaker" }
+        : { paused: isPaused() },
+    );
+  });
 
   app.post("/api/pause", async (c) => {
     const body = (await c.req.json().catch(() => null)) as {
@@ -828,9 +861,37 @@ export function createApp() {
     } | null;
     if (typeof body?.paused !== "boolean")
       return c.json({ error: "paused must be a boolean" }, 400);
+    if (!body.paused && isBreakerArmed()) {
+      const state = breakerState();
+      if (state.exceeded)
+        return c.json(
+          {
+            error: `Spend circuit breaker tripped: ${state.tokens_30d.toLocaleString()} tokens used of a ${state.limit_tokens.toLocaleString()} cap (trailing 30 days). Raise or clear the cap in Settings to resume.`,
+          },
+          409,
+        );
+      setBreakerArmed(false);
+    }
     setPaused(body.paused);
     if (!body.paused) resumePendingInjections();
     return c.json({ paused: body.paused });
+  });
+
+  // specs/usage/circuit-breaker.md — server-wide trailing-30-day token cap.
+  app.get("/api/breaker", (c) => c.json(breakerState()));
+
+  app.put("/api/breaker", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      limit_tokens?: unknown;
+    } | null;
+    const raw = body?.limit_tokens;
+    if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0)
+      return c.json(
+        { error: "limit_tokens must be a non-negative integer" },
+        400,
+      );
+    setBreakerLimit(raw);
+    return c.json(breakerState());
   });
 
   // specs/bots/emergency-stop.md — panic button: interrupt everything, then arm the pause.
@@ -1297,6 +1358,155 @@ export function createApp() {
     return c.json({ ok: true });
   });
 
+  function hookResponse(destination: HookDestinationRow) {
+    const { secret, ...rest } = destination;
+    return { ...rest, has_secret: secret.length > 0 };
+  }
+
+  async function parseHookInput(c: Context) {
+    const body = (await c.req.json().catch(() => null)) as {
+      name?: unknown;
+      url?: unknown;
+      secret?: unknown;
+      event_types?: unknown;
+      enabled?: unknown;
+    } | null;
+    if (!body || typeof body !== "object") return null;
+
+    const errors: string[] = [];
+    const str = (value: unknown): string | undefined =>
+      typeof value === "string" ? value.trim() : undefined;
+    const name = str(body.name);
+    const rawUrl = str(body.url);
+    let url: string | undefined;
+    if (rawUrl) {
+      try {
+        const parsedUrl = new URL(rawUrl);
+        if (parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:")
+          url = parsedUrl.href;
+        else errors.push("url must be http or https");
+      } catch {
+        errors.push("url must be an absolute URL");
+      }
+    }
+
+    let eventTypes: string[] | undefined;
+    if (body.event_types !== undefined) {
+      if (
+        !Array.isArray(body.event_types) ||
+        !body.event_types.every((x) => typeof x === "string")
+      ) {
+        errors.push("event_types must be an array of strings");
+      } else {
+        const selected = new Set(body.event_types as string[]);
+        for (const eventType of selected) {
+          if (!(HOOK_EVENT_TYPES as readonly string[]).includes(eventType))
+            errors.push(`unknown event type: ${eventType}`);
+        }
+        eventTypes = HOOK_EVENT_TYPES.filter((x) => selected.has(x));
+      }
+    }
+
+    let enabled: number | undefined;
+    if (body.enabled !== undefined) {
+      if (typeof body.enabled === "boolean") enabled = body.enabled ? 1 : 0;
+      else if (body.enabled === 0 || body.enabled === 1) enabled = body.enabled;
+      else errors.push("enabled must be a boolean");
+    }
+
+    return {
+      name,
+      url,
+      secret: str(body.secret),
+      eventTypes,
+      enabled,
+      errors,
+    };
+  }
+
+  app.get("/api/hooks", (c) =>
+    c.json(listHookDestinations().map(hookResponse)),
+  );
+
+  app.post("/api/hooks", async (c) => {
+    const parsed = await parseHookInput(c);
+    if (!parsed) return c.json({ error: "invalid body" }, 400);
+    const errors = [...parsed.errors];
+    if (!parsed.name) errors.push("name is required");
+    if (!parsed.url) errors.push("url must be an absolute http or https URL");
+    if (!parsed.secret) errors.push("secret is required");
+    if (errors.length > 0) return c.json({ error: errors.join("; ") }, 400);
+
+    const destination = {
+      id: randomUUID(),
+      name: parsed.name as string,
+      url: parsed.url as string,
+      secret: parsed.secret as string,
+      event_types: parsed.eventTypes ?? [],
+      enabled: parsed.enabled ?? 1,
+      created_at: Date.now(),
+    };
+    insertHookDestination(destination);
+    return c.json(hookResponse(destination), 201);
+  });
+
+  app.put("/api/hooks/:id", async (c) => {
+    const existing = getHookDestination(c.req.param("id"));
+    if (!existing) return c.json({ error: "not found" }, 404);
+    const parsed = await parseHookInput(c);
+    if (!parsed) return c.json({ error: "invalid body" }, 400);
+    const errors = [...parsed.errors];
+    if (parsed.name === undefined || !parsed.name)
+      errors.push("name is required");
+    if (parsed.url === undefined || !parsed.url)
+      errors.push("url must be an absolute http or https URL");
+    if (errors.length > 0) return c.json({ error: errors.join("; ") }, 400);
+
+    updateHookDestination(existing.id, {
+      name: parsed.name as string,
+      url: parsed.url as string,
+      secret: parsed.secret || existing.secret,
+      event_types: parsed.eventTypes ?? existing.event_types,
+      enabled: parsed.enabled ?? existing.enabled,
+    });
+    return c.json(
+      hookResponse(getHookDestination(existing.id) as HookDestinationRow),
+    );
+  });
+
+  app.delete("/api/hooks/:id", (c) => {
+    if (!deleteHookDestination(c.req.param("id")))
+      return c.json({ error: "not found" }, 404);
+    return c.json({ ok: true });
+  });
+
+  app.get("/api/hooks/:id/deliveries", (c) => {
+    const destination = getHookDestination(c.req.param("id"));
+    if (!destination) return c.json({ error: "not found" }, 404);
+    const raw = c.req.query("limit");
+    let limit = 100;
+    if (raw !== undefined) {
+      const parsed = Number(raw);
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 250)
+        return c.json({ error: "limit must be an integer from 1 to 250" }, 400);
+      limit = parsed;
+    }
+    return c.json(
+      listHookDeliveries(destination.id, limit).map(
+        ({ destination_id, ...row }) => row,
+      ),
+    );
+  });
+
+  app.post("/api/hooks/:id/test", async (c) => {
+    const destination = getHookDestination(c.req.param("id"));
+    if (!destination) return c.json({ error: "not found" }, 404);
+    if (!destination.enabled)
+      return c.json({ error: "destination is disabled" }, 409);
+    const result = await sendHookTest(destination);
+    return c.json(result);
+  });
+
   app.get("/api/notifications", (c) => {
     const raw = c.req.query("limit");
     let limit = 100;
@@ -1624,6 +1834,39 @@ export function createApp() {
     if (!found) return c.json({ error: "not found" }, 404);
     deleteSecret(found.id);
     return c.json({ ok: true });
+  });
+
+  app.get("/api/backup/config", (c) => {
+    const denied = denyApiKey(c);
+    if (denied) return denied;
+    try {
+      const includeValues = ["true", "1"].includes(
+        c.req.query("include_values")?.toLowerCase() ?? "",
+      );
+      return c.json(exportConfigBackup(includeValues));
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        500,
+      );
+    }
+  });
+
+  app.post("/api/backup/config", async (c) => {
+    const denied = denyApiKey(c);
+    if (denied) return denied;
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body !== "object" || Array.isArray(body))
+      return c.json({ error: "invalid backup body" }, 400);
+    try {
+      const result = importConfigBackup(body, (c.get("user") as AuthUser).id);
+      return "error" in result ? c.json(result, 400) : c.json(result);
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        500,
+      );
+    }
   });
 
   app.get("/api/roles", (c) => c.json(listRoles()));
@@ -2064,6 +2307,40 @@ export function createApp() {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
     return c.json({ ...botUsageTotals(bot.id), budget: bot.token_budget });
+  });
+
+  // specs/machines/workspace-browser.md — read-only host view of the workspace.
+  app.get("/api/bots/:id/workspace", (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    const path = c.req.query("path") ?? "";
+    try {
+      return c.json(listWorkspace(bot.id, path));
+    } catch (err) {
+      if (err instanceof WorkspaceError)
+        return c.json({ error: err.message }, err.status as 400);
+      throw err;
+    }
+  });
+
+  app.get("/api/bots/:id/workspace/file", (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    const path = c.req.query("path") ?? "";
+    try {
+      const bytes = readWorkspaceFile(bot.id, path);
+      const name = path.split("/").filter(Boolean).pop() ?? "file";
+      return new Response(new Uint8Array(bytes), {
+        headers: {
+          "content-type": "application/octet-stream",
+          "content-disposition": `attachment; filename="${encodeURIComponent(name)}"`,
+        },
+      });
+    } catch (err) {
+      if (err instanceof WorkspaceError)
+        return c.json({ error: err.message }, err.status as 400);
+      throw err;
+    }
   });
 
   app.get("/api/bots/:id/context-usage", (c) => {

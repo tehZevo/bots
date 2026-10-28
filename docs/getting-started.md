@@ -29,6 +29,12 @@ Open the web UI (default `http://localhost:8075`). The status bar up top shows t
 3. **Run it** — press **Run now**, or add a trigger (cron / `@every 10m`, or a webhook) so the bot fires itself.
 4. **Watch it work** — clicking a bot card opens its Chat sidebar; the gear in that sidebar opens General / Triggers / Logs tabs and actions. The colored dot on every card is its health level (table below); it pulses only while a run is active, each card independently.
 
+## Back up configuration
+
+Settings → **Configuration backup** exports bots, roles, skills with bundles, MCP servers, projects, tags, teams, templates, secret names/keys and API key hashes as one JSON file. Runs, chat history, usage totals, notifications, users, provider values, pause state, workspaces and avatars stay out of the snapshot.
+
+Secret values are omitted by default; enable **Include secret values in export** only when you intend to carry them in the file. Restore parses and validates the entire upload before writing anything, then upserts each record by name without deleting records missing from the backup. New secrets whose values were not included are requested before the import completes, while existing values remain unchanged unless a value is supplied. Running bots keep their current loop and pick restored state up at their next run; see the [API reference](/api) for `/api/backup/config`.
+
 ## Health levels at a glance
 
 | Dot | Meaning |
