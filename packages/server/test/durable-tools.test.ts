@@ -45,6 +45,35 @@ test("base Harness tools mirror the legacy baseline and conditional tools", () =
   assert.ok(withSkill.includes("read_skill_file"));
 });
 
+test("durable tools opt out of replay after an interrupted call", () => {
+  const wrapped = baseHarnessTools("replay-bot", () => "delivered", [
+    {
+      id: "demo",
+      name: "Demo",
+      description: "Demo skill",
+      instructions: "",
+      created_at: Date.now(),
+      import_info: null,
+    },
+  ]);
+
+  assert.ok(wrapped.length > 0);
+  for (const tool of wrapped) {
+    assert.equal(tool.replay, "unsafe");
+  }
+
+  const [mcpTool] = durableTools.wrapLegacyTools([
+    {
+      name: "remote",
+      description: "Remote MCP tool",
+      parameters: { type: "object", properties: {} },
+      execute: async () => ({ content: [] }),
+    },
+  ]);
+
+  assert.equal(mcpTool?.replay, "unsafe");
+});
+
 test("durable tool hooks redact text before persistence", () => {
   dbm.insertProvider({
     id: "openai",
