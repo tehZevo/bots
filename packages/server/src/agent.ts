@@ -7,6 +7,7 @@ import {
   replaceMessages,
   teammatesOf,
 } from "./db.ts";
+import { activeContextMessages } from "./durable-conversations.ts";
 import {
   deliverDm as _deliverDm,
   injectMessage as _injectMessage,
@@ -39,7 +40,7 @@ export interface ContextBreakdown {
 }
 
 // specs/context/usage-breakdown.md — estimator-based split, never calls the model.
-export function estimateContext(bot: BotRow): ContextBreakdown {
+export async function estimateContext(bot: BotRow): Promise<ContextBreakdown> {
   const prompt = estimateTokens([
     {
       role: "system",
@@ -54,9 +55,12 @@ export function estimateContext(bot: BotRow): ContextBreakdown {
     parameters: t.parameters,
   }));
   const tools = Math.floor(JSON.stringify(toolDefs).length / 4);
-  const history = loadMessages(bot.id)
-    .map((row) => JSON.parse(row.payload) as AgentMessage)
-    .filter((message) => LLM_ROLES.has((message as Message).role));
+  const durableHistory = await activeContextMessages(bot.id);
+  const history: AgentMessage[] =
+    durableHistory ??
+    loadMessages(bot.id)
+      .map((row) => JSON.parse(row.payload) as AgentMessage)
+      .filter((message) => LLM_ROLES.has((message as Message).role));
   const conversation = estimateTokens(history);
   const used = prompt + tools + conversation;
   const llm = resolveDefault(bot.model_id);

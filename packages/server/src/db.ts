@@ -1846,6 +1846,57 @@ db.exec(
   );`,
 );
 
+db.exec(
+  `CREATE TABLE IF NOT EXISTS durable_projection_entries (
+    bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    entry_id TEXT NOT NULL,
+    run_id TEXT,
+    PRIMARY KEY (bot_id, entry_id)
+  );`,
+);
+
+export function markDurableEntriesProjected(
+  botId: string,
+  entryIds: readonly string[],
+): void {
+  if (entryIds.length === 0) return;
+  const insert = db.prepare(
+    "INSERT OR IGNORE INTO durable_projection_entries (bot_id, entry_id, run_id) VALUES (?, ?, NULL)",
+  );
+  const tx = db.transaction(() => {
+    for (const entryId of entryIds) insert.run(botId, entryId);
+  });
+  tx();
+}
+
+export function projectDurableEntryMessages(
+  botId: string,
+  runId: string | null,
+  entryId: string,
+  messages: readonly { role: string; payload: unknown }[],
+): boolean {
+  const claim = db.prepare(
+    "INSERT OR IGNORE INTO durable_projection_entries (bot_id, entry_id, run_id) VALUES (?, ?, ?)",
+  );
+  const insertMessage = db.prepare(
+    "INSERT INTO messages (bot_id, run_id, role, payload, created_at) VALUES (?, ?, ?, ?, ?)",
+  );
+  const tx = db.transaction(() => {
+    if (claim.run(botId, entryId, runId).changes === 0) return false;
+    for (const message of messages) {
+      insertMessage.run(
+        botId,
+        runId,
+        message.role,
+        JSON.stringify(message.payload),
+        Date.now(),
+      );
+    }
+    return true;
+  });
+  return tx();
+}
+
 export function getBotConversation(botId: string): string | undefined {
   const row = db
     .prepare("SELECT conversation_id FROM bot_conversations WHERE bot_id = ?")
@@ -1890,6 +1941,22 @@ export function getCurrentRunForBot(botId: string): string | null {
     .prepare("SELECT current_run_id FROM bot_conversations WHERE bot_id = ?")
     .get(botId) as { current_run_id: string | null } | undefined;
   return row?.current_run_id ?? null;
+}
+
+export function listCurrentDurableRuns(): {
+  bot_id: string;
+  conversation_id: string;
+  run_id: string;
+}[] {
+  return db
+    .prepare(
+      `SELECT bc.bot_id, bc.conversation_id, bc.current_run_id AS run_id
+       FROM bot_conversations bc
+       JOIN runs r ON r.id = bc.current_run_id
+       WHERE bc.current_run_id IS NOT NULL AND r.status = 'running'
+       ORDER BY bc.bot_id`,
+    )
+    .all() as { bot_id: string; conversation_id: string; run_id: string }[];
 }
 
 export function latestRunningRunForBot(botId: string): string | null {
