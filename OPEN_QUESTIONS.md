@@ -4,10 +4,10 @@ Judgement calls baked into the current implementation that deserve a deliberate 
 
 - **Trigger→response mapping** — all triggers steered into one active loop are recorded in that single run; `output` is only the final assistant reply of the whole cycle, so individual trigger messages have no receipt.
   _Lean: keep runs as "working cycles" (matches spec) and defer per-trigger receipts until a channel needs them._
-- **Crash/restart recovery** — runs interrupted by a restart stay `running` forever, and in-flight context is only persisted when the loop goes quiet (crash loses that turn's messages).
-  _Lean: on boot mark stale `running` rows `error("interrupted")` and persist incrementally via agent events._
 - **Token estimation** — compaction budget uses chars/4 against 75% of `LLM_CONTEXT_WINDOW`.
   _Lean: keep until the context window is actually hit in practice, then tune ratio or adopt provider token counts._
+- **Provider Retry-After under durable retries** — pi-durable stores and resumes its own exponential waits but does not expose a per-error delay hook, so provider `Retry-After` hints are currently ignored even though `specs/llm/retry-backoff.md` still promises them.
+  _Lean: keep the stored exponential policy and update the spec/docs to drop exact header handling until pi-durable supports per-attempt delays._
 - **Clear memory vs active loop** — clearing memory aborts the running agent immediately and wipes context; the aborted run lands as `error`.
   _Lean: acceptable until approvals exist, then confirm with the user before nuking a working loop._
 - **Provider API key storage** — provider keys are planned for plaintext rows in SQLite (see `specs/llm/providers.md`).
