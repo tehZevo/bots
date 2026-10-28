@@ -24,7 +24,7 @@ Keep the orchestrator on a trusted network or behind an authenticated reverse pr
 
 ## Backup and restore
 
-All durable application state lives under `$DATA_DIR`: `bots.db`, SQLite write-ahead-log files (`bots.db-wal` and `bots.db-shm`) and the per-bot `workspaces/` directory. Bots, settings, roles, runs, credentials metadata and other records are all stored in that database.
+All durable application state lives beside the configured SQLite path (default: `$DATA_DIR/bots.db`): `bots.db`, its write-ahead-log files (`bots.db-wal` and `bots.db-shm`), the Harness recovery database `pi-durable.sqlite` with its own WAL files, and the per-bot `workspaces/` directory. Bots, settings, roles, runs, credentials metadata and other records are stored in `bots.db`; committed agent transcripts, tool calls and durable waits are stored in `pi-durable.sqlite`.
 
 For a reliable cold backup:
 
