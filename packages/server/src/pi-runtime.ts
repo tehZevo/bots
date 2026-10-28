@@ -21,12 +21,19 @@ export function durableStoragePath(): string {
   return resolve(dirname(config.databasePath), "pi-durable.sqlite");
 }
 
-function settings(): HarnessSettings {
+export function durableSettings(): HarnessSettings {
   return {
     extensions: [],
     stream: { maxRetries: 0, maxRetryDelayMs: 60_000 },
     retry: { enabled: true, maxRetries: 3, baseDelayMs: 1000 },
+    compaction: {
+      enabled: true,
+      keepRecentTokens: Math.max(1024, config.compaction.keepRecent * 2048),
+      backgroundTokens: 0,
+    },
     progress: { partialIntervalMs: 250, outputIntervalMs: 250 },
+    toolExecution: "parallel",
+    steeringMode: "all",
   };
 }
 
@@ -34,7 +41,7 @@ export async function openDurableHarness(storage?: Storage): Promise<Harness> {
   registerBotsProvider(models);
   return Harness.open(
     storage ?? (await openNodeSqliteStorage(durableStoragePath())),
-    { models, registry, settings: settings(), onReport: report },
+    { models, registry, settings: durableSettings(), onReport: report },
     BACKGROUND_CONTEXT,
   );
 }

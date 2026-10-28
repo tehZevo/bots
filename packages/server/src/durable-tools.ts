@@ -17,14 +17,11 @@ function mapToolResult(value: unknown): ToolExecutionResult {
   } satisfies ToolExecutionResult;
 }
 
-export function baseHarnessTools(
-  botId: string,
-  deliverDm?: (recipientBotId: string, text: string) => string,
-  grantedSkills: SkillRow[] = [],
-): ToolRegistration[] {
-  return buildTools(botId, deliverDm, grantedSkills).map((tool) => {
-    const base = tool as unknown as Omit<ToolRegistration, "execute">;
-    const executeLegacy = tool.execute.bind(tool);
+export function wrapLegacyTools(tools: readonly unknown[]): ToolRegistration[] {
+  return tools.map((value) => {
+    const base = value as Omit<ToolRegistration, "execute">;
+    const legacy = value as { execute(...args: never[]): Promise<unknown> };
+    const executeLegacy = legacy.execute.bind(legacy);
     return {
       ...base,
       replay: "unsafe",
@@ -32,8 +29,16 @@ export function baseHarnessTools(
         args: never,
         api: ToolExecutionApi,
       ): Promise<ToolExecutionResult> {
-        return mapToolResult(await executeLegacy(api.callId, args));
+        return mapToolResult(await executeLegacy(api.callId as never, args));
       },
     } as ToolRegistration;
   });
+}
+
+export function baseHarnessTools(
+  botId: string,
+  deliverDm?: (recipientBotId: string, text: string) => string,
+  grantedSkills: SkillRow[] = [],
+): ToolRegistration[] {
+  return wrapLegacyTools(buildTools(botId, deliverDm, grantedSkills));
 }
