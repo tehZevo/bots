@@ -157,8 +157,19 @@ function fmtMs(ms: number): string {
     : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
 }
 
-function ReplayStep({ step }: { step: TranscriptStep }) {
+function ReplayStep({
+  step,
+  running = false,
+  busy = false,
+  onRerun,
+}: {
+  step: TranscriptStep;
+  running?: boolean;
+  busy?: boolean;
+  onRerun?: (message: string) => Promise<void>;
+}) {
   const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
   const clipped = step.kind === "tool_result" || step.kind === "tool_call";
   const toggle = () => setOpen(!open);
   const keyToggle = (e: React.KeyboardEvent) => {
@@ -175,6 +186,22 @@ function ReplayStep({ step }: { step: TranscriptStep }) {
         onKeyDown: keyToggle,
       }
     : {};
+
+  async function copyText(): Promise<void> {
+    if (!step.text || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(step.text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      // clipboard access is best effort
+    }
+  }
+
+  const showRun = step.kind === "user" && onRerun !== undefined;
+  const showCopy =
+    (step.kind === "assistant" || step.kind === "tool_result") && !!step.text;
+
   return (
     <div className={`rstep ${step.kind}${step.is_error ? " err" : ""}`}>
       <div className="rmeta">
@@ -187,6 +214,25 @@ function ReplayStep({ step }: { step: TranscriptStep }) {
         )}
         {!!step.retry_wait_ms && (
           <span className="rretry">retry wait {fmtMs(step.retry_wait_ms)}</span>
+        )}
+        {(showRun || showCopy) && (
+          <span className="ractions">
+            {showCopy && (
+              <button type="button" onClick={() => void copyText()}>
+                {copied ? "Copied" : "Copy"}
+              </button>
+            )}
+            {showRun && (
+              <button
+                type="button"
+                disabled={running || busy}
+                title={running ? "The bot is already running" : undefined}
+                onClick={() => void onRerun(step.text ?? "")}
+              >
+                Run this
+              </button>
+            )}
+          </span>
         )}
       </div>
       {step.args && (
@@ -212,11 +258,22 @@ function ReplayStep({ step }: { step: TranscriptStep }) {
   );
 }
 
-function ReplayPanel({ botId, run }: { botId: string; run: Run }) {
+function ReplayPanel({
+  botId,
+  run,
+  running = false,
+  onRerun,
+}: {
+  botId: string;
+  run: Run;
+  running?: boolean;
+  onRerun?: (message: string) => Promise<void>;
+}) {
   const [data, setData] = useState<{
     usage: { total: number } | null;
     steps: TranscriptStep[];
   } | null>(null);
+  const [rerunning, setRerunning] = useState(false);
   useEffect(() => {
     let on = true;
     api<{
@@ -230,6 +287,17 @@ function ReplayPanel({ botId, run }: { botId: string; run: Run }) {
     };
   }, [botId, run.id]);
   if (!data) return <p className="muted replay">Loading transcript…</p>;
+
+  async function rerun(message: string): Promise<void> {
+    if (!onRerun || running || rerunning) return;
+    setRerunning(true);
+    try {
+      await onRerun(message);
+    } finally {
+      setRerunning(false);
+    }
+  }
+
   return (
     <div className="replay">
       <header>
@@ -241,7 +309,15 @@ function ReplayPanel({ botId, run }: { botId: string; run: Run }) {
         <p className="muted">transcript not recorded</p>
       ) : (
         // biome-ignore lint/suspicious/noArrayIndexKey: transcript steps are append-only, position is their identity
-        data.steps.map((s, i) => <ReplayStep key={i} step={s} />)
+        data.steps.map((s, i) => (
+          <ReplayStep
+            key={i}
+            step={s}
+            running={running}
+            busy={rerunning}
+            onRerun={onRerun ? rerun : undefined}
+          />
+        ))
       )}
     </div>
   );
@@ -613,6 +689,19 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+export function fmtTokens(n: number): string {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
+  return String(n);
+}
+
+export interface Breaker {
+  limit_tokens: number;
+  tokens_30d: number;
+  exceeded: boolean;
+}
+
 export function fmt(ts: number | null): string {
   return ts ? new Date(ts).toLocaleString() : "—";
 }
@@ -943,6 +1032,8 @@ export function App() {
   const [chatBot, setChatBot] = useState<string | null>(null);
   const [poking, setPoking] = useState<Record<string, boolean>>({});
   const [paused, setPausedState] = useState(false);
+  const [pauseReason, setPauseReason] = useState<string | null>(null);
+  const [breaker, setBreaker] = useState<Breaker | null>(null);
   const [stopAllConfirm, setStopAllConfirm] = useState(false);
   const [quickConfirm, setQuickConfirm] = useState<{
     bot: Bot;
@@ -968,8 +1059,27 @@ export function App() {
       .finally(() => setPoking((p) => ({ ...p, [bot.id]: false })));
   };
 
+  const rerunTranscriptMessage = async (
+    botId: string,
+    message: string,
+  ): Promise<void> => {
+    const target = bots.find((b) => b.id === botId);
+    if (!target || !target.enabled || paused || target.run_state === "running")
+      return;
+    try {
+      await api(`/api/bots/${botId}/run`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      await load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const [modalTab, setModalTab] = useState<
-    "general" | "triggers" | "logs" | "stats"
+    "general" | "triggers" | "logs" | "stats" | "files"
   >("general");
   const [detailOpen, setDetailOpen] = useState(false);
   const [avatarMenu, setAvatarMenu] = useState(false);
@@ -992,18 +1102,27 @@ export function App() {
 
   const load = useCallback(async () => {
     try {
-      const [botData, notificationData, roleData, tagData, pauseData] =
-        await Promise.all([
-          api<Bot[]>("/api/bots"),
-          api<NotificationsResponse>("/api/notifications"),
-          api<Role[]>("/api/roles"),
-          api<Tag[]>("/api/tags").catch(() => []),
-          api<{ paused: boolean }>("/api/pause").catch(() => ({
-            paused: false,
-          })),
-        ]);
+      const [
+        botData,
+        notificationData,
+        roleData,
+        tagData,
+        pauseData,
+        breakerData,
+      ] = await Promise.all([
+        api<Bot[]>("/api/bots"),
+        api<NotificationsResponse>("/api/notifications"),
+        api<Role[]>("/api/roles"),
+        api<Tag[]>("/api/tags").catch(() => []),
+        api<{ paused: boolean; reason?: string | null }>("/api/pause").catch(
+          () => ({ paused: false, reason: null }),
+        ),
+        api<Breaker>("/api/breaker").catch(() => null),
+      ]);
       setBots(botData);
       setPausedState(pauseData.paused);
+      setPauseReason(pauseData.reason ?? null);
+      setBreaker(breakerData);
       const prevSeen = seenNotifIds.current;
       if (localStorage.getItem("bots-sounds") === "on" && prevSeen) {
         const fresh = notificationData.items.filter((n) => !prevSeen.has(n.id));
@@ -1166,7 +1285,12 @@ export function App() {
             {paused && (
               <>
                 {" "}
-                · <span className="pausedcount">paused</span>
+                ·{" "}
+                <span className="pausedcount">
+                  {pauseReason === "breaker" && breaker
+                    ? `over spend cap (${fmtTokens(breaker.tokens_30d)} / ${fmtTokens(breaker.limit_tokens)})`
+                    : "paused"}
+                </span>
               </>
             )}
           </span>
@@ -1174,7 +1298,13 @@ export function App() {
             type="button"
             className={`pausetoggle${paused ? " on" : ""}`}
             aria-label={paused ? "Resume all bots" : "Pause all bots"}
-            title={paused ? "Resume all bots" : "Pause all bots"}
+            title={
+              paused && pauseReason === "breaker" && breaker
+                ? `Trailing 30-day usage of ${breaker.tokens_30d.toLocaleString()} tokens is over the cap of ${breaker.limit_tokens.toLocaleString()} — raise or clear it in Settings to resume`
+                : paused
+                  ? "Resume all bots"
+                  : "Pause all bots"
+            }
             onClick={() =>
               void api("/api/pause", {
                 method: "POST",
@@ -1182,7 +1312,7 @@ export function App() {
                 body: JSON.stringify({ paused: !paused }),
               })
                 .then(() => void load())
-                .catch(() => undefined)
+                .catch((e) => alert(e instanceof Error ? e.message : String(e)))
             }
           >
             {paused ? "Resume" : "Pause"}
@@ -1628,18 +1758,18 @@ export function App() {
                   </div>
                 </div>
                 <nav className="mtabs">
-                  {(["general", "triggers", "logs", "stats"] as const).map(
-                    (t) => (
-                      <button
-                        key={t}
-                        type="button"
-                        className={modalTab === t ? "sel" : ""}
-                        onClick={() => discardGuard(() => setModalTab(t))}
-                      >
-                        {t[0].toUpperCase() + t.slice(1)}
-                      </button>
-                    ),
-                  )}
+                  {(
+                    ["general", "triggers", "logs", "stats", "files"] as const
+                  ).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      className={modalTab === t ? "sel" : ""}
+                      onClick={() => discardGuard(() => setModalTab(t))}
+                    >
+                      {t[0].toUpperCase() + t.slice(1)}
+                    </button>
+                  ))}
                 </nav>
                 <div className="tabbody">
                   {modalTab === "general" && (
@@ -1685,7 +1815,14 @@ export function App() {
                             <pre className="error">{run.error}</pre>
                           )}
                           {replayRun === run.id && openBot && (
-                            <ReplayPanel botId={openBot} run={run} />
+                            <ReplayPanel
+                              botId={openBot}
+                              run={run}
+                              running={openBotRow.run_state === "running"}
+                              onRerun={(message) =>
+                                rerunTranscriptMessage(openBot, message)
+                              }
+                            />
                           )}
                         </article>
                       ))}
@@ -1697,6 +1834,9 @@ export function App() {
                       botId={openBotRow.id}
                       running={openBotRow.run_state === "running"}
                     />
+                  )}
+                  {modalTab === "files" && (
+                    <BotFiles key={openBotRow.id} botId={openBotRow.id} />
                   )}
                 </div>
               </div>
@@ -2457,6 +2597,41 @@ export function SettingsGeneral() {
     }
   };
 
+  const [cap, setCap] = useState(0);
+  const [savedCap, setSavedCap] = useState<number | null>(null);
+  const [usage30d, setUsage30d] = useState(0);
+  const [savingCap, setSavingCap] = useState(false);
+
+  useEffect(() => {
+    void api<Breaker>("/api/breaker")
+      .then((b) => {
+        setCap(b.limit_tokens);
+        setSavedCap(b.limit_tokens);
+        setUsage30d(b.tokens_30d);
+      })
+      .catch(() => {});
+  }, []);
+
+  const capDirty = savedCap !== null && cap !== savedCap;
+  useDirtyGuard("the spend circuit breaker cap", capDirty);
+
+  const saveCap = async () => {
+    setSavingCap(true);
+    try {
+      const b = await api<Breaker>("/api/breaker", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ limit_tokens: cap }),
+      });
+      setSavedCap(b.limit_tokens);
+      setUsage30d(b.tokens_30d);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingCap(false);
+    }
+  };
+
   const [soundsOn, setSoundsOn] = useState(
     () => localStorage.getItem("bots-sounds") === "on",
   );
@@ -2497,6 +2672,27 @@ export function SettingsGeneral() {
           Save
         </button>
         <UnsavedNote dirty={idleDirty} />
+      </div>
+      <p className="muted">Spend circuit breaker cap</p>
+      <div className="actions">
+        <input
+          type="number"
+          min={0}
+          aria-label="Spend circuit breaker token cap"
+          value={cap}
+          onChange={(e) =>
+            setCap(Math.max(0, Math.floor(Number(e.target.value) || 0)))
+          }
+        />
+        tokens / trailing 30 days (0 = unlimited · {fmtTokens(usage30d)} used)
+        <button
+          type="button"
+          disabled={savingCap}
+          onClick={() => void saveCap()}
+        >
+          Save
+        </button>
+        <UnsavedNote dirty={capDirty} />
       </div>
       <p className="muted">Notification sounds</p>
       <div className="actions">
@@ -2780,6 +2976,8 @@ export function SettingsSystem() {
       <p className="muted">
         Headless access: <a href="/api/openapi.json">OpenAPI spec</a>
       </p>
+
+      <ConfigBackupSection />
 
       <p className="muted">Control MCP server</p>
       <div className="tedithead">
@@ -3120,6 +3318,279 @@ function EventDestinationModal({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+const CONFIG_REPORT_ORDER = [
+  "bots",
+  "roles",
+  "skills",
+  "mcp_servers",
+  "projects",
+  "tags",
+  "teams",
+  "templates",
+  "secrets",
+  "api_keys",
+];
+
+const CONFIG_REPORT_LABELS: Record<string, string> = {
+  bots: "Bots",
+  roles: "Roles",
+  skills: "Skills",
+  mcp_servers: "MCP servers",
+  projects: "Projects",
+  tags: "Tags",
+  teams: "Teams",
+  templates: "Templates",
+  secrets: "Secrets",
+  api_keys: "API keys",
+};
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function formatConfigBackupReport(value: unknown): string[] {
+  if (!isJsonObject(value) || !isJsonObject(value.report)) return [];
+  const report = value.report as Record<string, unknown>;
+  const keys = [
+    ...CONFIG_REPORT_ORDER.filter((key) => key in report),
+    ...Object.keys(report)
+      .filter((key) => !CONFIG_REPORT_ORDER.includes(key))
+      .sort(),
+  ];
+  return keys.map((key) => {
+    const counts = isJsonObject(report[key]) ? report[key] : {};
+    const created = typeof counts.created === "number" ? counts.created : 0;
+    const updated = typeof counts.updated === "number" ? counts.updated : 0;
+    const label = CONFIG_REPORT_LABELS[key] ?? key.replace(/_/g, " ");
+    return `${label}: ${created} created, ${updated} updated`;
+  });
+}
+
+export function configRestoreBody(
+  snapshot: unknown,
+  secretValues: Record<string, string>,
+): unknown {
+  if (Object.keys(secretValues).length === 0) return snapshot;
+  return { config: snapshot, secret_values: secretValues };
+}
+
+export function configBackupGeneratedKeys(value: unknown): [string, string][] {
+  if (!isJsonObject(value) || !isJsonObject(value.api_key_values)) return [];
+  const values = value.api_key_values as Record<string, unknown>;
+  return Object.entries(values).filter(
+    (entry): entry is [string, string] => typeof entry[1] === "string",
+  );
+}
+
+export function ConfigBackupSection() {
+  const [includeValues, setIncludeValues] = useState(false);
+  const [snapshot, setSnapshot] = useState<unknown>(null);
+  const [fileName, setFileName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [reportLines, setReportLines] = useState<string[]>([]);
+  const [generatedKeys, setGeneratedKeys] = useState<[string, string][]>([]);
+  const [missingSecrets, setMissingSecrets] = useState<string[]>([]);
+  const [secretValues, setSecretValues] = useState<Record<string, string>>({});
+
+  async function exportConfig(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api<unknown>(
+        `/api/backup/config?include_values=${includeValues ? "true" : "false"}`,
+      );
+      const blob = new Blob([`${JSON.stringify(result, null, 2)}\n`], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `bots-config-${new Date().toISOString().replace(/:/g, "-")}.json`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function restoreConfig(): Promise<void> {
+    if (snapshot === null || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/backup/config", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(configRestoreBody(snapshot, secretValues)),
+      });
+      const result = (await res.json()) as unknown;
+      if (!res.ok) {
+        setError(
+          isJsonObject(result) && typeof result.error === "string"
+            ? result.error
+            : `${res.status}`,
+        );
+        const missing =
+          isJsonObject(result) && Array.isArray(result.missing_secret_names)
+            ? result.missing_secret_names.filter(
+                (x): x is string => typeof x === "string",
+              )
+            : [];
+        setMissingSecrets(missing);
+        setSecretValues(
+          Object.fromEntries(
+            missing.map((name) => [name, secretValues[name] ?? ""]),
+          ),
+        );
+        return;
+      }
+      setReportLines(formatConfigBackupReport(result));
+      setGeneratedKeys(configBackupGeneratedKeys(result));
+      setMissingSecrets([]);
+      setSecretValues({});
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const restoreDisabled =
+    busy ||
+    snapshot === null ||
+    missingSecrets.some((name) => !secretValues[name]?.trim());
+
+  return (
+    <div className="backupconfig">
+      <p className="muted">Configuration backup</p>
+      <div className="actions">
+        <label className="switch">
+          <input
+            type="checkbox"
+            aria-label="Include secret values in export"
+            checked={includeValues}
+            onChange={() => setIncludeValues((current) => !current)}
+          />
+          <span className="knob" />
+          <span className="state">
+            {includeValues ? "Included" : "Names only"}
+          </span>
+        </label>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void exportConfig()}
+        >
+          Export config
+        </button>
+      </div>
+      <p className="muted">
+        Secret values are omitted by default and stay server-side during
+        restore.
+      </p>
+
+      <div className="actions">
+        <input
+          type="file"
+          accept=".json,application/json"
+          aria-label="Configuration backup file"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (!file) return;
+            setFileName(file.name);
+            setSnapshot(null);
+            setError(null);
+            setReportLines([]);
+            setGeneratedKeys([]);
+            setMissingSecrets([]);
+            setSecretValues({});
+            void file.text().then(
+              (text) => {
+                try {
+                  setSnapshot(JSON.parse(text));
+                } catch {
+                  setError("restore file must contain valid JSON");
+                }
+              },
+              () => setError("could not read backup file"),
+            );
+          }}
+        />
+        <button
+          type="button"
+          disabled={restoreDisabled}
+          onClick={() => void restoreConfig()}
+        >
+          Restore config
+        </button>
+      </div>
+      {fileName && <p className="muted">Selected: {fileName}</p>}
+
+      {missingSecrets.length > 0 && (
+        <>
+          <p className="muted">
+            Add the missing secret values to complete restore.
+          </p>
+          <div className="backupsecretrows">
+            {missingSecrets.map((name) => (
+              <label key={name} className="keyrow backupsecretrow">
+                <span>{name}</span>
+                <input
+                  type="password"
+                  aria-label={`Secret value for ${name}`}
+                  autoComplete="off"
+                  value={secretValues[name] ?? ""}
+                  onChange={(event) =>
+                    setSecretValues((current) => ({
+                      ...current,
+                      [name]: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            ))}
+          </div>
+        </>
+      )}
+
+      {error && <p className="muted">{error}</p>}
+      {reportLines.length > 0 && (
+        <>
+          <p className="muted">Restore report</p>
+          <ul className="plist">
+            {reportLines.map((line) => (
+              <li key={line}>
+                <div className="pinfo">{line}</div>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {generatedKeys.length > 0 && (
+        <>
+          <p className="keyreveal">New API keys — shown once:</p>
+          <ul className="plist">
+            {generatedKeys.map(([name, value]) => (
+              <li key={name}>
+                <div className="pinfo">
+                  <strong>{name}</strong>
+                  <code>{value}</code>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   );
 }
@@ -4394,6 +4865,162 @@ interface ContextBreakdownData {
   };
   used: number;
   free: number | null;
+}
+
+const FILE_PREVIEW_LIMIT = 256 * 1024;
+
+interface WorkspaceEntry {
+  name: string;
+  type: "dir" | "file";
+  size_bytes: number;
+  modified_at: number;
+}
+
+export function fmtBytes(n: number): string {
+  if (n >= 1e9) return `${(n / 1073741824).toFixed(1)} GB`;
+  if (n >= 1e6) return `${(n / 1048576).toFixed(1)} MB`;
+  if (n >= 1e3) return `${(n / 1024).toFixed(1)} KB`;
+  return `${n} B`;
+}
+
+// specs/machines/workspace-browser.md — read-only browse of data/workspaces/<bot-id>.
+export function BotFiles({ botId }: { botId: string }) {
+  const [path, setPath] = useState("");
+  const [data, setData] = useState<{
+    path: string;
+    entries: WorkspaceEntry[];
+  } | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [selected, setSelected] = useState<WorkspaceEntry | null>(null);
+  const [fileText, setFileText] = useState<string | null>(null);
+  const [binary, setBinary] = useState(false);
+  const [truncated, setTruncated] = useState(false);
+  const [loadingFile, setLoadingFile] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void api<{ path: string; entries: WorkspaceEntry[] }>(
+      `/api/bots/${botId}/workspace?path=${encodeURIComponent(path)}`,
+    )
+      .then((d) => active && setData(d))
+      .catch(() => active && setData({ path, entries: [] }));
+    return () => {
+      active = false;
+    };
+  }, [botId, path, refreshKey]);
+
+  const fileUrl = (p: string) =>
+    `/api/bots/${botId}/workspace/file?path=${encodeURIComponent(p)}`;
+  const joinPath = (name: string) => (path ? `${path}/${name}` : name);
+
+  const openEntry = async (entry: WorkspaceEntry) => {
+    if (entry.type === "dir") {
+      setSelected(null);
+      setPath(joinPath(entry.name));
+      return;
+    }
+    setSelected(entry);
+    setFileText(null);
+    setBinary(false);
+    setTruncated(false);
+    if (entry.size_bytes > FILE_PREVIEW_LIMIT) return;
+    setLoadingFile(true);
+    try {
+      const res = await fetch(fileUrl(joinPath(entry.name)));
+      if (!res.ok) throw new Error(String(res.status));
+      const buf = new Uint8Array(await res.arrayBuffer());
+      setTruncated(buf.byteLength < entry.size_bytes);
+      try {
+        setFileText(new TextDecoder("utf-8", { fatal: true }).decode(buf));
+      } catch {
+        setBinary(true);
+      }
+    } catch {
+      setBinary(true);
+    } finally {
+      setLoadingFile(false);
+    }
+  };
+
+  const crumbs = path ? path.split("/") : [];
+  return (
+    <section>
+      <div className="actions">
+        <nav className="crumbs" aria-label="Workspace path">
+          <button
+            type="button"
+            onClick={() => {
+              setSelected(null);
+              setPath("");
+            }}
+          >
+            workspace
+          </button>
+          {crumbs.map((seg, i) => (
+            <span key={seg}>
+              /{" "}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelected(null);
+                  setPath(crumbs.slice(0, i + 1).join("/"));
+                }}
+              >
+                {seg}
+              </button>
+            </span>
+          ))}
+        </nav>
+        <button
+          type="button"
+          onClick={() => {
+            setSelected(null);
+            setRefreshKey((k) => k + 1);
+          }}
+        >
+          Refresh
+        </button>
+      </div>
+      {(data?.entries.length ?? 0) === 0 && (
+        <p className="muted">Empty directory.</p>
+      )}
+      {(data?.entries ?? []).map((entry) => (
+        <div key={entry.name} className="filerow">
+          <button type="button" onClick={() => void openEntry(entry)}>
+            {entry.type === "dir" ? `${entry.name}/` : entry.name}
+          </button>
+          {entry.type === "file" && (
+            <span className="muted">{fmtBytes(entry.size_bytes)}</span>
+          )}
+          <span className="muted">
+            {new Date(entry.modified_at).toLocaleString()}
+          </span>
+        </div>
+      ))}
+      {selected && (
+        <article className="fileview">
+          <div className="actions">
+            <strong>{selected.name}</strong>
+            <a href={fileUrl(joinPath(selected.name))}>Download</a>
+          </div>
+          {selected.size_bytes > FILE_PREVIEW_LIMIT ? (
+            <p className="muted">Larger than 256 KB — download only.</p>
+          ) : loadingFile ? (
+            <p className="muted">Loading…</p>
+          ) : binary ? (
+            <p className="muted">Binary file — download to inspect.</p>
+          ) : (
+            fileText !== null && (
+              <>
+                {truncated && <p className="muted">Truncated at 256 KB.</p>}
+                <pre>{fileText}</pre>
+              </>
+            )
+          )}
+        </article>
+      )}
+    </section>
+  );
 }
 
 export function BotStats({

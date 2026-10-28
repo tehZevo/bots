@@ -19,12 +19,15 @@ import {
   resumePendingInjections,
   stopAllLoops,
 } from "./agent.ts";
+import { exportConfigBackup, importConfigBackup } from "./backup.ts";
 import { repoRoot } from "./config.ts";
 import {
   approveDeviceGrant,
   botSecretIds,
   botsUsingMachine,
   botUsageTotals,
+  breakerState,
+  checkSpendBreaker,
   claimDeviceGrant,
   clearDeviceGrants,
   clearMessages,
@@ -91,6 +94,7 @@ import {
   insertTemplate,
   insertTrigger,
   insertUser,
+  isBreakerArmed,
   isMcpSecretRef,
   isPaused,
   latestErrorBotIds,
@@ -127,6 +131,8 @@ import {
   setBotProjects,
   setBotSecret,
   setBotTags,
+  setBreakerArmed,
+  setBreakerLimit,
   setMachineBuild,
   setPaused,
   setSetting,
@@ -183,6 +189,11 @@ import {
   searchSkillsSh,
   storeBundle,
 } from "./skillimport.ts";
+import {
+  listWorkspace,
+  readWorkspaceFile,
+  WorkspaceError,
+} from "./workspace.ts";
 
 const DEFAULT_MANUAL_MESSAGE = "Continue with your current work.";
 
@@ -410,6 +421,13 @@ export interface AuthUser {
   id: string;
   email: string;
   keyId?: string;
+}
+
+function denyApiKey(c: Context): Response | undefined {
+  const user = c.get("user") as AuthUser;
+  return user.keyId
+    ? c.json({ error: "session authentication required" }, 403)
+    : undefined;
 }
 
 // --- device authorization (RFC 8628) ----------------------------------------
@@ -793,7 +811,14 @@ export function createApp() {
     }),
   );
 
-  app.get("/api/pause", (c) => c.json({ paused: isPaused() }));
+  app.get("/api/pause", (c) => {
+    const armed = isBreakerArmed() && breakerState().exceeded;
+    return c.json(
+      armed
+        ? { paused: isPaused(), reason: "breaker" }
+        : { paused: isPaused() },
+    );
+  });
 
   app.post("/api/pause", async (c) => {
     const body = (await c.req.json().catch(() => null)) as {
@@ -801,9 +826,37 @@ export function createApp() {
     } | null;
     if (typeof body?.paused !== "boolean")
       return c.json({ error: "paused must be a boolean" }, 400);
+    if (!body.paused && isBreakerArmed()) {
+      const state = breakerState();
+      if (state.exceeded)
+        return c.json(
+          {
+            error: `Spend circuit breaker tripped: ${state.tokens_30d.toLocaleString()} tokens used of a ${state.limit_tokens.toLocaleString()} cap (trailing 30 days). Raise or clear the cap in Settings to resume.`,
+          },
+          409,
+        );
+      setBreakerArmed(false);
+    }
     setPaused(body.paused);
     if (!body.paused) resumePendingInjections();
     return c.json({ paused: body.paused });
+  });
+
+  // specs/usage/circuit-breaker.md — server-wide trailing-30-day token cap.
+  app.get("/api/breaker", (c) => c.json(breakerState()));
+
+  app.put("/api/breaker", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      limit_tokens?: unknown;
+    } | null;
+    const raw = body?.limit_tokens;
+    if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0)
+      return c.json(
+        { error: "limit_tokens must be a non-negative integer" },
+        400,
+      );
+    setBreakerLimit(raw);
+    return c.json(breakerState());
   });
 
   // specs/bots/emergency-stop.md — panic button: interrupt everything, then arm the pause.
@@ -1748,6 +1801,39 @@ export function createApp() {
     return c.json({ ok: true });
   });
 
+  app.get("/api/backup/config", (c) => {
+    const denied = denyApiKey(c);
+    if (denied) return denied;
+    try {
+      const includeValues = ["true", "1"].includes(
+        c.req.query("include_values")?.toLowerCase() ?? "",
+      );
+      return c.json(exportConfigBackup(includeValues));
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        500,
+      );
+    }
+  });
+
+  app.post("/api/backup/config", async (c) => {
+    const denied = denyApiKey(c);
+    if (denied) return denied;
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body !== "object" || Array.isArray(body))
+      return c.json({ error: "invalid backup body" }, 400);
+    try {
+      const result = importConfigBackup(body, (c.get("user") as AuthUser).id);
+      return "error" in result ? c.json(result, 400) : c.json(result);
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        500,
+      );
+    }
+  });
+
   app.get("/api/roles", (c) => c.json(listRoles()));
 
   app.get("/api/projects", (c) => c.json(listProjects()));
@@ -2186,6 +2272,40 @@ export function createApp() {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
     return c.json({ ...botUsageTotals(bot.id), budget: bot.token_budget });
+  });
+
+  // specs/machines/workspace-browser.md — read-only host view of the workspace.
+  app.get("/api/bots/:id/workspace", (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    const path = c.req.query("path") ?? "";
+    try {
+      return c.json(listWorkspace(bot.id, path));
+    } catch (err) {
+      if (err instanceof WorkspaceError)
+        return c.json({ error: err.message }, err.status as 400);
+      throw err;
+    }
+  });
+
+  app.get("/api/bots/:id/workspace/file", (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    const path = c.req.query("path") ?? "";
+    try {
+      const bytes = readWorkspaceFile(bot.id, path);
+      const name = path.split("/").filter(Boolean).pop() ?? "file";
+      return new Response(new Uint8Array(bytes), {
+        headers: {
+          "content-type": "application/octet-stream",
+          "content-disposition": `attachment; filename="${encodeURIComponent(name)}"`,
+        },
+      });
+    } catch (err) {
+      if (err instanceof WorkspaceError)
+        return c.json({ error: err.message }, err.status as 400);
+      throw err;
+    }
   });
 
   app.get("/api/bots/:id/context-usage", (c) => {

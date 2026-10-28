@@ -20,4 +20,6 @@ features:
     details: Cron and @every schedules, webhook endpoints with bearer secrets, chat injection.
   - title: Outbound events
     details: Signed event webhooks for runs, bot health, notifications, and spend breakers — with retries and delivery logs.
+  - title: Portable configuration
+    details: Export and restore bots, roles, skills, projects and settings without run history or workspaces.
 ---

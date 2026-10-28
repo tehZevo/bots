@@ -2289,6 +2289,32 @@ button.danger.ghost {
   max-width: 9rem;
 }
 
+.backupsecretrows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.backupsecretrow span {
+  min-width: 9rem;
+}
+
+.backupsecretrow input {
+  width: 100%;
+}
+
+.actions input[type="file"] {
+  max-width: min(20rem, 100%);
+}
+
+@media (max-width: 700px) {
+  .backupsecretrow {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 .warnline {
   margin: 0.25rem 0;
   color: var(--err);
@@ -2637,8 +2663,21 @@ main.scr-active,
   display: flex;
   gap: 0.5rem;
   align-items: center;
+  flex-wrap: wrap;
   font-size: 0.78rem;
   color: var(--muted);
+}
+
+.ractions {
+  margin-left: auto;
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.ractions button {
+  font-size: 0.78rem;
+  padding: 0.2rem 0.45rem;
 }
 
 .rkind {
@@ -2693,4 +2732,41 @@ main.scr-active,
   -webkit-box-orient: vertical;
   overflow: hidden;
   cursor: pointer;
+}
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.crumbs button {
+  border: none;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.filerow {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.filerow > button {
+  border: none;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fileview {
+  margin-top: 0.5rem;
 }

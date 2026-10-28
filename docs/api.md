@@ -38,6 +38,15 @@ A terminal client requests a short code, the user approves it in the browser, an
 
 The approval page lives at `/device` (`verification_uri_complete` deep-links it with the code); it requires a login session, shows the client name and expiry before approval, and never displays the issued key.
 
+## Configuration backup
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/backup/config` | Export configuration only — `?include_values=true` embeds secret values; default export omits them |
+| POST | `/api/backup/config` | Import a raw snapshot or `{ config, secret_values }`; validates the whole file before changing anything and returns created/updated counts per kind |
+
+Both routes require a browser session and reject API-key bearer authentication with `403`. Snapshots cover bots plus role/tag/project/team references, roles, skills with bundles, MCP servers, projects, tags, teams, templates, secret names and keys, and API key hashes. Runs, chat history, usage totals, notifications, users, provider values, pause state, workspaces and avatars are excluded. Restores upsert by name and never delete; missing values for new secrets must be supplied before the import completes. A restore that creates an API key without a stored hash returns its raw value once in `api_key_values`.
+
 ## Bots
 
 | Method | Path | Purpose |
@@ -58,9 +67,18 @@ The approval page lives at `/device` (`verification_uri_complete` deep-links it 
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/pause` | `{ paused }` — the server-wide pause state |
-| POST | `/api/pause` | `{ paused: bool }` — hold or resume every bot; anything injected while held drains on resume |
+| GET | `/api/pause` | `{ paused, reason? }` — the server-wide pause state; `reason: "breaker"` while a tripped spend circuit breaker holds it |
+| POST | `/api/pause` | `{ paused: bool }` — hold or resume every bot; anything injected while held drains on resume; Resume answers 409 with usage vs cap while the breaker is over its cap |
 | POST | `/api/stop-all` | Panic button: interrupts every running loop and arms the pause — `{ stopped: <count> }`; idempotent (nothing running still pauses) |
+
+## Spend circuit breaker
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/breaker` | `{ limit_tokens, tokens_30d, exceeded }` — the server-wide trailing-30-day cap and usage (`limit_tokens: 0` = unlimited) |
+| PUT | `/api/breaker` | `{ limit_tokens: int ≥ 0 }` — set or clear (0) the cap; bringing it under usage re-arms resume — 400 on a non-integer or negative value |
+
+The breaker is checked when a run reaches its terminal status; crossing the cap arms the global pause and raises one notification. See [Bots](/bots) and [Settings](/getting-started).
 
 ## Triggers
 

@@ -137,6 +137,10 @@ mkdirSync(dirname(config.databasePath), { recursive: true });
 const db = new Database(config.databasePath);
 db.pragma("journal_mode = WAL");
 
+export function runInTransaction<T>(fn: () => T): T {
+  return db.transaction(fn)();
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS bots (
     id TEXT PRIMARY KEY,
@@ -927,6 +931,34 @@ export function removeTeamMember(teamId: string, botId: string): void {
     teamId,
     botId,
   );
+}
+
+export function teamIdsByBot(): Map<string, { id: string; leader: boolean }[]> {
+  const map = new Map<string, { id: string; leader: boolean }[]>();
+  for (const row of db
+    .prepare(
+      "SELECT bot_id, team_id, leader FROM team_members ORDER BY team_id",
+    )
+    .all() as { bot_id: string; team_id: string; leader: number }[]) {
+    const list = map.get(row.bot_id) ?? [];
+    list.push({ id: row.team_id, leader: row.leader === 1 });
+    map.set(row.bot_id, list);
+  }
+  return map;
+}
+
+export function setTeamMembershipsForBot(
+  botId: string,
+  memberships: { team_id: string; leader: boolean }[],
+): void {
+  db.prepare("DELETE FROM team_members WHERE bot_id = ?").run(botId);
+  const ins = db.prepare(
+    `INSERT INTO team_members (team_id, bot_id, leader) VALUES (?, ?, ?)
+     ON CONFLICT (team_id, bot_id) DO UPDATE SET leader = excluded.leader`,
+  );
+  for (const m of new Map(memberships.map((x) => [x.team_id, x])).values()) {
+    ins.run(m.team_id, botId, m.leader ? 1 : 0);
+  }
 }
 
 export interface TeammateRow {
@@ -2241,6 +2273,75 @@ export function botUsageTotals(botId: string): {
   return { lifetime: sumUsage(botId), last30d: sumUsage(botId, since) };
 }
 
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+export function sumUsageAll(since?: number): UsageTotals {
+  const sql = `SELECT COALESCE(SUM(input), 0) AS input, COALESCE(SUM(output), 0) AS output,
+       COALESCE(SUM(cache_read), 0) AS cache_read,
+       COALESCE(SUM(cache_write), 0) AS cache_write
+   FROM run_usage${since ? " WHERE created_at >= ?" : ""}`;
+  const row = (
+    since ? db.prepare(sql).get(since) : db.prepare(sql).get()
+  ) as TokenUsage;
+  return {
+    ...row,
+    total: row.input + row.output + row.cache_read + row.cache_write,
+  };
+}
+
+// specs/usage/circuit-breaker.md — server-wide trailing-30-day token cap.
+export function getBreakerLimit(): number {
+  const raw = getSetting("breaker_limit_tokens");
+  const n = raw ? Number(raw) : 0;
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+export function isBreakerArmed(): boolean {
+  return getSetting("breaker_tripped") === "1";
+}
+
+export function setBreakerArmed(armed: boolean): void {
+  if (armed) setSetting("breaker_tripped", "1");
+  else deleteSetting("breaker_tripped");
+}
+
+export function breakerState(): {
+  limit_tokens: number;
+  tokens_30d: number;
+  exceeded: boolean;
+} {
+  const limit = getBreakerLimit();
+  const tokens30d = sumUsageAll(Date.now() - THIRTY_DAYS_MS).total;
+  return {
+    limit_tokens: limit,
+    tokens_30d: tokens30d,
+    exceeded: limit > 0 && tokens30d > limit,
+  };
+}
+
+export function setBreakerLimit(limit: number): void {
+  if (limit > 0) setSetting("breaker_limit_tokens", String(limit));
+  else deleteSetting("breaker_limit_tokens");
+  const state = breakerState();
+  if (!state.exceeded) setBreakerArmed(false);
+}
+
+export function checkSpendBreaker(): boolean {
+  const state = breakerState();
+  if (!state.exceeded) return false;
+  const wasArmed = isBreakerArmed();
+  setBreakerArmed(true);
+  setPaused(true);
+  if (!wasArmed)
+    createNotification({
+      kind: "breaker",
+      title: "Spend circuit breaker tripped",
+      body: `Trailing 30-day usage of ${state.tokens_30d.toLocaleString()} tokens passed the cap of ${state.limit_tokens.toLocaleString()}. All bots are paused; raise or clear the cap to resume.`,
+      dedupeKey: `breaker:${Date.now()}`,
+    });
+  return true;
+}
+
 export interface McpSecretRef {
   secret: string;
 }
@@ -2368,13 +2469,17 @@ export function insertSkill(skill: SkillRow): void {
 
 export function updateSkill(
   id: string,
-  fields: Partial<Pick<SkillRow, "name" | "description" | "instructions">>,
+  fields: Partial<
+    Pick<SkillRow, "name" | "description" | "instructions"> & {
+      import_info: string | null;
+    }
+  >,
 ): void {
-  const sets = Object.keys(fields)
-    .map((k) => `${k} = ?`)
-    .join(", ");
+  const entries = Object.entries(fields);
+  if (entries.length === 0) return;
+  const sets = entries.map(([k]) => `${k} = ?`).join(", ");
   db.prepare(`UPDATE skills SET ${sets} WHERE id = ?`).run(
-    ...Object.values(fields),
+    ...entries.map(([, v]) => v),
     id,
   );
 }
@@ -2533,6 +2638,22 @@ export function listApiKeys(userId: string): ApiKeyRow[] {
     .all(userId) as ApiKeyRow[];
 }
 
+export function listAllApiKeys(): (ApiKeyRow & { hash: string })[] {
+  return db
+    .prepare(
+      "SELECT id, name, hash, user_id, created_at, last_used_at FROM api_keys ORDER BY created_at",
+    )
+    .all() as (ApiKeyRow & { hash: string })[];
+}
+
+export function getApiKeyById(id: string): ApiKeyRow | undefined {
+  return db
+    .prepare(
+      "SELECT id, name, user_id, created_at, last_used_at FROM api_keys WHERE id = ?",
+    )
+    .get(id) as ApiKeyRow | undefined;
+}
+
 export function getApiKeyByHash(hash: string): ApiKeyRow | undefined {
   return db
     .prepare(
@@ -2543,6 +2664,17 @@ export function getApiKeyByHash(hash: string): ApiKeyRow | undefined {
 
 export function touchApiKey(id: string, ts: number): void {
   db.prepare("UPDATE api_keys SET last_used_at = ? WHERE id = ?").run(ts, id);
+}
+
+export function updateApiKey(
+  id: string,
+  patch: Partial<{ name: string; hash: string; created_at: number }>,
+): void {
+  const entries = Object.entries(patch).filter(([, v]) => v !== undefined);
+  if (entries.length === 0) return;
+  db.prepare(
+    `UPDATE api_keys SET ${entries.map(([k]) => `${k} = @${k}`).join(", ")} WHERE id = @id`,
+  ).run({ ...Object.fromEntries(entries), id });
 }
 
 export function deleteApiKey(id: string, userId: string): boolean {

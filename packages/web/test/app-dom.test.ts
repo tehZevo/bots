@@ -35,6 +35,16 @@ Object.assign(globalThis, {
 window.HTMLElement.prototype.scrollIntoView = () => undefined;
 globalThis.alert = () => undefined;
 
+const clipboardWrites: string[] = [];
+Object.defineProperty(window.navigator, "clipboard", {
+  configurable: true,
+  value: {
+    writeText: async (text: string) => {
+      clipboardWrites.push(text);
+    },
+  },
+});
+
 const React = await import("react");
 const { createRoot } = await import("react-dom/client");
 const {
@@ -86,6 +96,7 @@ const requests: string[] = [];
 const patchBodies: Record<string, unknown>[] = [];
 const botPatchBodies: Record<string, unknown>[] = [];
 const mcpPatchBodies: Record<string, unknown>[] = [];
+const runBodies: Record<string, unknown>[] = [];
 let pausedFlag = false;
 
 function json(value: unknown): Response {
@@ -328,6 +339,14 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     pausedFlag = true;
     return json({ stopped: 0 });
   }
+  if (url === "/api/bots/b1/run" && method === "POST") {
+    try {
+      runBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+    } catch {
+      runBodies.push({});
+    }
+    return json({ runId: "run2", steered: false });
+  }
   if (url === "/api/triggers/t1" && method === "PATCH") return json(trigger);
   if (url.startsWith("/api/triggers/") && method === "DELETE") return json({});
   return json([]);
@@ -395,6 +414,15 @@ async function typeInto(
     input.dispatchEvent(new window.Event("input", { bubbles: true }));
     input.dispatchEvent(new window.Event("change", { bubbles: true }));
   });
+  await flush();
+}
+
+async function expandTranscript(): Promise<void> {
+  await click(byLabel("Sable (null)"));
+  await click(byLabel("Sable settings"));
+  await click(button("Logs"));
+  await flush();
+  await click(window.document.querySelector(".runhead"));
   await flush();
 }
 
@@ -1031,6 +1059,71 @@ test("logs rows expand inline into the run transcript replay", async () => {
       "second click collapses the replay",
     );
   } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("transcript user steps rerun the exact message and copy other steps", async () => {
+  requests.length = 0;
+  runBodies.length = 0;
+  clipboardWrites.length = 0;
+  const previousPaused = pausedFlag;
+  pausedFlag = false;
+  const root = await mount(React.createElement(App));
+  try {
+    await expandTranscript();
+
+    assert.deepEqual(
+      [...window.document.querySelectorAll(".ractions button")].map((item) =>
+        item.textContent?.trim(),
+      ),
+      ["Run this", "Copy", "Copy"],
+    );
+
+    const copies = [
+      ...window.document.querySelectorAll(".ractions button"),
+    ].filter((item) => item.textContent?.trim() === "Copy");
+    await click(copies[0]);
+    assert.deepEqual(clipboardWrites, ["running shell"]);
+    assert.match(window.document.body.textContent ?? "", /Copied/);
+
+    await click(copies[1]);
+    assert.equal(clipboardWrites.at(-1), "exit 0\n/dev/root 92%");
+
+    const runButton = button("Run this");
+    assert.ok(runButton);
+    await click(runButton);
+    assert.ok(requests.includes("POST /api/bots/b1/run"));
+    assert.deepEqual(runBodies, [{ message: "check disk" }]);
+  } finally {
+    pausedFlag = previousPaused;
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("transcript rerun is disabled while the bot is running", async () => {
+  requests.length = 0;
+  runBodies.length = 0;
+  const previousPaused = pausedFlag;
+  pausedFlag = false;
+  const previousState = bot.run_state;
+  bot.run_state = "running";
+  const root = await mount(React.createElement(App));
+  try {
+    await expandTranscript();
+    const runButton = button("Run this");
+    assert.ok(runButton);
+    assert.ok(runButton.hasAttribute("disabled"));
+
+    await click(runButton);
+    assert.equal(requests.filter((item) => item.endsWith("/run")).length, 0);
+  } finally {
+    pausedFlag = previousPaused;
+    bot.run_state = previousState;
     await act(async () => {
       root.unmount();
     });
