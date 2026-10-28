@@ -100,6 +100,14 @@ The breaker is checked when a run reaches its terminal status; crossing the cap 
 
 See [Templates](/templates) for the UI flow.
 
+## Search
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/search?q=...&types=bots,roles,...` | Case-insensitive substring search across bots (name + instructions), roles (name + instructions), skills/projects/templates (name + description), tags and teams (name); defaults to every type; unknown types → `400` |
+
+Responses are `{ groups: [{ type, total, matches }] }`, capped at eight matches per group while `total` reports all matches. Each match is `{ type, id, name, subtitle }`. The UI uses this endpoint for its global search overlay; see [Search & commands](/search).
+
 ## Secrets
 
 | Method | Path | Purpose |

@@ -18,6 +18,7 @@ export default defineConfig({
         text: "Guide",
         items: [
           { text: "Getting started", link: "/getting-started" },
+          { text: "Search & commands", link: "/search" },
           { text: "Accounts & access", link: "/authentication" },
           { text: "Bots", link: "/bots" },
           {

@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -1096,6 +1097,10 @@ export function App() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [pendingEdit, setPendingEdit] = useState<PendingEntityEdit | null>(
+    null,
+  );
   const seenNotifIds = useRef<Set<string> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(false);
@@ -1216,6 +1221,40 @@ export function App() {
   const dismissDetails = () => setDetailOpen(false);
   const requestCloseDetails = () => discardGuard(dismissDetails);
 
+  function switchTab(nextTab: Tab): void {
+    if (tabRef.current === nextTab) return;
+    setTabRaw(nextTab);
+    if (typeof history !== "undefined")
+      history.pushState({}, "", TAB_PATHS[nextTab]);
+  }
+
+  const navigateTab = (nextTab: Tab) => discardGuard(() => switchTab(nextTab));
+
+  const openSearchEntity = (match: SearchMatch) => {
+    setSearchOpen(false);
+    if (match.type === "bots") {
+      discardGuard(() => {
+        setChatBot(match.id);
+        switchTab("bots");
+      });
+      return;
+    }
+    const entityType = match.type as PendingEntityEditType;
+    const nextTab = ENTITY_TABS[entityType];
+    discardGuard(() => {
+      setPendingEdit({ type: entityType, id: match.id });
+      switchTab(nextTab);
+    });
+  };
+
+  const openSearchNewBot = () => {
+    setSearchOpen(false);
+    discardGuard(() => {
+      switchTab("bots");
+      setAddOpen(true);
+    });
+  };
+
   async function markOneNotification(id: string): Promise<void> {
     try {
       await api(`/api/notifications/${id}/read`, { method: "POST" });
@@ -1326,6 +1365,15 @@ export function App() {
             onClick={() => setStopAllConfirm(true)}
           >
             Stop all
+          </button>
+          <button
+            type="button"
+            className="searchtoggle"
+            aria-label="Open search"
+            title="Search records or run commands"
+            onClick={() => setSearchOpen(true)}
+          >
+            Search
           </button>
           <div className="notifwrap">
             <button
@@ -1615,14 +1663,48 @@ export function App() {
                 )}
               </>
             )}
-            {tab === "roles" && <RolesPanel />}
-            {tab === "teams" && <TeamsPanel />}
+            {tab === "roles" && (
+              <RolesPanel
+                openId={pendingEdit?.type === "roles" ? pendingEdit.id : null}
+                onOpened={() => setPendingEdit(null)}
+              />
+            )}
+            {tab === "teams" && (
+              <TeamsPanel
+                openId={pendingEdit?.type === "teams" ? pendingEdit.id : null}
+                onOpened={() => setPendingEdit(null)}
+              />
+            )}
             {tab === "machines" && <MachinesPanel />}
             {tab === "integrations" && <IntegrationsPanel />}
-            {tab === "skills" && <SkillsPanel />}
-            {tab === "templates" && <TemplatesPanel />}
-            {tab === "projects" && <ProjectsPanel />}
-            {tab === "tags" && <TagsPanel />}
+            {tab === "skills" && (
+              <SkillsPanel
+                openId={pendingEdit?.type === "skills" ? pendingEdit.id : null}
+                onOpened={() => setPendingEdit(null)}
+              />
+            )}
+            {tab === "templates" && (
+              <TemplatesPanel
+                openId={
+                  pendingEdit?.type === "templates" ? pendingEdit.id : null
+                }
+                onOpened={() => setPendingEdit(null)}
+              />
+            )}
+            {tab === "projects" && (
+              <ProjectsPanel
+                openId={
+                  pendingEdit?.type === "projects" ? pendingEdit.id : null
+                }
+                onOpened={() => setPendingEdit(null)}
+              />
+            )}
+            {tab === "tags" && (
+              <TagsPanel
+                openId={pendingEdit?.type === "tags" ? pendingEdit.id : null}
+                onOpened={() => setPendingEdit(null)}
+              />
+            )}
             {tab === "secrets" && <SecretsPanel />}
             {tab === "settings" && <SettingsPanel />}
           </main>
@@ -1898,6 +1980,17 @@ export function App() {
                 .then(() => void load())
                 .catch(() => undefined);
             }}
+          />
+        )}
+        {searchOpen && (
+          <SearchOverlay
+            bots={bots}
+            paused={paused}
+            onClose={() => setSearchOpen(false)}
+            onOpenEntity={openSearchEntity}
+            onNavigate={navigateTab}
+            onNewBot={openSearchNewBot}
+            onChanged={load}
           />
         )}
       </div>
@@ -3976,7 +4069,13 @@ export function TeamCreateModal({
   );
 }
 
-export function TeamsPanel() {
+export function TeamsPanel({
+  openId,
+  onOpened,
+}: {
+  openId?: string | null;
+  onOpened?: () => void;
+} = {}) {
   const [teams, setTeams] = useState<Team[]>([]);
   const [bots, setBots] = useState<Bot[]>([]);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
@@ -4016,6 +4115,15 @@ export function TeamsPanel() {
       (botSel.length === 0 || t.members.some((m) => botSel.includes(m.bot_id))),
   );
   const selTeam = teams.find((t) => t.id === selTeamId);
+
+  useEffect(() => {
+    if (!openId) return;
+    const team = teams.find((candidate) => candidate.id === openId);
+    if (!team) return;
+    setSelTeamId(team.id);
+    setCreating(false);
+    onOpened?.();
+  }, [onOpened, openId, teams]);
 
   return (
     <section>
@@ -4303,7 +4411,13 @@ export function BotTeams({ botId }: { botId: string }) {
   );
 }
 
-export function ProjectsPanel() {
+export function ProjectsPanel({
+  openId,
+  onOpened,
+}: {
+  openId?: string | null;
+  onOpened?: () => void;
+} = {}) {
   const [projects, setProjects] = useState<Project[]>([]);
   const navGuard = useNavGuard();
   const [creating, setCreating] = useState(false);
@@ -4316,6 +4430,15 @@ export function ProjectsPanel() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!openId) return;
+    const project = projects.find((candidate) => candidate.id === openId);
+    if (!project) return;
+    setSelProject(project);
+    setCreating(false);
+    onOpened?.();
+  }, [onOpened, openId, projects]);
 
   return (
     <section>
@@ -4530,7 +4653,13 @@ export function BotProjects({ botId }: { botId: string }) {
   );
 }
 
-export function RolesPanel() {
+export function RolesPanel({
+  openId,
+  onOpened,
+}: {
+  openId?: string | null;
+  onOpened?: () => void;
+} = {}) {
   const [roles, setRoles] = useState<Role[]>([]);
   const navGuard = useNavGuard();
   const [query, setQuery] = useState("");
@@ -4544,6 +4673,15 @@ export function RolesPanel() {
   useEffect(() => {
     void loadRoles();
   }, [loadRoles]);
+
+  useEffect(() => {
+    if (!openId) return;
+    const role = roles.find((candidate) => candidate.id === openId);
+    if (!role) return;
+    setFormRole(role);
+    setCreating(false);
+    onOpened?.();
+  }, [onOpened, openId, roles]);
 
   const q = query.trim().toLowerCase();
   const visible = roles.filter(
@@ -5617,6 +5755,582 @@ export function useDiscardGuard(
   return () => guard(close);
 }
 
+type SearchEntityType =
+  | "bots"
+  | "roles"
+  | "skills"
+  | "projects"
+  | "tags"
+  | "teams"
+  | "templates";
+
+interface SearchMatch {
+  type: SearchEntityType;
+  id: string;
+  name: string;
+  subtitle: string | null;
+}
+
+interface SearchGroupResponse {
+  type: SearchEntityType;
+  total: number;
+  matches: SearchMatch[];
+}
+
+type PendingEntityEditType = Exclude<SearchEntityType, "bots">;
+
+interface PendingEntityEdit {
+  type: PendingEntityEditType;
+  id: string;
+}
+
+const SEARCH_LABELS: Record<SearchEntityType, string> = {
+  bots: "Bots",
+  roles: "Roles",
+  skills: "Skills",
+  projects: "Projects",
+  tags: "Tags",
+  teams: "Teams",
+  templates: "Templates",
+};
+
+const ENTITY_TABS: Record<PendingEntityEditType, Tab> = {
+  roles: "roles",
+  skills: "skills",
+  projects: "projects",
+  tags: "tags",
+  teams: "teams",
+  templates: "templates",
+};
+
+interface SearchCommand {
+  id: string;
+  label: string;
+  group: "Bot actions" | "All bots" | "Navigation";
+  disabledReason?: string;
+  bot?: Bot;
+  confirm?: { text: string; label: string };
+  run: () => Promise<void>;
+}
+
+interface SearchRenderRow {
+  key: string;
+  kind: "search" | "command";
+  match?: SearchMatch;
+  action?: SearchCommand;
+  selectedIndex: number | null;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function Highlighted({ text, query }: { text: string; query: string }) {
+  const q = query.trim();
+  if (!q) return <>{text}</>;
+  try {
+    const parts = text.split(new RegExp(`(${escapeRegExp(q)})`, "gi"));
+    return (
+      <>
+        {parts.map((part, index) =>
+          part.toLowerCase() === q.toLowerCase() ? (
+            // biome-ignore lint/suspicious/noArrayIndexKey: split fragments are positional and immutable per render
+            <mark key={index}>{part}</mark>
+          ) : (
+            // biome-ignore lint/suspicious/noArrayIndexKey: split fragments are positional and immutable per render
+            part
+          ),
+        )}
+      </>
+    );
+  } catch {
+    return <>{text}</>;
+  }
+}
+
+export function SearchOverlay({
+  bots,
+  paused,
+  onClose,
+  onOpenEntity,
+  onNavigate,
+  onNewBot,
+  onChanged,
+}: {
+  bots: Bot[];
+  paused: boolean;
+  onClose: () => void;
+  onOpenEntity: (match: SearchMatch) => void;
+  onNavigate: (tab: Tab) => void;
+  onNewBot: () => void;
+  onChanged: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const previousFocus = useRef<Element | null>(null);
+  const [query, setQuery] = useState("");
+  const [searchGroups, setSearchGroups] = useState<SearchGroupResponse[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [inlineError, setInlineError] = useState<string | null>(null);
+  const [busyCommand, setBusyCommand] = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState<SearchCommand | null>(
+    null,
+  );
+  const [selected, setSelected] = useState(0);
+
+  const rawQuery = query.trim();
+  const commandMode = rawQuery.startsWith(">");
+  const commandText = commandMode ? rawQuery.slice(1).trim() : "";
+
+  useEffect(() => {
+    previousFocus.current = document.activeElement;
+    inputRef.current?.focus();
+    return () => {
+      (previousFocus.current as HTMLElement | null)?.focus();
+    };
+  }, []);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopImmediatePropagation();
+      if (pendingConfirm) {
+        setPendingConfirm(null);
+        return;
+      }
+      if (commandMode) {
+        setQuery("");
+        return;
+      }
+      if (!busyCommand) onClose();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [busyCommand, commandMode, onClose, pendingConfirm]);
+
+  useEffect(() => {
+    setSelected(0);
+    setInlineError(null);
+    if (commandMode) setSearchGroups([]);
+  }, [commandMode, rawQuery]);
+
+  const commandActions = useMemo<SearchCommand[]>(() => {
+    const sortedBots = [...bots].sort((a, b) => a.name.localeCompare(b.name));
+    const botCommands: SearchCommand[] = sortedBots.flatMap((bot) => {
+      const running = bot.run_state === "running";
+      return [
+        {
+          id: `run-${bot.id}`,
+          label: `Run ${bot.name}`,
+          group: "Bot actions" as const,
+          bot,
+          disabledReason: !bot.enabled ? "Bot disabled" : undefined,
+          run: async () => {
+            await api(`/api/bots/${bot.id}/run`, { method: "POST" });
+          },
+        },
+        {
+          id: `stop-${bot.id}`,
+          label: `Stop ${bot.name}`,
+          group: "Bot actions" as const,
+          bot,
+          disabledReason: running ? undefined : "Not running",
+          run: async () => {
+            await api(`/api/bots/${bot.id}/interrupt`, { method: "POST" });
+          },
+        },
+        {
+          id: `enable-${bot.id}`,
+          label: `Enable ${bot.name}`,
+          group: "Bot actions" as const,
+          bot,
+          disabledReason: bot.enabled ? "Already enabled" : undefined,
+          run: async () => {
+            await api(`/api/bots/${bot.id}`, {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ enabled: true }),
+            });
+          },
+        },
+        {
+          id: `disable-${bot.id}`,
+          label: `Disable ${bot.name}`,
+          group: "Bot actions" as const,
+          bot,
+          disabledReason: bot.enabled ? undefined : "Already disabled",
+          run: async () => {
+            await api(`/api/bots/${bot.id}`, {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ enabled: false }),
+            });
+          },
+        },
+      ];
+    });
+
+    const runningCount = sortedBots.filter(
+      (bot) => bot.run_state === "running",
+    ).length;
+    return [
+      ...botCommands,
+      {
+        id: "pause-all",
+        label: "Pause all",
+        group: "All bots" as const,
+        disabledReason: paused ? "Already paused" : undefined,
+        confirm: {
+          text: "Pause every bot? Nothing new starts until you resume.",
+          label: "Pause all",
+        },
+        run: async () => {
+          await api("/api/pause", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ paused: true }),
+          });
+        },
+      },
+      {
+        id: "resume-all",
+        label: "Resume all",
+        group: "All bots" as const,
+        disabledReason: paused ? undefined : "Not paused",
+        run: async () => {
+          await api("/api/pause", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ paused: false }),
+          });
+        },
+      },
+      {
+        id: "stop-all",
+        label: "Stop all",
+        group: "All bots" as const,
+        confirm: {
+          text: `Stop every running bot and pause all bots? ${runningCount} in flight; nothing resumes on its own.`,
+          label: "Stop all",
+        },
+        run: async () => {
+          await api("/api/stop-all", { method: "POST" });
+        },
+      },
+      {
+        id: "new-bot",
+        label: "New bot",
+        group: "Navigation" as const,
+        run: async () => {
+          onNavigate("bots");
+          onNewBot();
+        },
+      },
+      ...(Object.keys(TAB_PATHS) as Tab[]).map((tab) => ({
+        id: `open-${tab}`,
+        label: `Open ${tab[0].toUpperCase()}${tab.slice(1)}`,
+        group: "Navigation" as const,
+        run: async () => {
+          onNavigate(tab);
+        },
+      })),
+    ];
+  }, [bots, paused, onNavigate, onNewBot]);
+
+  useEffect(() => {
+    if (commandMode) return;
+    if (rawQuery.length < 2) {
+      setLoading(false);
+      setSearchGroups([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void api<{ groups: SearchGroupResponse[] }>(
+        `/api/search?q=${encodeURIComponent(rawQuery)}`,
+        { signal: controller.signal },
+      )
+        .then((result) => setSearchGroups(result.groups ?? []))
+        .catch((error: unknown) => {
+          if ((error as { name?: string }).name !== "AbortError")
+            setInlineError(
+              error instanceof Error ? error.message : String(error),
+            );
+        })
+        .finally(() => setLoading(false));
+    }, 300);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [commandMode, rawQuery]);
+
+  async function executeCommand(command: SearchCommand): Promise<void> {
+    setBusyCommand(true);
+    try {
+      await command.run();
+      onChanged();
+      onClose();
+    } catch (error) {
+      setInlineError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyCommand(false);
+    }
+  }
+
+  async function runRow(row: SearchRenderRow): Promise<void> {
+    if (row.kind === "search") {
+      if (row.match) onOpenEntity(row.match);
+      return;
+    }
+    const command = row.action;
+    if (!command || command.disabledReason) return;
+    if (command.confirm) {
+      setPendingConfirm(command);
+      return;
+    }
+    await executeCommand(command);
+  }
+
+  function moveSelection(delta: number): void {
+    if (!selectableRows.length) return;
+    setSelected(
+      (current) =>
+        (((current + delta) % selectableRows.length) + selectableRows.length) %
+        selectableRows.length,
+    );
+  }
+
+  function moveGroup(delta: number): void {
+    const current = renderGroups.findIndex((group) =>
+      group.rows.some((row) => row.selectedIndex === selected),
+    );
+    if (current < 0 || !renderGroups.length) return;
+    for (let offset = 1; offset <= renderGroups.length; offset++) {
+      const group =
+        renderGroups[
+          (current + delta * offset + renderGroups.length * 2) %
+            renderGroups.length
+        ];
+      const first = group.rows.find((row) => row.selectedIndex !== null);
+      if (first?.selectedIndex != null) {
+        setSelected(first.selectedIndex);
+        return;
+      }
+    }
+  }
+
+  const renderGroups = useMemo<
+    {
+      label: string;
+      extra: number;
+      rows: SearchRenderRow[];
+    }[]
+  >(() => {
+    let nextIndex = 0;
+    if (commandMode) {
+      const order: SearchCommand["group"][] = [
+        "Bot actions",
+        "All bots",
+        "Navigation",
+      ];
+      return order
+        .map((label) => ({
+          label,
+          extra: 0,
+          rows: commandActions
+            .filter(
+              (action) =>
+                action.group === label &&
+                (!commandText ||
+                  action.label.toLowerCase().includes(commandText)),
+            )
+            .map((action) => {
+              const selectedIndex = action.disabledReason ? null : nextIndex++;
+              return {
+                key: action.id,
+                kind: "command" as const,
+                action,
+                selectedIndex,
+              };
+            }),
+        }))
+        .filter((group) => group.rows.length > 0);
+    }
+
+    return searchGroups
+      .filter((group) => group.matches.length > 0)
+      .map((group) => ({
+        label: SEARCH_LABELS[group.type],
+        extra: Math.max(0, group.total - group.matches.length),
+        rows: group.matches.map((match) => {
+          const selectedIndex = nextIndex++;
+          return {
+            key: `${match.type}:${match.id}`,
+            kind: "search" as const,
+            match,
+            selectedIndex,
+          };
+        }),
+      }));
+  }, [commandMode, commandActions, commandText, searchGroups]);
+
+  const selectableRows = useMemo(
+    () =>
+      renderGroups.flatMap((group) =>
+        group.rows.filter((row) => row.selectedIndex !== null),
+      ),
+    [renderGroups],
+  );
+
+  useEffect(() => {
+    if (selected >= selectableRows.length) setSelected(0);
+  }, [selectableRows.length, selected]);
+
+  function renderBody() {
+    if (inlineError && !commandMode && rawQuery.length < 2) return null;
+    if (!commandMode) {
+      if (loading) return <p className="muted">Searching…</p>;
+      if (rawQuery.length < 2)
+        return (
+          <p className="muted searchempty">
+            Type at least two characters to search.
+          </p>
+        );
+    }
+    if (renderGroups.length === 0) {
+      return (
+        <p className="muted searchempty">
+          {commandMode ? "No commands match." : "No results."}
+        </p>
+      );
+    }
+
+    return renderGroups.map((group) => (
+      <section className="searchgroup" key={group.label}>
+        <div className="searchgrouplabel">
+          <span>{group.label}</span>
+          {group.extra > 0 && <em>+{group.extra} more</em>}
+        </div>
+        {group.rows.map((row) => {
+          const isSelected =
+            row.selectedIndex !== null && row.selectedIndex === selected;
+          const disabled = Boolean(row.action?.disabledReason);
+          return (
+            <button
+              key={row.key}
+              type="button"
+              role="option"
+              aria-selected={isSelected}
+              className={`searchrow${isSelected ? " selected" : ""}`}
+              disabled={disabled || busyCommand}
+              tabIndex={-1}
+              onClick={() => void runRow(row)}
+            >
+              {row.kind === "search" && row.match ? (
+                <span className="searchrowcontent">
+                  <strong>
+                    <Highlighted text={row.match.name} query={rawQuery} />
+                  </strong>
+                  {row.match.subtitle && (
+                    <em title={row.match.subtitle}>
+                      <Highlighted text={row.match.subtitle} query={rawQuery} />
+                    </em>
+                  )}
+                </span>
+              ) : row.action ? (
+                <span className="searchrowcontent">
+                  {row.action.bot && (
+                    <StatusDot
+                      id={row.action.bot.id}
+                      health={row.action.bot.health}
+                      active={row.action.bot.run_state === "running"}
+                    />
+                  )}
+                  <span>
+                    <Highlighted text={row.action.label} query={commandText} />
+                    {row.action.disabledReason && (
+                      <small className="muted">
+                        {" "}
+                        — {row.action.disabledReason}
+                      </small>
+                    )}
+                  </span>
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </section>
+    ));
+  }
+
+  return (
+    <div
+      className="modal searchoverlay"
+      role="dialog"
+      aria-label="Search"
+      onKeyDown={(event) => {
+        if (pendingConfirm || busyCommand) return;
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          moveSelection(1);
+        } else if (event.key === "ArrowUp") {
+          event.preventDefault();
+          moveSelection(-1);
+        } else if (event.key === "Tab") {
+          event.preventDefault();
+          moveGroup(event.shiftKey ? -1 : 1);
+        } else if (event.key === "Enter") {
+          event.preventDefault();
+          const row = selectableRows[selected];
+          if (row) void runRow(row);
+        }
+      }}
+    >
+      <button
+        type="button"
+        className="mscrim"
+        aria-label="Close search"
+        onClick={() => {
+          if (!pendingConfirm && !busyCommand) onClose();
+        }}
+      />
+      <div className="searchpanel">
+        <input
+          ref={inputRef}
+          value={query}
+          aria-label="Search or enter a command"
+          placeholder='Search records, or type ">" for commands'
+          onChange={(event) => {
+            const next = event.target.value.trim();
+            setQuery(event.target.value);
+            setLoading(!next.startsWith(">") && next.length >= 2);
+          }}
+        />
+        {inlineError && <p className="error">{inlineError}</p>}
+        <div className="searchresults" role="listbox">
+          {renderBody()}
+        </div>
+        <p className="searchhint muted">
+          ↑↓ select · Tab group · Enter run · Esc close
+        </p>
+      </div>
+      {pendingConfirm && (
+        <ConfirmDialog
+          text={pendingConfirm.confirm?.text ?? ""}
+          confirmLabel={pendingConfirm.confirm?.label ?? "Run command"}
+          onCancel={() => setPendingConfirm(null)}
+          onConfirm={() => {
+            const command = pendingConfirm;
+            setPendingConfirm(null);
+            if (command) void executeCommand(command);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 export function ConfirmDialog({
   text,
   confirmLabel,
@@ -6447,7 +7161,13 @@ export function IntegrationsPanel() {
   );
 }
 
-export function SkillsPanel() {
+export function SkillsPanel({
+  openId,
+  onOpened,
+}: {
+  openId?: string | null;
+  onOpened?: () => void;
+} = {}) {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
@@ -6464,6 +7184,15 @@ export function SkillsPanel() {
   useEffect(() => {
     void reloadSkills();
   }, [reloadSkills]);
+
+  useEffect(() => {
+    if (!openId) return;
+    const skill = skills.find((candidate) => candidate.id === openId);
+    if (!skill) return;
+    setEditingSkill(skill);
+    setAddOpen(false);
+    onOpened?.();
+  }, [onOpened, openId, skills]);
 
   return (
     <section>
@@ -7466,7 +8195,13 @@ export function TemplateEditorModal({
   );
 }
 
-export function TemplatesPanel() {
+export function TemplatesPanel({
+  openId,
+  onOpened,
+}: {
+  openId?: string | null;
+  onOpened?: () => void;
+} = {}) {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [editing, setEditing] = useState<
     (Omit<Template, "id" | "created_at"> & { id?: string }) | null
@@ -7484,6 +8219,14 @@ export function TemplatesPanel() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    if (!openId) return;
+    const template = templates.find((candidate) => candidate.id === openId);
+    if (!template) return;
+    setEditing(template);
+    onOpened?.();
+  }, [onOpened, openId, templates]);
 
   return (
     <section>
@@ -7559,7 +8302,13 @@ export function TemplatesPanel() {
   );
 }
 
-export function TagsPanel() {
+export function TagsPanel({
+  openId,
+  onOpened,
+}: {
+  openId?: string | null;
+  onOpened?: () => void;
+} = {}) {
   const [tags, setTags] = useState<Tag[]>([]);
   const navGuard = useNavGuard();
   const [creating, setCreating] = useState(false);
@@ -7572,6 +8321,15 @@ export function TagsPanel() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!openId) return;
+    const tag = tags.find((candidate) => candidate.id === openId);
+    if (!tag) return;
+    setSelTag(tag);
+    setCreating(false);
+    onOpened?.();
+  }, [onOpened, openId, tags]);
 
   return (
     <section>

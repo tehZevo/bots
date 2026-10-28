@@ -492,6 +492,56 @@ export function openApiDoc(): Json {
     params: ["tagId"],
   });
 
+  paths["/api/search"] = {
+    get: {
+      summary:
+        "Search bots, roles, skills, projects, tags, teams and templates by substring",
+      parameters: [
+        { name: "q", in: "query", required: true, schema: str },
+        { name: "types", in: "query", required: false, schema: str },
+      ],
+      responses: {
+        "200": {
+          description: "ok",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  groups: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      required: ["type", "total", "matches"],
+                      properties: {
+                        type: str,
+                        total: { type: "integer" },
+                        matches: {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            required: ["type", "id", "name", "subtitle"],
+                            properties: {
+                              type: str,
+                              id: str,
+                              name: str,
+                              subtitle: strOrNone,
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        400: error4xx("unknown search type"),
+      },
+    },
+  };
+
   add("/api/skills", "get", "List skills");
   add("/api/skills", "post", "Create a skill", { body: ref("Skill") });
   add("/api/skills/{skillId}", "patch", "Update a skill", {
