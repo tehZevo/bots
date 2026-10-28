@@ -2343,10 +2343,10 @@ export function createApp() {
     }
   });
 
-  app.get("/api/bots/:id/context-usage", (c) => {
+  app.get("/api/bots/:id/context-usage", async (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
-    return c.json(estimateContext(bot));
+    return c.json(await estimateContext(bot));
   });
 
   app.get("/api/bots/:id/messages", (c) => {

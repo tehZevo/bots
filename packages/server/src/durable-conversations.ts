@@ -15,6 +15,7 @@ import {
   setBotConversation,
 } from "./db.ts";
 import { BOTS_PROVIDER_ID } from "./pi-provider.ts";
+import { getDurableHarness } from "./pi-runtime.ts";
 
 const LLM_ROLES = new Set(["user", "assistant", "toolResult"]);
 const PAGE_SIZE = 1000;
@@ -99,6 +100,26 @@ export async function readConversationMessages(
     }
   }
   return messages;
+}
+
+export async function activeContextMessages(
+  botId: string,
+): Promise<Message[] | undefined> {
+  const harness = getDurableHarness();
+  const mapping = getBotConversation(botId);
+  if (!harness || !mapping) return undefined;
+
+  try {
+    const conversation = await harness.conversation(
+      Number(mapping) as unknown as ConversationId,
+      BACKGROUND_CONTEXT,
+    );
+    if (!conversation) return undefined;
+    const view = await conversation.context(BACKGROUND_CONTEXT);
+    return view.messages.filter(isLlmMessage);
+  } catch {
+    return undefined;
+  }
 }
 
 function rowsForEntry(
