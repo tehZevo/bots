@@ -9,6 +9,7 @@ import type {
 import { createRegistry, Harness } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { config } from "./config.ts";
+import { registerBotsProvider } from "./pi-provider.ts";
 
 const registry = createRegistry<ToolRegistration>();
 const models = createModels();
@@ -30,6 +31,7 @@ function settings(): HarnessSettings {
 }
 
 export async function openDurableHarness(storage?: Storage): Promise<Harness> {
+  registerBotsProvider(models);
   return Harness.open(
     storage ?? (await openNodeSqliteStorage(durableStoragePath())),
     { models, registry, settings: settings(), onReport: report },

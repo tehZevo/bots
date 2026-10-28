@@ -16,10 +16,10 @@ export function resolveDefault(
   if (!provider) return null;
   const modelId = modelOverride ?? getSetting("default_model");
   if (!modelId) return null;
-  return { model: toModel(provider, modelId), apiKey: provider.api_key };
+  return { model: toOpenAiModel(provider, modelId), apiKey: provider.api_key };
 }
 
-function toModel(
+export function toOpenAiModel(
   provider: ProviderRow,
   modelId: string,
 ): Model<"openai-completions"> {
