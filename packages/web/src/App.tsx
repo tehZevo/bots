@@ -11,7 +11,7 @@ import {
 import { createPortal } from "react-dom";
 import { PasswordSettings, SessionSettings } from "./auth.tsx";
 import { renderMarkdown } from "./markdown.ts";
-import { PushSection } from "./push.tsx";
+import { ensurePushSubscription, PushSection } from "./push.tsx";
 import { readStoredTheme, setStoredTheme } from "./theme.ts";
 
 export interface ApiKey {
@@ -1119,6 +1119,7 @@ export function App() {
 
   useEffect(() => {
     void load();
+    void ensurePushSubscription().catch(() => undefined);
     const t = setInterval(load, 5000);
     return () => clearInterval(t);
   }, [load]);

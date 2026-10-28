@@ -55,15 +55,17 @@ self.addEventListener("fetch", (event) => {
 self.addEventListener("push", (event) => {
   event.waitUntil(
     fetch("/api/notifications?limit=1")
-      .then((r) => (r.ok ? r.json() : []))
-      .catch(() => [])
-      .then(([n]) =>
-        self.registration.showNotification(n?.title ?? "bots", {
+      .then((r) => (r.ok ? r.json() : {}))
+      .catch(() => ({}))
+      .then((data) => {
+        const items = Array.isArray(data) ? data : (data.items ?? []);
+        const n = items[0];
+        return self.registration.showNotification(n?.title ?? "bots", {
           body: n?.body ?? "",
           tag: `bots-${n?.id ?? Date.now()}`,
           silent: true,
-        }),
-      ),
+        });
+      }),
   );
 });
 
