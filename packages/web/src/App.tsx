@@ -2568,6 +2568,7 @@ interface Provider {
   base_url: string;
   models: string[];
   has_key: boolean;
+  builtin?: boolean;
 }
 
 interface BotGeneralSettings {
@@ -2901,22 +2902,28 @@ export function SettingsProviders() {
               </span>
             </div>
             <div className="actions">
-              <button
-                type="button"
-                onClick={() => {
-                  setFormProvider(p);
-                  setFormOpen(true);
-                }}
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                className="danger"
-                onClick={() => setConfirmDelete(p)}
-              >
-                Delete
-              </button>
+              {p.builtin ? (
+                <span className="muted">built-in</span>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormProvider(p);
+                      setFormOpen(true);
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() => setConfirmDelete(p)}
+                  >
+                    Delete
+                  </button>
+                </>
+              )}
             </div>
           </li>
         ))}
