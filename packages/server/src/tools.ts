@@ -6,6 +6,7 @@ import { dataDir } from "./config.ts";
 import { type SkillRow, setBotStatus, setCurrentTask } from "./db.ts";
 import { containerName, execInContainer } from "./sandbox.ts";
 import { readSkillFile } from "./skillfiles.ts";
+import { safeFetch } from "./ssrf.ts";
 
 const MAX_OUTPUT_CHARS = 8000;
 
@@ -75,14 +76,11 @@ export function buildTools(
       "Fetch a URL with GET and return the response body as text (HTML tags stripped).",
     parameters: webFetchSchema,
     execute: async (_id, params, signal) => {
-      if (!/^https?:\/\//.test(params.url))
-        throw new Error("URL must start with http:// or https://");
-      const response = await fetch(params.url, {
-        signal: signal ?? AbortSignal.timeout(30_000),
+      const response = await safeFetch(params.url, {
+        signal,
         headers: { "user-agent": "bots/0.1" },
-        redirect: "follow",
       });
-      let body = await response.text();
+      let body = response.body;
       if (
         /text\/html|application\/xml/.test(
           response.headers.get("content-type") ?? "",

@@ -633,7 +633,7 @@ export function openApiDoc(): Json {
           },
         },
         400: error4xx("unrecognized source or nothing discoverable"),
-        502: error4xx("source unreachable or private"),
+        502: error4xx("source unreachable, private or host not allowed"),
       },
     },
   };
@@ -659,7 +659,7 @@ export function openApiDoc(): Json {
       responses: {
         201: error4xx("created skills"),
         400: error4xx("invalid selection, frontmatter or oversized bundle"),
-        502: error4xx("source unreachable or private"),
+        502: error4xx("source unreachable, private or host not allowed"),
       },
     },
   };

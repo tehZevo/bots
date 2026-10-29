@@ -14,6 +14,7 @@ import { test } from "node:test";
 const dataDir = mkdtempSync(join(tmpdir(), "bots-skill-data-"));
 process.env.DATA_DIR = dataDir;
 process.env.DATABASE_PATH = join(dataDir, "t.db");
+process.env.BOTS_ALLOW_PRIVATE_NETWORK = "1";
 delete process.env.ALLOW_REGISTRATION;
 
 const { createApp } = await import("../src/api.ts");
@@ -120,6 +121,23 @@ test("git source grammar covers all spec forms", () => {
 
   assert.equal(parseGitSource(""), null);
   assert.equal(parseGitSource("git@github.com:x/y.git"), null); // ssh unsupported
+});
+
+test("git sources reject file URLs when private networking is disabled", async () => {
+  const previous = process.env.BOTS_ALLOW_PRIVATE_NETWORK;
+  delete process.env.BOTS_ALLOW_PRIVATE_NETWORK;
+  try {
+    const res = await authed("/api/skills/preview", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ source: repoUrl }),
+    });
+    assert.equal(res.status, 502);
+    assert.deepEqual(await res.json(), { error: "source host not allowed" });
+  } finally {
+    if (previous === undefined) delete process.env.BOTS_ALLOW_PRIVATE_NETWORK;
+    else process.env.BOTS_ALLOW_PRIVATE_NETWORK = previous;
+  }
 });
 
 // --- search -----------------------------------------------------------------

@@ -4,19 +4,20 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-  type Stats,
   cpSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
+  type Stats,
   statSync,
 } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, posix } from "node:path";
 import { dataDir } from "./config.ts";
+import { HostNotAllowedError, type Lookup, safeFetch } from "./ssrf.ts";
 
 export const MAX_BUNDLE_FILES = 200;
 export const MAX_BUNDLE_BYTES = 5 * 1024 * 1024;
@@ -144,10 +145,70 @@ function runGit(args: string[], cwd?: string): Promise<string> {
     child.stderr.on("data", (d) => (err += String(d)));
     child.on("error", () => reject(new Error("git is not available")));
     child.on("close", (code) => {
+      const command = args.find((arg) => !arg.startsWith("-")) ?? "command";
       if (code === 0) resolve(out.trim());
-      else reject(new Error(`git ${args[0]} failed: ${err.trim() || code}`));
+      else reject(new Error(`git ${command} failed: ${err.trim() || code}`));
     });
   });
+}
+
+const GIT_NO_REDIRECTS = ["-c", "http.followRedirects=false"];
+
+function gitInfoUrl(repo: string): string {
+  const url = new URL(repo);
+  const path = url.pathname.endsWith("/") ? url.pathname : `${url.pathname}/`;
+  return `${url.protocol}//${url.host}${path}info/refs?service=git-upload-pack`;
+}
+
+function repoFromProbe(original: string, finalUrl: string): string {
+  try {
+    const url = new URL(finalUrl);
+    if (!url.pathname.endsWith("/info/refs")) return original;
+    url.pathname = url.pathname
+      .replace(/\/info\/refs$/, "")
+      .replace(/\/+$/, "");
+    url.search = "";
+    url.hash = "";
+    return url.origin === "null" ? url.toString() : url.href;
+  } catch {
+    return original;
+  }
+}
+
+export async function resolveSafeCloneUrl(
+  cloneUrl: string,
+  options: { lookup?: Lookup } = {},
+): Promise<string> {
+  let url: URL;
+  try {
+    url = new URL(cloneUrl);
+  } catch {
+    throw new HostNotAllowedError("source host not allowed");
+  }
+  if (!["http:", "https:"].includes(url.protocol)) {
+    if (
+      process.env.BOTS_ALLOW_PRIVATE_NETWORK === "1" &&
+      url.protocol === "file:"
+    )
+      return cloneUrl;
+    throw new HostNotAllowedError("source host not allowed");
+  }
+
+  try {
+    const probe = await safeFetch(gitInfoUrl(cloneUrl), {
+      errorMessage: "source host not allowed",
+      timeoutMs: 8_000,
+      lookup: options.lookup,
+    });
+    return repoFromProbe(cloneUrl, probe.finalUrl);
+  } catch (err) {
+    if (
+      err instanceof HostNotAllowedError ||
+      (err instanceof Error && /too many redirects/.test(err.message))
+    )
+      throw err;
+    return cloneUrl; // Let git report authentication or transport failures.
+  }
 }
 
 export interface ClonedRepo {
@@ -158,23 +219,48 @@ export interface ClonedRepo {
 // `--depth 1` for the default branch; init+fetch for an explicit ref so tags,
 // branches and commit shas all resolve.
 export async function cloneRepo(source: GitSource): Promise<ClonedRepo> {
+  const cloneUrl = await resolveSafeCloneUrl(source.cloneUrl);
   const dir = await mkdtemp(join(tmpdir(), "bots-skill-src-"));
   try {
     if (source.ref) {
       await runGit(["init", "-q"], dir);
-      await runGit(["remote", "add", "origin", source.cloneUrl], dir);
+      await runGit(
+        [...GIT_NO_REDIRECTS, "remote", "add", "origin", "--", cloneUrl],
+        dir,
+      );
       const fetch = await runGit(
-        ["fetch", "-q", "--depth", "1", "origin", source.ref],
+        [
+          ...GIT_NO_REDIRECTS,
+          "fetch",
+          "-q",
+          "--depth",
+          "1",
+          "origin",
+          "--",
+          source.ref,
+        ],
         dir,
       ).catch(() => null);
       if (fetch === null) {
-        await runGit(["fetch", "-q", "origin"], dir);
+        await runGit([...GIT_NO_REDIRECTS, "fetch", "-q", "origin"], dir);
       }
       await runGit(["checkout", "-q", "FETCH_HEAD"], dir).catch(async () => {
-        await runGit(["checkout", "-q", source.ref as string], dir);
+        await runGit(["checkout", "-q", "--", source.ref as string], dir);
       });
     } else {
-      await runGit(["clone", "-q", "--depth", "1", source.cloneUrl, "."], dir);
+      await runGit(
+        [
+          ...GIT_NO_REDIRECTS,
+          "clone",
+          "-q",
+          "--depth",
+          "1",
+          "--",
+          cloneUrl,
+          ".",
+        ],
+        dir,
+      );
     }
     const resolvedCommit = await runGit(["rev-parse", "HEAD"], dir);
     return { dir, resolvedCommit };
