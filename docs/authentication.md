@@ -6,6 +6,8 @@ For local development only, `DEV_SEED_AUTH=1` seeds the ordinary account `dev@ex
 
 Sessions use an HttpOnly cookie for seven days. Settings → **Account** shows the signed-in email, lets you change your password (minimum eight characters; other sessions are invalidated), or log out from this browser.
 
+Public auth endpoints are rate-limited by client IP: at most 10 failed credential attempts per 15 minutes (successful sign-in or signup resets the count) and 300 requests/min overall. Exceeding either answers `429 { "error": "rate_limited" }`. Behind a trusted reverse proxy, set `TRUST_PROXY=true` so the first `X-Forwarded-For` hop identifies the caller; otherwise the socket address is used.
+
 ## API keys
 
 Settings → **API keys** manages credentials for headless access:

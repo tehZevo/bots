@@ -168,6 +168,12 @@ import { HOOK_EVENT_TYPES, sendHookTest } from "./hooks.ts";
 import { testMcpConnection } from "./mcp.ts";
 import { openApiDoc } from "./openapi.ts";
 import { vapidPublicKey } from "./push.ts";
+import {
+  consumeRate,
+  isRateLimitReached,
+  resetRate,
+  resolveClientIp,
+} from "./ratelimit.ts";
 import { getRetryWaits } from "./runwaits.ts";
 import {
   defaultImageRef,
@@ -459,8 +465,8 @@ function generateUserCode(): string {
   return `${out.slice(0, 4)}-${out.slice(4)}`;
 }
 
-// Fixed-window rate limiter per IP (and per device code for token polling);
-// device-login.md requires limits but not specific budgets.
+// Fixed-window limits required by device-login.md; rate-limits.md additionally
+// caps failed credential attempts and all public auth traffic per client IP.
 const DEVICE_RATE_LIMITS: { name: string; max: number; windowMs: number }[] = [
   { name: "code", max: 30, windowMs: 3_600_000 },
   { name: "pending", max: 300, windowMs: 60_000 },
@@ -468,22 +474,44 @@ const DEVICE_RATE_LIMITS: { name: string; max: number; windowMs: number }[] = [
   { name: "token", max: 600, windowMs: 60_000 },
   { name: "tokencode", max: 600, windowMs: 60_000 },
 ];
-const rateWindows = new Map<string, { start: number; count: number }>();
+
+const PUBLIC_AUTH_ROUTES = new Set([
+  "/api/auth/config",
+  "/api/auth/login",
+  "/api/auth/signup",
+  "/api/auth/device/code",
+  "/api/auth/device/token",
+]);
+const AUTH_FAILED_MAX = 10;
+const AUTH_FAILED_WINDOW_MS = 15 * 60_000;
+const AUTH_ROUTE_MAX = 300;
+const WEBHOOK_GLOBAL_MAX = 60;
+const WEBHOOK_TRIGGER_MAX = 30;
 
 function limited(
   kind: (typeof DEVICE_RATE_LIMITS)[number]["name"],
   key: string,
 ): boolean {
-  const rule = DEVICE_RATE_LIMITS.find((r) => r.name === kind)!;
-  const bucket = `${kind}:${key}`;
-  const now = Date.now();
-  const win = rateWindows.get(bucket);
-  if (!win || now - win.start > rule.windowMs) {
-    rateWindows.set(bucket, { start: now, count: 1 });
-    return false;
-  }
-  win.count += 1;
-  return win.count > rule.max;
+  const rule = DEVICE_RATE_LIMITS.find((r) => r.name === kind);
+  if (!rule) return false;
+  return consumeRate(kind, key, rule.max, rule.windowMs);
+}
+
+function failedAuthLimitReached(ip: string): boolean {
+  return isRateLimitReached(
+    "auth-failure",
+    ip,
+    AUTH_FAILED_MAX,
+    AUTH_FAILED_WINDOW_MS,
+  );
+}
+
+function recordFailedAuth(ip: string): void {
+  consumeRate("auth-failure", ip, AUTH_FAILED_MAX, AUTH_FAILED_WINDOW_MS);
+}
+
+function clearFailedAuth(ip: string): void {
+  resetRate("auth-failure", ip);
 }
 
 function hashToken(value: string): string {
@@ -491,8 +519,13 @@ function hashToken(value: string): string {
 }
 
 function clientIp(c: Context): string {
-  const fwd = c.req.header("x-forwarded-for");
-  return fwd?.split(",")[0]?.trim() || "local";
+  const incoming = (
+    c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined
+  )?.incoming;
+  return resolveClientIp(
+    c.req.header("x-forwarded-for"),
+    incoming?.socket?.remoteAddress,
+  );
 }
 
 export function createApp() {
@@ -501,16 +534,14 @@ export function createApp() {
   const API_KEY_RE = /^bots_[0-9a-f]{40}$/;
   app.use("/api/*", async (c, next) => {
     const path = c.req.path;
-    if (
-      path === "/api/health" ||
-      path.startsWith("/api/webhooks/") ||
-      path === "/api/auth/config" ||
-      path === "/api/auth/login" ||
-      path === "/api/auth/signup" ||
-      path === "/api/auth/device/code" ||
-      path === "/api/auth/device/token"
-    )
+    if (path === "/api/health" || path.startsWith("/api/webhooks/"))
       return next();
+
+    if (PUBLIC_AUTH_ROUTES.has(path)) {
+      if (consumeRate("auth-route", clientIp(c), AUTH_ROUTE_MAX))
+        return c.json({ error: "rate_limited" }, 429);
+      return next();
+    }
 
     const header = c.req.header("authorization");
     if (header?.startsWith("Bearer ")) {
@@ -628,13 +659,21 @@ export function createApp() {
   app.post("/api/auth/signup", async (c) => {
     if (!allowRegistration())
       return c.json({ error: "registration is disabled" }, 403);
+    const ip = clientIp(c);
+    if (failedAuthLimitReached(ip))
+      return c.json({ error: "rate_limited" }, 429);
+
     const creds = await readCreds(c);
     if (!creds || !EMAIL_RE.test(creds.email))
       return c.json({ error: "valid email is required" }, 400);
     if (creds.password.length < 8)
       return c.json({ error: "password must be at least 8 characters" }, 400);
-    if (getUserByEmail(creds.email))
+
+    if (getUserByEmail(creds.email)) {
+      recordFailedAuth(ip);
       return c.json({ error: "account already exists" }, 409);
+    }
+
     const id = randomUUID();
     insertUser({
       id,
@@ -644,16 +683,29 @@ export function createApp() {
     });
     const { token } = createSession(id, Date.now() + SESSION_TTL_S * 1000);
     setCookie(c, SESSION_COOKIE, token, cookieOpts);
+    clearFailedAuth(ip);
     return c.json({ email: creds.email }, 201);
   });
 
   app.post("/api/auth/login", async (c) => {
+    const ip = clientIp(c);
+    if (failedAuthLimitReached(ip))
+      return c.json({ error: "rate_limited" }, 429);
+
     const creds = await readCreds(c);
     const user = creds ? getUserByEmail(creds.email) : undefined;
-    if (!creds || !user || !verifyPassword(creds.password, user.password_hash))
+    if (
+      !creds ||
+      !user ||
+      !verifyPassword(creds.password, user.password_hash)
+    ) {
+      recordFailedAuth(ip);
       return c.json({ error: "invalid credentials" }, 401);
+    }
+
     const { token } = createSession(user.id, Date.now() + SESSION_TTL_S * 1000);
     setCookie(c, SESSION_COOKIE, token, cookieOpts);
+    clearFailedAuth(ip);
     return c.json({ email: user.email });
   });
 
@@ -2712,7 +2764,21 @@ export function createApp() {
   });
 
   app.post("/api/webhooks/:triggerId", async (c) => {
-    const trigger = getTrigger(c.req.param("triggerId"));
+    const triggerId = c.req.param("triggerId");
+    const body = await c.req.text();
+    if (body.length > 64 * 1024)
+      return c.json({ error: "payload too large" }, 413);
+
+    const overGlobal = consumeRate("webhook-global", "all", WEBHOOK_GLOBAL_MAX);
+    const overTrigger = consumeRate(
+      "webhook-trigger",
+      triggerId,
+      WEBHOOK_TRIGGER_MAX,
+    );
+    if (overGlobal || overTrigger)
+      return c.json({ error: "rate_limited" }, 429);
+
+    const trigger = getTrigger(triggerId);
     if (trigger?.kind !== "webhook") return c.json({ error: "not found" }, 404);
     const auth = c.req.header("authorization") ?? "";
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
@@ -2732,9 +2798,6 @@ export function createApp() {
         409,
       );
     if (isPaused()) return c.json({ error: "bots are paused" }, 409);
-    const body = await c.req.text();
-    if (body.length > 64 * 1024)
-      return c.json({ error: "payload too large" }, 413);
     const text = body.trim()
       ? `${trigger.message}\n\nEvent payload:\n${body}`
       : trigger.message;

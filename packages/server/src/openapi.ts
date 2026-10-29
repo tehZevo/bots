@@ -52,6 +52,23 @@ export function openApiDoc(): Json {
     };
   };
 
+  const decorate = (
+    path: string,
+    method: string,
+    extra: Record<string, Json>,
+  ): void => {
+    const operation = paths[path]?.[method];
+    if (!operation) return;
+    let responses = operation.responses as Record<string, Json> | undefined;
+    if (!responses) {
+      responses = {};
+      operation.responses = responses;
+    }
+    for (const [status, body] of Object.entries(extra)) {
+      responses[status] = body;
+    }
+  };
+
   add("/api/health", "get", "Liveness probe");
   for (const [p, m, d] of [
     ["/api/auth/config", "get", "Registration availability and user presence"],
@@ -74,6 +91,19 @@ export function openApiDoc(): Json {
     ],
   ] as const)
     add(p, m, d);
+
+  const rateLimited429: Record<string, Json> = {
+    "429": error4xx("rate_limited"),
+  };
+  for (const [path, method] of [
+    ["/api/auth/config", "get"],
+    ["/api/auth/signup", "post"],
+    ["/api/auth/login", "post"],
+    ["/api/auth/device/code", "post"],
+    ["/api/auth/device/token", "post"],
+  ] as const) {
+    decorate(path, method, rateLimited429);
+  }
 
   paths["/api/auth/me"].get = {
     summary: "Current identity; key_id is present for API-key requests",
@@ -453,6 +483,11 @@ export function openApiDoc(): Json {
       params: ["triggerId"],
     },
   );
+  decorate("/api/webhooks/{triggerId}", "post", {
+    "413": error4xx("payload too large"),
+    ...rateLimited429,
+  });
+
   add("/api/roles", "get", "List roles", {
     res: { type: "array", items: ref("Role") },
   });

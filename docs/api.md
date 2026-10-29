@@ -8,6 +8,8 @@ Every route requires a session cookie (web UI login) or `Authorization: Bearer <
 
 Create keys in **Settings → System → API keys**: each value is `bots_` + 40 hex chars, shown exactly once and stored hashed; the list shows name, created-at and last-used (updated at most once per minute). Revoking fails closed — requests with a revoked or malformed key get `401 { "error": "invalid api key" }`. Management itself is session-only: `GET /api/api-keys`, `POST /api/api-keys` and `DELETE /api/api-keys/:keyId` reject Bearer requests with `403 { "error": "session authentication required" }`, so a stolen key can neither mint replacement keys nor enumerate or revoke the owner's others. For UI key management, account setup and browser-approved CLI sign-in, see [Accounts & access](/authentication).
 
+Public auth and webhook endpoints are rate-limited in process memory with `429 { "error": "rate_limited" }` when exceeded: login/signup allow 10 failed credential attempts per client IP per 15 minutes (successes reset the count), public auth routes cap each IP at 300 requests/min, webhook deliveries cap all endpoint traffic at 60 requests/min and each trigger id at 30 requests/min. Oversized webhook payloads still fail with `413` before a rate-limit response. Client IP is the socket address; set `TRUST_PROXY=true` to use the first `X-Forwarded-For` hop instead.
+
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/api/auth/config` | `{ allow_registration, has_users }` — drives the sign-in screen |
@@ -158,4 +160,4 @@ Skill import (never writes until confirmed): `GET /api/skills/search?q=` proxies
 
 ## Webhooks
 
-`POST /api/webhooks/:triggerId` with `Authorization: Bearer <secret>` — 401 bad token, 409 trigger/bot disabled or globally paused, 413 payload over 64 KB.
+`POST /api/webhooks/:triggerId` with `Authorization: Bearer <secret>` — oversized bodies over 64 KB answer `413 { "error": "payload too large" }` first, then endpoint/trigger budgets answer `429 { "error": "rate_limited" }`; bad tokens answer `401`, while disabled triggers/bots and global pause answer `409`.
