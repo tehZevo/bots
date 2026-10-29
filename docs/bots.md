@@ -6,13 +6,14 @@ A bot is a persistent agent loop: instructions + model + tools + memory.
 
 - Each card shows the name (long names truncate with an ellipsis, full text on hover), the assigned role beneath it in italic muted `(role)` — no line for bots without one — a generated avatar derived deterministically from the bot id (it blinks and floats per health level; disabled bots sit still), current task, and a health dot.
 - While a loop is active the dot stays steady; an outward-growing halo ring in the dot's status color carries the motion, each card on its own offset so dots never sync. Filters match the health words exactly.
+- An accepted chat send or **Run now** flips its health dot to Active immediately; Stop (or **Stop all**, for every affected bot) flips the dot back to Idle right away. The next poll confirms or corrects either cue.
 - A single control bar above the cards — visibly separated from the content below it on every main screen — holds the name search with three labeled dropdown multiselects beside it: `Status:` (`Active`/`Idle`/`Issues`/`Blocked`/`Disabled`), a searchable `Role:` list including `(no role)`, and a `Tag:` list of defined tags (shown once tags exist). Each shows `All` when nothing is selected; selections OR together inside one dropdown (a tag filter keeps bots carrying at least one chosen tag) and AND across dropdowns.
 - Archived bots are hidden by default. The **Include archived** checkbox adds them back as muted cards with an `Archived` badge and a resting avatar; clicking one opens its details instead of chat.
 
 ## Chat sidebar
 
 - Clicking a bot card opens that bot's chat in a closeable sidebar pinned to the right edge — the cards stay visible behind it, and only one sidebar is open at a time; tapping another card switches it in place. On phones it spans the full screen. Archived cards bypass chat and open details directly.
-- Your message appears instantly; user messages, thinking and tool calls stream in as they become available rather than waiting for the full turn, with a working indicator at the bottom-left of the chat while the bot works. Chat turns enter the same persistent context as everything else.
+- Your message appears instantly; user messages, thinking and tool calls stream in as they become available rather than waiting for the full turn. An accepted chat send names the bot in a working indicator at the bottom-left immediately — before the next poll — and keeps it visible while the loop works. Chat turns enter the same persistent context as everything else.
 - While a bot is disabled, its composer and **Send** button are unavailable — opening a card's chat cannot submit a message that the server would reject.
 - Trigger-injected messages (schedule ticks, manual runs, webhook events) appear as full-width bars spanning the conversation, clearly set apart from your turns and the bot's.
 - Close with the × button, Escape, or clicking outside — nothing about the bot changes. The gear icon in the sidebar header opens that bot's settings modal.

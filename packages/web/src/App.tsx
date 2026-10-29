@@ -71,6 +71,58 @@ interface Bot {
   watchdog_hours?: number | null;
 }
 
+export interface OptimisticRunState {
+  run_state: "running" | "enabled";
+  health: "green" | "blue";
+  authoritativeAt: number;
+  expiresAt: number;
+}
+
+export type OptimisticRunStates = Record<string, OptimisticRunState>;
+
+const OPTIMISTIC_RUN_GRACE_MS = 2000;
+const OPTIMISTIC_RUN_MAX_MS = 60000;
+
+export function optimisticRunUpdate(
+  run_state: "running" | "enabled",
+): OptimisticRunState {
+  const at = Date.now();
+  return {
+    run_state,
+    health: run_state === "running" ? "green" : "blue",
+    authoritativeAt: at + OPTIMISTIC_RUN_GRACE_MS,
+    expiresAt: at + OPTIMISTIC_RUN_MAX_MS,
+  };
+}
+
+export function applyOptimisticRunStates(
+  rows: Bot[],
+  overrides: OptimisticRunStates,
+  now = Date.now(),
+): { rows: Bot[]; overrides: OptimisticRunStates } {
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const kept: OptimisticRunStates = {};
+  for (const [id, override] of Object.entries(overrides)) {
+    if (now >= override.expiresAt) continue;
+    const current = byId.get(id);
+    if (!current || current.run_state === override.run_state) continue;
+    if (now >= override.authoritativeAt) continue;
+    kept[id] = override;
+  }
+  return {
+    rows: rows.map((row) =>
+      kept[row.id]
+        ? {
+            ...row,
+            run_state: kept[row.id].run_state,
+            health: kept[row.id].health,
+          }
+        : row,
+    ),
+    overrides: kept,
+  };
+}
+
 interface GrantOption {
   id: string;
   name: string;
@@ -1037,6 +1089,7 @@ export function App() {
   const [openBot, setOpenBot] = useState<string | null>(null);
   const [chatBot, setChatBot] = useState<string | null>(null);
   const [poking, setPoking] = useState<Record<string, boolean>>({});
+  const optimisticRuns = useRef<OptimisticRunStates>({});
   const [paused, setPausedState] = useState(false);
   const [pauseReason, setPauseReason] = useState<string | null>(null);
   const [breaker, setBreaker] = useState<Breaker | null>(null);
@@ -1056,11 +1109,40 @@ export function App() {
       .catch(() => undefined);
   };
 
+  const setOptimisticRunState = useCallback(
+    (botId: string, run_state: "running" | "enabled") => {
+      const update = optimisticRunUpdate(run_state);
+      optimisticRuns.current = { ...optimisticRuns.current, [botId]: update };
+      setBots((rows) =>
+        rows.map((row) =>
+          row.id === botId
+            ? { ...row, run_state: update.run_state, health: update.health }
+            : row,
+        ),
+      );
+    },
+    [],
+  );
+
+  const stopBotWork = useCallback(
+    async (botId: string): Promise<void> => {
+      await api(`/api/bots/${botId}/interrupt`, { method: "POST" });
+      setOptimisticRunState(botId, "enabled");
+    },
+    [setOptimisticRunState],
+  );
+
   const poke = (bot: Bot) => {
     if (!bot.enabled || paused || poking[bot.id]) return;
     setPoking((p) => ({ ...p, [bot.id]: true }));
-    void api<{ runId: string }>(`/api/bots/${bot.id}/run`, { method: "POST" })
-      .then((r) => waitFirstAction(bot.id, r.runId))
+    void api<{ runId: string | null }>(`/api/bots/${bot.id}/run`, {
+      method: "POST",
+    })
+      .then((r) => {
+        if (!r.runId) return;
+        setOptimisticRunState(bot.id, "running");
+        return waitFirstAction(bot.id, r.runId);
+      })
       .catch(() => undefined)
       .finally(() => setPoking((p) => ({ ...p, [bot.id]: false })));
   };
@@ -1073,11 +1155,15 @@ export function App() {
     if (!target || !target.enabled || paused || target.run_state === "running")
       return;
     try {
-      await api(`/api/bots/${botId}/run`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message }),
-      });
+      const result = await api<{ runId: string | null }>(
+        `/api/bots/${botId}/run`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message }),
+        },
+      );
+      if (result.runId) setOptimisticRunState(botId, "running");
       await load();
     } catch (err) {
       alert(err instanceof Error ? err.message : String(err));
@@ -1130,7 +1216,9 @@ export function App() {
         ),
         api<Breaker>("/api/breaker").catch(() => null),
       ]);
-      setBots(botData);
+      const applied = applyOptimisticRunStates(botData, optimisticRuns.current);
+      optimisticRuns.current = applied.overrides;
+      setBots(applied.rows);
       setPausedState(pauseData.paused);
       setPauseReason(pauseData.reason ?? null);
       setBreaker(breakerData);
@@ -1677,9 +1765,7 @@ export function App() {
                       }}
                       onRun={() => poke(bot)}
                       onStop={() =>
-                        void api(`/api/bots/${bot.id}/interrupt`, {
-                          method: "POST",
-                        })
+                        void stopBotWork(bot.id)
                           .then(() => void load())
                           .catch(() => undefined)
                       }
@@ -1750,6 +1836,9 @@ export function App() {
           {chatBotRow && (
             <ChatSidebar
               bot={chatBotRow}
+              onRunAccepted={() =>
+                setOptimisticRunState(chatBotRow.id, "running")
+              }
               onSettings={() => {
                 setOpenBot(chatBotRow.id);
                 setDetailOpen(true);
@@ -1863,9 +1952,7 @@ export function App() {
                         disabled={headerBusy}
                         onClick={() => {
                           setHeaderBusy(true);
-                          void api(`/api/bots/${openBotRow.id}/interrupt`, {
-                            method: "POST",
-                          })
+                          void stopBotWork(openBotRow.id)
                             .then(load)
                             .catch((e) => alert(e.message))
                             .finally(() => setHeaderBusy(false));
@@ -2018,10 +2105,17 @@ export function App() {
             onCancel={() => setStopAllConfirm(false)}
             onConfirm={() => {
               setStopAllConfirm(false);
+              const runningIds = bots
+                .filter((b) => b.run_state === "running")
+                .map((b) => b.id);
               void api<{ stopped: number }>("/api/stop-all", {
                 method: "POST",
               })
-                .then(() => void load())
+                .then(() => {
+                  for (const id of runningIds)
+                    setOptimisticRunState(id, "enabled");
+                  void load();
+                })
                 .catch(() => undefined);
             }}
           />
@@ -2035,6 +2129,7 @@ export function App() {
             onNavigate={navigateTab}
             onNewBot={openSearchNewBot}
             onChanged={load}
+            onRunStateChange={setOptimisticRunState}
           />
         )}
       </div>
@@ -5944,6 +6039,7 @@ export function SearchOverlay({
   onNavigate,
   onNewBot,
   onChanged,
+  onRunStateChange,
 }: {
   bots: Bot[];
   paused: boolean;
@@ -5952,6 +6048,7 @@ export function SearchOverlay({
   onNavigate: (tab: Tab) => void;
   onNewBot: () => void;
   onChanged: () => void;
+  onRunStateChange?: (botId: string, run_state: "running" | "enabled") => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const previousFocus = useRef<Element | null>(null);
@@ -6018,7 +6115,11 @@ export function SearchOverlay({
           bot,
           disabledReason: unavailableReason,
           run: async () => {
-            await api(`/api/bots/${bot.id}/run`, { method: "POST" });
+            const result = await api<{ runId: string | null }>(
+              `/api/bots/${bot.id}/run`,
+              { method: "POST" },
+            );
+            if (result.runId) onRunStateChange?.(bot.id, "running");
           },
         },
         {
@@ -6029,6 +6130,7 @@ export function SearchOverlay({
           disabledReason: running ? undefined : "Not running",
           run: async () => {
             await api(`/api/bots/${bot.id}/interrupt`, { method: "POST" });
+            onRunStateChange?.(bot.id, "enabled");
           },
         },
         {
@@ -6108,6 +6210,10 @@ export function SearchOverlay({
         },
         run: async () => {
           await api("/api/stop-all", { method: "POST" });
+          for (const bot of sortedBots) {
+            if (bot.run_state === "running")
+              onRunStateChange?.(bot.id, "enabled");
+          }
         },
       },
       {
@@ -6128,7 +6234,7 @@ export function SearchOverlay({
         },
       })),
     ];
-  }, [bots, paused, onNavigate, onNewBot]);
+  }, [bots, paused, onNavigate, onNewBot, onRunStateChange]);
 
   useEffect(() => {
     if (commandMode) return;
@@ -6906,10 +7012,12 @@ export function ChatTurnView({
 
 export function ChatSidebar({
   bot,
+  onRunAccepted,
   onSettings,
   onClose,
 }: {
   bot: Bot | null;
+  onRunAccepted?: () => void;
   onSettings: () => void;
   onClose: () => void;
 }) {
@@ -6947,6 +7055,7 @@ export function ChatSidebar({
         botName={bot.name}
         enabled={bot.enabled === 1}
         working={bot.run_state === "running"}
+        onRunAccepted={onRunAccepted}
       />
     </aside>
   );
@@ -6957,11 +7066,13 @@ export function Chat({
   botName,
   enabled = true,
   working = false,
+  onRunAccepted,
 }: {
   botId: string;
   botName: string;
   enabled?: boolean;
   working?: boolean;
+  onRunAccepted?: () => void;
 }) {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [draft, setDraft] = useState("");
@@ -7011,11 +7122,15 @@ export function Chat({
     setTurns((prev) => [...prev, { role: "user", text }]);
     setDraft("");
     try {
-      await api(`/api/bots/${botId}/messages`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
+      const result = await api<{ runId?: string | null }>(
+        `/api/bots/${botId}/messages`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text }),
+        },
+      );
+      if (result.runId) onRunAccepted?.();
       await loadChat();
     } catch (e) {
       pendingRef.current = null;
