@@ -1598,3 +1598,45 @@ test("accepted stop flips the running cue immediately", async () => {
     }
   }
 });
+
+test("backtick opens search except from text fields", async () => {
+  const root = await mount(React.createElement(App));
+  try {
+    assert.equal(window.document.querySelector(".searchoverlay"), null);
+
+    const botSearch = window.document.querySelector(
+      '[placeholder="Search bots by name"]',
+    );
+    assert.ok(botSearch);
+    await act(async () => {
+      (botSearch as HTMLElement).focus();
+    });
+    await act(async () => {
+      botSearch.dispatchEvent(
+        new window.KeyboardEvent("keydown", {
+          key: "`",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    assert.equal(window.document.querySelector(".searchoverlay"), null);
+
+    (botSearch as HTMLElement).blur();
+    await act(async () => {
+      window.document.body.dispatchEvent(
+        new window.KeyboardEvent("keydown", {
+          key: "`",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await flush();
+    assert.ok(window.document.querySelector(".searchoverlay"));
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
