@@ -6,12 +6,13 @@ The status bar carries a **Search** control — or press ` (backtick) anywhere o
 
 Type at least two characters; results refresh after the query settles. Matches are grouped by record type:
 
-- **Bots** — name or instructions, with the assigned role shown beside the result.
+- **Bots** — active bot names or instructions, with the assigned role shown beside the result.
+- **Archived bots** — archived bot names or instructions; these remain searchable even when the dashboard hides them.
 - **Roles** — name or instructions.
 - **Skills**, **Projects** and **Templates** — name or description.
 - **Tags** and **Teams** — name, with the number of attached bots.
 
-Matching is case-insensitive substring matching, not fuzzy search. Each group shows up to eight matches plus a count of any additional results; matched text is highlighted. Press Enter on a bot to open its chat sidebar, or Enter on another record to open its tab with that record's editor in place. Use ↑/↓ to move across groups and Tab to jump between result groups.
+Matching is case-insensitive substring matching, not fuzzy search. Each group shows up to eight matches plus a count of any additional results; matched text is highlighted. Press Enter on an active bot to open its chat sidebar or on another record to open its tab with that record's editor in place; archived bots open their detail modal. Use ↑/↓ to move across groups and Tab to jump between result groups.
 
 ## Run commands
 

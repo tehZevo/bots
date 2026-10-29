@@ -70,6 +70,7 @@ export interface ConfigSnapshot {
     instructions: string;
     model_id: string | null;
     enabled: boolean;
+    archived: boolean;
     sound: string | null;
     token_budget: number | null;
     watchdog_hours: number | null;
@@ -234,6 +235,7 @@ interface BotPlan {
   model_id: string | null;
   sound: string | null;
   enabled: number;
+  archived: number;
   token_budget: number | null;
   watchdog_hours: number | null;
   role_id: string | null;
@@ -552,7 +554,7 @@ export function exportConfigBackup(includeValues: boolean): ConfigSnapshot {
     const templates = [...db.listTemplates()].sort(compareNames);
     const secrets = db.listSecret().sort(compareNames);
     const apiKeys = db.listAllApiKeys().sort(compareNames);
-    const bots = [...db.listBots()].sort(compareNames);
+    const bots = [...db.listBots(true)].sort(compareNames);
 
     const roleName = new Map(roles.map((r) => [r.id, r.name]));
     const skillName = new Map(skills.map((s) => [s.id, s.name]));
@@ -573,6 +575,7 @@ export function exportConfigBackup(includeValues: boolean): ConfigSnapshot {
         instructions: bot.instructions,
         model_id: bot.model_id,
         enabled: bot.enabled === 1,
+        archived: bot.archived === 1,
         sound: bot.sound,
         token_budget: bot.token_budget,
         watchdog_hours: bot.watchdog_hours,
@@ -1027,6 +1030,7 @@ function parseSnapshot(raw: Json, overrides: Map<string, string>): ImportPlan {
       model_id: optionalNameOrNull(rawBot.model_id, `bot ${name}.model_id`),
       sound,
       enabled: booleanValue(rawBot.enabled, `bot ${name}.enabled`) ? 1 : 0,
+      archived: rawBot.archived === true ? 1 : 0,
       token_budget: nullableInteger(
         rawBot.token_budget,
         `bot ${name}.token_budget`,
@@ -1296,6 +1300,7 @@ function applyPlan(plan: ImportPlan, userId: string): BackupImportReport {
           role_id: bot.role_id,
           sound: bot.sound,
           enabled: bot.enabled,
+          archived: bot.archived,
           token_budget: bot.token_budget,
           watchdog_hours: bot.watchdog_hours,
         };

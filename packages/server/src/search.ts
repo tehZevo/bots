@@ -1,5 +1,6 @@
 export type SearchType =
   | "bots"
+  | "archived_bots"
   | "roles"
   | "skills"
   | "projects"
@@ -9,6 +10,7 @@ export type SearchType =
 
 export const SEARCH_TYPES: readonly SearchType[] = [
   "bots",
+  "archived_bots",
   "roles",
   "skills",
   "projects",
@@ -42,6 +44,7 @@ export interface SearchData {
     name: string;
     instructions: string;
     role_id?: string | null;
+    archived?: number;
   }[];
   roles: readonly { id: string; name: string; instructions: string }[];
   skills: readonly {
@@ -139,16 +142,21 @@ export function buildSearchResults({
   const query = q.trim().toLowerCase();
   const roleNames = new Map(data.roles.map((role) => [role.id, role.name]));
 
+  const botCandidates = data.bots.map((bot) =>
+    candidate(
+      bot.archived ? "archived_bots" : "bots",
+      bot.id,
+      bot.name,
+      (bot.role_id ? roleNames.get(bot.role_id) : null) ?? "No role",
+      bot.name,
+      bot.instructions,
+    ),
+  );
+
   const candidates: Record<SearchType, Candidate[]> = {
-    bots: data.bots.map((bot) =>
-      candidate(
-        "bots",
-        bot.id,
-        bot.name,
-        (bot.role_id ? roleNames.get(bot.role_id) : null) ?? "No role",
-        bot.name,
-        bot.instructions,
-      ),
+    bots: botCandidates.filter((item) => item.type === "bots"),
+    archived_bots: botCandidates.filter(
+      (item) => item.type === "archived_bots",
     ),
     roles: data.roles.map((role) =>
       candidate(

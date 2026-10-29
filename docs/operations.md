@@ -11,6 +11,8 @@ The orchestrator runs as one container bundling the API server and built web UI.
 | `DATABASE_PATH` | Optional full path to the SQLite file; otherwise `$DATA_DIR/bots.db` |
 | `SANDBOX_IMAGE` | Default sandbox image referenced by the default machine |
 | `ALLOW_REGISTRATION` | Set temporarily to `"true"` when creating accounts, then remove it |
+| `DEV_FAKE_LLM` | Set to `"1"` at boot to expose the built-in read-only Fake provider for local development |
+| `DEV_SEED_AUTH` | Set to `"1"` for local development only — idempotently seeds `dev@example.com` / `devpassword` plus an API key named `dev`; the full generated value is logged once when created, and existing users or keys are preserved |
 
 Model providers and their API keys are stored in application settings, not environment variables. Optional LLM request caps (`LLM_CONTEXT_WINDOW`, `LLM_MAX_TOKENS`) and compaction controls (`COMPACTION_TOKEN_THRESHOLD`, `COMPACTION_RATIO`, `COMPACTION_KEEP_RECENT`) tune runtime behavior without storing credentials.
 

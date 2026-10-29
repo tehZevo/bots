@@ -2,6 +2,8 @@
 
 The UI and API are login-protected. The sign-in screen asks `/api/auth/config` whether accounts exist and registration is enabled, then offers **Sign in** or **Create account**. Registration is disabled by default; start the server once with `ALLOW_REGISTRATION=true`, create your account, then remove it. Every signed-in user has equal access to all bots and settings — there is no admin tier.
 
+For local development only, `DEV_SEED_AUTH=1` seeds the ordinary account `dev@example.com` / `devpassword` plus an API key named `dev`. The seeded identity has no special rights, headers or request-path bypasses; sign-in and API keys work exactly like any other identity. If the dev user or a key named `dev` already exists, boot preserves it and emits no new startup log; removing the flag removes nothing retroactively.
+
 Sessions use an HttpOnly cookie for seven days. Settings → **Account** shows the signed-in email, lets you change your password (minimum eight characters; other sessions are invalidated), or log out from this browser.
 
 ## API keys
