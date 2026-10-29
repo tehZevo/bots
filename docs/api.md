@@ -6,7 +6,7 @@ Everything the UI does is available headlessly under `/api` (JSON), documented a
 
 Every route requires a session cookie (web UI login) or `Authorization: Bearer <api key>`; anything else answers `401 { error }`. Open exceptions: `/api/health`, the auth routes below, and webhook endpoints (`POST /api/webhooks/:triggerId`), which authenticate with their trigger secret instead. Cookie state changes are CSRF-guarded: same-origin `Origin` when present, JSON bodies otherwise.
 
-Create keys in **Settings → System → API keys**: each value is `bots_` + 40 hex chars, shown exactly once and stored hashed; the list shows name, created-at and last-used (updated at most once per minute). Revoking fails closed — requests with a revoked or malformed key get `401 { "error": "invalid api key" }`. For UI key management, account setup and browser-approved CLI sign-in, see [Accounts & access](/authentication).
+Create keys in **Settings → System → API keys**: each value is `bots_` + 40 hex chars, shown exactly once and stored hashed; the list shows name, created-at and last-used (updated at most once per minute). Revoking fails closed — requests with a revoked or malformed key get `401 { "error": "invalid api key" }`. Management itself is session-only: `GET /api/api-keys`, `POST /api/api-keys` and `DELETE /api/api-keys/:keyId` reject Bearer requests with `403 { "error": "session authentication required" }`, so a stolen key can neither mint replacement keys nor enumerate or revoke the owner's others. For UI key management, account setup and browser-approved CLI sign-in, see [Accounts & access](/authentication).
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -21,9 +21,9 @@ Create keys in **Settings → System → API keys**: each value is `bots_` + 40 
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/api-keys` | List `{ id, name, created_at, last_used_at }` — newest first |
-| POST | `/api/api-keys` | Create — `{ name }`; response includes the one-time `value` |
-| DELETE | `/api/api-keys/:keyId` | Revoke — 404 unknown id |
+| GET | `/api/api-keys` | List `{ id, name, created_at, last_used_at }` — newest first; session cookie required |
+| POST | `/api/api-keys` | Create — `{ name }`; response includes the one-time `value`; session cookie required |
+| DELETE | `/api/api-keys/:keyId` | Revoke — 404 unknown id; session cookie required |
 
 ## Device login (browser-approved CLI access)
 
