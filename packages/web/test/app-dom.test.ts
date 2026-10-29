@@ -75,6 +75,7 @@ const bot = {
   avatar_color: null,
   sound: null,
   enabled: 1,
+  archived: 0,
   created_at: now,
   run_state: "enabled",
   health: "blue",
@@ -617,6 +618,7 @@ test("bot detail header carries enable/Stop and General pins its action row", as
         "Restart machine",
         "Clear memory",
         "Save as template…",
+        "Archive",
         "Delete",
         "Cancel",
       ],
@@ -631,6 +633,93 @@ test("bot detail header carries enable/Stop and General pins its action row", as
     await act(async () => {
       root.unmount();
     });
+  }
+});
+
+test("archived dashboard cards are muted, badged, and open details", async () => {
+  const previous = {
+    enabled: bot.enabled,
+    archived: bot.archived,
+    health: bot.health,
+    run_state: bot.run_state,
+  };
+  Object.assign(bot, {
+    enabled: 1,
+    archived: 1,
+    health: "gray",
+    run_state: "disabled",
+  });
+  const root = await mount(React.createElement(App));
+  try {
+    assert.match(window.document.body.textContent ?? "", /Include archived/);
+    assert.ok(window.document.querySelector(".cards .card.archived"));
+    assert.match(window.document.body.textContent ?? "", /Archived/);
+
+    await click(byLabel("Sable (null)"));
+    assert.ok(window.document.querySelector(".dialog.tabs"));
+    assert.ok(!window.document.querySelector(".sidepanel"));
+  } finally {
+    Object.assign(bot, previous);
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("General archive actions stop first and unarchive immediately", async () => {
+  const previous = {
+    enabled: bot.enabled,
+    archived: bot.archived,
+    run_state: bot.run_state,
+  };
+  try {
+    Object.assign(bot, { enabled: 1, archived: 0, run_state: "enabled" });
+    requests.length = 0;
+    let changed = 0;
+    const onChanged = () => {
+      changed++;
+    };
+    let root = await mount(React.createElement(BotGeneral, { bot, onChanged }));
+    try {
+      await click(button("Archive"));
+      assert.ok(requests.includes("POST /api/bots/b1/archive"));
+      assert.equal(changed, 1);
+    } finally {
+      await act(async () => root.unmount());
+    }
+
+    Object.assign(bot, { run_state: "running" });
+    requests.length = 0;
+    changed = 0;
+    root = await mount(React.createElement(BotGeneral, { bot, onChanged }));
+    try {
+      await click(button("Archive"));
+      assert.equal(requests.includes("POST /api/bots/b1/archive"), false);
+      const confirm = [
+        ...window.document.querySelectorAll(".confirm button"),
+      ].find((item) => item.textContent?.trim() === "Archive bot");
+      assert.ok(confirm, "expected archive confirmation");
+      await click(confirm);
+      assert.ok(requests.includes("POST /api/bots/b1/archive"));
+      assert.equal(changed, 1);
+    } finally {
+      await act(async () => root.unmount());
+    }
+
+    Object.assign(bot, { archived: 1, run_state: "disabled" });
+    requests.length = 0;
+    changed = 0;
+    root = await mount(React.createElement(BotGeneral, { bot, onChanged }));
+    try {
+      await click(button("Unarchive"));
+      assert.ok(requests.includes("POST /api/bots/b1/unarchive"));
+      assert.equal(changed, 1);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  } finally {
+    Object.assign(bot, previous);
+    requests.length = 0;
   }
 });
 

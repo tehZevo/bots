@@ -21,6 +21,7 @@ export interface BotRow {
   avatar_color: number | null;
   sound: string | null;
   enabled: number;
+  archived: number;
   current_task: string | null;
   current_task_updated_at: number | null;
   status: string | null;
@@ -151,6 +152,7 @@ db.exec(`
     avatar_color INTEGER,
     sound TEXT,
     enabled INTEGER NOT NULL DEFAULT 1,
+    archived INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
   );
 
@@ -565,6 +567,10 @@ if (!botColumns.has("watchdog_run_started_at"))
   db.prepare(
     "ALTER TABLE bots ADD COLUMN watchdog_run_started_at INTEGER",
   ).run();
+if (!botColumns.has("archived"))
+  db.prepare(
+    "ALTER TABLE bots ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
+  ).run();
 
 db.exec(`
   UPDATE messages SET run_id = NULL WHERE run_id IS NOT NULL AND NOT EXISTS (
@@ -618,8 +624,11 @@ if (!messageForeignKeys.has("run_id->runs")) {
 
 db.pragma("foreign_keys = ON");
 
-export function listBots(): BotRow[] {
-  return db.prepare("SELECT * FROM bots ORDER BY created_at").all() as BotRow[];
+export function listBots(includeArchived = false): BotRow[] {
+  const where = includeArchived ? "" : "WHERE archived = 0";
+  return db
+    .prepare(`SELECT * FROM bots ${where} ORDER BY created_at`)
+    .all() as BotRow[];
 }
 
 export function getBot(id: string): BotRow | undefined {
@@ -639,6 +648,7 @@ type NewBot = Omit<
   | "watchdog_hours"
   | "watchdog_tripped"
   | "watchdog_run_started_at"
+  | "archived"
 > &
   Partial<
     Pick<
@@ -650,14 +660,16 @@ type NewBot = Omit<
       | "avatar_color"
       | "sound"
       | "watchdog_hours"
+      | "archived"
     >
   >;
 
 export function insertBot(bot: NewBot): void {
   db.prepare(
-    `INSERT INTO bots (id, name, instructions, model_id, role_id, machine_id, avatar_shape, avatar_color, sound, watchdog_hours, enabled, created_at)
-     VALUES (@id, @name, @instructions, @model_id, @role_id, @machine_id, @avatar_shape, @avatar_color, @sound, @watchdog_hours, @enabled, @created_at)`,
+    `INSERT INTO bots (id, name, instructions, model_id, role_id, machine_id, avatar_shape, avatar_color, sound, watchdog_hours, enabled, archived, created_at)
+     VALUES (@id, @name, @instructions, @model_id, @role_id, @machine_id, @avatar_shape, @avatar_color, @sound, @watchdog_hours, @enabled, @archived, @created_at)`,
   ).run({
+    archived: 0,
     model_id: null,
     role_id: null,
     machine_id: null,
@@ -1403,7 +1415,7 @@ export function dueTriggers(now: number): TriggerRow[] {
   return db
     .prepare(
       `SELECT t.* FROM triggers t JOIN bots b ON b.id = t.bot_id
-       WHERE b.enabled = 1 AND t.enabled = 1 AND t.next_run_at IS NOT NULL AND t.next_run_at <= ?`,
+        WHERE b.enabled = 1 AND b.archived = 0 AND t.enabled = 1 AND t.next_run_at IS NOT NULL AND t.next_run_at <= ?`,
     )
     .all(now) as TriggerRow[];
 }
@@ -1627,7 +1639,7 @@ export function evaluateWatchdogs(now = Date.now()): void {
   const due = db
     .prepare(
       `SELECT id, name, watchdog_hours FROM bots
-       WHERE enabled = 1 AND watchdog_hours IS NOT NULL AND watchdog_tripped = 0
+        WHERE enabled = 1 AND archived = 0 AND watchdog_hours IS NOT NULL AND watchdog_tripped = 0
          AND watchdog_run_started_at IS NOT NULL
          AND ? > watchdog_run_started_at + (watchdog_hours * 3600000)`,
     )

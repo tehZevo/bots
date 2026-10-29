@@ -410,3 +410,49 @@ test("config backup routes reject API-key authentication", async () => {
     });
   }
 });
+
+test("config backup preserves the archived flag", async () => {
+  const created = await req("POST", "/api/bots", {
+    name: "backup-archive-bot",
+    enabled: true,
+  });
+  assert.equal(created.status, 201);
+  const botId = String(object(created.json).id);
+
+  assert.equal((await req("POST", `/api/bots/${botId}/archive`)).status, 200);
+
+  let exported = object((await req("GET", "/api/backup/config")).json);
+  assert.equal(named(exported.bots, "backup-archive-bot").archived, true);
+  const hidden = array((await req("GET", "/api/bots")).json);
+  assert.equal(
+    hidden.some((bot) => bot.name === "backup-archive-bot"),
+    false,
+  );
+
+  assert.equal(
+    (
+      await req("POST", "/api/backup/config", {
+        version: 1,
+        bots: [{ name: "backup-archive-bot", enabled: true, archived: false }],
+      })
+    ).status,
+    200,
+  );
+  const restored = named(
+    (await req("GET", "/api/bots")).json,
+    "backup-archive-bot",
+  );
+  assert.equal(Number(restored.archived), 0);
+
+  assert.equal(
+    (
+      await req("POST", "/api/backup/config", {
+        version: 1,
+        bots: [{ name: "backup-archive-bot", enabled: true, archived: true }],
+      })
+    ).status,
+    200,
+  );
+  exported = object((await req("GET", "/api/backup/config")).json);
+  assert.equal(named(exported.bots, "backup-archive-bot").archived, true);
+});

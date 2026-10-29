@@ -45,22 +45,24 @@ The approval page lives at `/device` (`verification_uri_complete` deep-links it 
 | GET | `/api/backup/config` | Export configuration only — `?include_values=true` embeds secret values; default export omits them |
 | POST | `/api/backup/config` | Import a raw snapshot or `{ config, secret_values }`; validates the whole file before changing anything and returns created/updated counts per kind |
 
-Both routes require a browser session and reject API-key bearer authentication with `403`. Snapshots cover bots plus role/tag/project/team references, roles, skills with bundles, MCP servers, projects, tags, teams, templates, secret names and keys, and API key hashes. Runs, chat history, usage totals, notifications, users, provider values, pause state, workspaces and avatars are excluded. Restores upsert by name and never delete; missing values for new secrets must be supplied before the import completes. A restore that creates an API key without a stored hash returns its raw value once in `api_key_values`.
+Both routes require a browser session and reject API-key bearer authentication with `403`. Snapshots cover bots — including each bot's `archived` flag — plus role/tag/project/team references, roles, skills with bundles, MCP servers, projects, tags, teams, templates, secret names and keys, and API key hashes. Runs, chat history, usage totals, notifications, users, provider values, pause state, workspaces and avatars are excluded. Restores upsert by name and never delete; missing values for new secrets must be supplied before the import completes. A restore that creates an API key without a stored hash returns its raw value once in `api_key_values`.
 
 ## Bots
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/bots` | List bots incl. derived `health` (`green`/`blue`/`yellow`/`red`/`gray`) and `run_state` |
+| GET | `/api/bots` | List bots incl. derived `health` (`green`/`blue`/`yellow`/`red`/`gray`) and `run_state`; archived rows are omitted by default, while `?archived=1` includes them with `archived`, gray health, and disabled run state |
 | POST | `/api/bots` | Create — `{ name, instructions?, model_id?, role_id? }` |
 | GET/PATCH/DELETE | `/api/bots/:id` | Read / update fields incl. `enabled` / delete (cascades triggers + runs + notifications) |
-| POST | `/api/bots/:id/run` | Run now — `{ message? }`, steers a live loop, returns `{ runId, steered }`; 409 while globally paused |
+| POST | `/api/bots/:id/run` | Run now — `{ message? }`, steers a live loop, returns `{ runId, steered }`; 409 while archived, disabled, or globally paused |
+| POST | `/api/bots/:id/archive` | Archive — interrupts any live loop and hides the bot from default listings; schedules, webhooks, chat, Run now, and watchdogs stay frozen |
+| POST | `/api/bots/:id/unarchive` | Unarchive — returns the bot in the list with `enabled: false`; it must be enabled again before work resumes |
 | POST | `/api/bots/:id/interrupt` | Stop the live loop |
 | GET | `/api/bots/:id/runs` | Run history (status ok/error/interrupted, output, error) |
 | GET | `/api/bots/:id/runs/:runId/transcript` | Replay for one run: `{ run, usage, steps }`; steps are chronological `user`/`assistant`/`tool_call` (args summary)/`tool_result` (persisted output, `duration_ms`, `is_error`) with `retry_wait_ms` where recorded; `steps: []` when no messages are linked to the run |
 | GET | `/api/bots/:id/usage` | Token totals for the bot: `{ lifetime, last30d, budget }`; windows carry `input`, `output`, `cache_read`, `cache_write`, `total`, and `budget` is the trailing-30-day token cap (`null` = unlimited) |
 | GET | `/api/bots/:id/context-usage` | Estimated context split: `{ context_window, categories: { system_prompt, tools, conversation }, used, free }`; `context_window`/`free` are `null` with no model configured |
-| GET/POST | `/api/bots/:id/messages` | Chat history / inject a chat turn (steers or starts; while globally paused `{ runId: null, held: true }`) |
+| GET/POST | `/api/bots/:id/messages` | Chat history / inject a chat turn (steers or starts; while globally paused `{ runId: null, held: true }`; 409 when archived or disabled) |
 | DELETE | `/api/bots/:id/messages` | Clear stored context |
 
 ## Global pause
@@ -104,7 +106,7 @@ See [Templates](/templates) for the UI flow.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/search?q=...&types=bots,roles,...` | Case-insensitive substring search across bots (name + instructions), roles (name + instructions), skills/projects/templates (name + description), tags and teams (name); defaults to every type; unknown types → `400` |
+| GET | `/api/search?q=...&types=bots,archived_bots,roles,...` | Case-insensitive substring search across active and archived bots (name + instructions), roles (name + instructions), skills/projects/templates (name + description), tags and teams (name); defaults to every type; unknown types → `400` |
 
 Responses are `{ groups: [{ type, total, matches }] }`, capped at eight matches per group while `total` reports all matches. Each match is `{ type, id, name, subtitle }`. The UI uses this endpoint for its global search overlay; see [Search & commands](/search).
 

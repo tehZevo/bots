@@ -66,7 +66,7 @@ export function runTick(): void {
       if (paused) continue;
       updateTrigger(trigger.id, { next_run_at: null });
       const bot = getBot(trigger.bot_id);
-      if (!bot?.enabled) continue;
+      if (!bot?.enabled || bot.archived) continue;
       errers ??= latestErrorBotIds();
       if (isBlocked(trigger.bot_id, errers)) continue;
       inject(bot, trigger.message, "continuous");
@@ -74,7 +74,7 @@ export function runTick(): void {
       updateTrigger(trigger.id, { next_run_at: nextRunAt(trigger.schedule) });
       if (paused) continue;
       const bot = getBot(trigger.bot_id);
-      if (!bot?.enabled) continue;
+      if (!bot?.enabled || bot.archived) continue;
       inject(bot, trigger.message, "schedule");
     }
   }

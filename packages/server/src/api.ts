@@ -23,6 +23,7 @@ import { exportConfigBackup, importConfigBackup } from "./backup.ts";
 import { repoRoot } from "./config.ts";
 import {
   approveDeviceGrant,
+  type BotRow,
   botSecretIds,
   botsUsingMachine,
   botUsageTotals,
@@ -197,6 +198,10 @@ import {
 } from "./workspace.ts";
 
 const DEFAULT_MANUAL_MESSAGE = "Continue with your current work.";
+
+function workDisabled(bot: BotRow): boolean {
+  return !bot.enabled || bot.archived === 1;
+}
 
 export const SESSION_COOKIE = "bots_session";
 const SESSION_TTL_S = 7 * 24 * 60 * 60;
@@ -580,7 +585,7 @@ export function createApp() {
       q,
       types,
       data: {
-        bots: listBots(),
+        bots: listBots(true),
         roles: listRoles(),
         skills: listSkills(),
         projects: listProjects(),
@@ -1670,6 +1675,7 @@ export function createApp() {
   app.get("/api/bots", (c) =>
     c.json(
       (() => {
+        const includeArchived = c.req.query("archived") === "1";
         const errored = latestErrorBotIds();
         const projMap = projectIdsByBot();
         const tagMap = tagIdsByBot();
@@ -1677,7 +1683,8 @@ export function createApp() {
         const hasDefault = Boolean(
           getSetting("default_provider_id") && getSetting("default_model"),
         );
-        return listBots().map((bot) => {
+        return listBots(includeArchived).map((bot) => {
+          const archived = bot.archived === 1;
           const noModel = !bot.model_id && !hasDefault;
           const agentRed =
             bot.status !== null && bot.status_level === "blocked";
@@ -1690,20 +1697,22 @@ export function createApp() {
             project_ids: projMap.get(bot.id) ?? [],
             tag_ids: tagMap.get(bot.id) ?? [],
             secret_ids: botSecretIds(bot.id),
-            health: !bot.enabled
-              ? ("gray" as const)
-              : red
-                ? ("red" as const)
-                : bot.status !== null && bot.status_level === "issue"
-                  ? ("yellow" as const)
-                  : isLoopActive(bot.id)
-                    ? ("green" as const)
-                    : ("blue" as const),
-            run_state: isLoopActive(bot.id)
-              ? "running"
-              : bot.enabled
-                ? "enabled"
-                : "disabled",
+            health:
+              archived || !bot.enabled
+                ? ("gray" as const)
+                : red
+                  ? ("red" as const)
+                  : bot.status !== null && bot.status_level === "issue"
+                    ? ("yellow" as const)
+                    : isLoopActive(bot.id)
+                      ? ("green" as const)
+                      : ("blue" as const),
+            run_state:
+              !archived && isLoopActive(bot.id)
+                ? "running"
+                : archived || !bot.enabled
+                  ? "disabled"
+                  : "enabled",
           };
         });
       })(),
@@ -2288,9 +2297,29 @@ export function createApp() {
     return c.json({ ok: true });
   });
 
+  app.post("/api/bots/:id/archive", (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    interruptBot(bot.id);
+    updateBot(bot.id, { archived: 1 });
+    return c.json(getBot(bot.id));
+  });
+
+  app.post("/api/bots/:id/unarchive", (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    updateBot(bot.id, { archived: 0, enabled: 0 });
+    return c.json(getBot(bot.id));
+  });
+
   app.post("/api/bots/:id/run", async (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
+    if (workDisabled(bot))
+      return c.json(
+        { error: bot.archived ? "bot is archived" : "bot is disabled" },
+        409,
+      );
     if (isPaused()) return c.json({ error: "bots are paused" }, 409);
     const body: { message?: unknown } = await c.req
       .json<{ message?: unknown }>()
@@ -2427,7 +2456,11 @@ export function createApp() {
   app.post("/api/bots/:id/messages", async (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
-    if (!bot.enabled) return c.json({ error: "bot is disabled" }, 409);
+    if (workDisabled(bot))
+      return c.json(
+        { error: bot.archived ? "bot is archived" : "bot is disabled" },
+        409,
+      );
     const body = (await c.req.json().catch(() => null)) as {
       text?: unknown;
     } | null;
@@ -2681,7 +2714,11 @@ export function createApp() {
       return c.json({ error: "unauthorized" }, 401);
     if (!trigger.enabled) return c.json({ error: "trigger is disabled" }, 409);
     const bot = getBot(trigger.bot_id);
-    if (!bot?.enabled) return c.json({ error: "bot is disabled" }, 409);
+    if (!bot?.enabled || bot.archived)
+      return c.json(
+        { error: bot?.archived ? "bot is archived" : "bot is disabled" },
+        409,
+      );
     if (isPaused()) return c.json({ error: "bots are paused" }, 409);
     const body = await c.req.text();
     if (body.length > 64 * 1024)
