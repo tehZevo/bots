@@ -20,7 +20,7 @@ import {
   stopAllLoops,
 } from "./agent.ts";
 import { exportConfigBackup, importConfigBackup } from "./backup.ts";
-import { repoRoot } from "./config.ts";
+import { devFakeLlm, repoRoot } from "./config.ts";
 import {
   approveDeviceGrant,
   type BotRow,
@@ -163,6 +163,7 @@ import {
   upsertPushSubscription,
   verifyPassword,
 } from "./db.ts";
+import { FAKE_PROVIDER_ID, fakeProviderResponse } from "./fake-llm.ts";
 import { HOOK_EVENT_TYPES, sendHookTest } from "./hooks.ts";
 import { testMcpConnection } from "./mcp.ts";
 import { openApiDoc } from "./openapi.ts";
@@ -941,8 +942,8 @@ export function createApp() {
       const id = body.default_provider_id;
       if (typeof id !== "string")
         return c.json({ error: "default_provider_id must be a string" }, 400);
-      if (id && !getProvider(id))
-        return c.json({ error: "unknown provider" }, 400);
+      const known = id === FAKE_PROVIDER_ID ? devFakeLlm : !!getProvider(id);
+      if (id && !known) return c.json({ error: "unknown provider" }, 400);
       if (id) setSetting("default_provider_id", id);
       else deleteSetting("default_provider_id");
       out.default_provider_id = id || null;
@@ -1538,14 +1539,14 @@ export function createApp() {
     return c.json({ ok: true });
   });
 
-  app.get("/api/providers", (c) =>
-    c.json(
-      listProviders().map(({ api_key, ...rest }) => ({
-        ...rest,
-        has_key: api_key.length > 0,
-      })),
-    ),
-  );
+  app.get("/api/providers", (c) => {
+    const providers = listProviders().map(({ api_key, ...rest }) => ({
+      ...rest,
+      has_key: api_key.length > 0,
+    }));
+    if (devFakeLlm) providers.push(fakeProviderResponse());
+    return c.json(providers);
+  });
 
   const providerBody = async (c: Context) => {
     const body = (await c.req.json().catch(() => null)) as {
@@ -1602,7 +1603,10 @@ export function createApp() {
   });
 
   app.put("/api/providers/:id", async (c) => {
-    const existing = getProvider(c.req.param("id"));
+    const id = c.req.param("id");
+    if (devFakeLlm && id === FAKE_PROVIDER_ID)
+      return c.json({ error: "built-in provider is read-only" }, 409);
+    const existing = getProvider(id);
     if (!existing) return c.json({ error: "not found" }, 404);
     const parsed = await providerBody(c);
     if (!parsed) return c.json({ error: "invalid body" }, 400);
@@ -1623,8 +1627,10 @@ export function createApp() {
   });
 
   app.delete("/api/providers/:id", (c) => {
-    if (!deleteProvider(c.req.param("id")))
-      return c.json({ error: "not found" }, 404);
+    const id = c.req.param("id");
+    if (devFakeLlm && id === FAKE_PROVIDER_ID)
+      return c.json({ error: "built-in provider is read-only" }, 409);
+    if (!deleteProvider(id)) return c.json({ error: "not found" }, 404);
     if (getSetting("default_provider_id") === c.req.param("id")) {
       const next = listProviders()[0];
       if (next) {

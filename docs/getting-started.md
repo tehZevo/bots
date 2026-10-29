@@ -27,6 +27,15 @@ For a disposable local development database, start once with `DEV_SEED_AUTH=1`. 
 Open the web UI (default `http://localhost:8075`). The status bar up top shows totals at a glance, opens [Search & commands](/search), carries the global **Pause/Resume** toggle that holds or releases every bot at once, and offers a **Stop all** panic button that interrupts every running bot and arms the pause in one confirmed action. The sidebar switches between **Bots**, **Teams**, **Roles**, **Machines**, **Integrations**, **Skills**, **Templates**, **Projects**, **Tags**, **Secrets** and **Settings**; each tab owns a URL (e.g. `/bots`, `/teams`), so links open it directly, reloads keep it, and Back/Forward walk between tabs. Inside Settings, the **General**, **Providers**, and **System** sections use query deep links (`?tab=providers`, `?tab=system`; General is `/settings`). The General section offers theme as one segmented control — `Light | Dark | System`; the choice applies instantly, persists per device, and **System** follows your OS preference live (dark when there is no saved choice).
 
 1. **Configure a model first** — Settings → **Providers**: add an OpenAI-compatible provider (base URL + API key) and pick a default model. Replacing a saved API key asks you to confirm the rotation before saving; leave the field empty to keep the existing key. Bots without their own model use the default; with none configured they show **Blocked**.
+
+   For local development, start the server with `DEV_FAKE_LLM=1`. Settings → **Providers** then shows a built-in read-only **Fake** provider that can be selected as the default without an API key. Plain fake-model messages reply `FAKE OK (<bot name>)` after one second. A message can also begin with a directive such as:
+
+   ```text
+   [[fake]] {"reply":"Hello!","thinking":true,"tool_calls":[{"name":"shell","output":"done"}],"delay_ms":500} [[/fake]]
+   Show the scripted tool and reply flow.
+   ```
+
+   The directive is parsed only by fake models, stripped before storage, and can script streamed replies, thinking, real tool calls with overridden output, transient `429` or `500` failures (`fail_http` + `fail_times`), hanging requests (`hang: true`), delays, and token usage. The flag must be present when the server boots; without it, the Fake provider is absent everywhere.
 2. **Add a bot** — "Add bot" suggests a random name (↻ reshuffles it). Instructions and role are optional.
 3. **Run it** — press **Run now**, or add a trigger (cron / `@every 10m`, or a webhook) so the bot fires itself.
 4. **Watch it work** — clicking a bot card opens its Chat sidebar; the gear in that sidebar opens General / Triggers / Logs tabs and actions. The colored dot on every card is its health level (table below); it pulses only while a run is active, each card independently.
