@@ -7452,6 +7452,18 @@ export function Chat({
   );
 }
 
+type SkillUpdateStatus =
+  | "up_to_date"
+  | "update_available"
+  | "source_unavailable";
+
+interface SkillUpdateState {
+  status: SkillUpdateStatus | null;
+  checked_at: number | null;
+  modified: boolean;
+  pinned: boolean;
+}
+
 interface Skill {
   id: string;
   name: string;
@@ -7459,6 +7471,7 @@ interface Skill {
   instructions: string;
   created_at: number;
   import_info?: string | null;
+  update_state?: SkillUpdateState | null;
 }
 
 export type McpEnvMode = "literal" | "secret";
@@ -7647,6 +7660,11 @@ export function SkillsPanel({
   const [addOpen, setAddOpen] = useState(false);
   const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
   const [removingSkill, setRemovingSkill] = useState<Skill | null>(null);
+  const [detachingSkill, setDetachingSkill] = useState<Skill | null>(null);
+  const [updatingSkill, setUpdatingSkill] = useState<Skill | null>(null);
+  const [busySkill, setBusySkill] = useState<string | null>(null);
+  const [checkingAll, setCheckingAll] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const reloadSkills = useCallback(
     () =>
@@ -7669,41 +7687,148 @@ export function SkillsPanel({
     onOpened?.();
   }, [onOpened, openId, skills]);
 
+  const actionBusy = busySkill !== null || checkingAll;
+
+  async function runSkillAction(
+    skill: Skill,
+    path: string,
+    method = "POST",
+  ): Promise<void> {
+    setBusySkill(skill.id);
+    setError(null);
+    try {
+      const result = await api<{ status?: string; error?: string | null }>(
+        path,
+        {
+          method,
+        },
+      );
+      if (result.status === "source_unavailable") {
+        setError(
+          result.error ?? `Could not reach the source for ${skill.name}.`,
+        );
+      }
+      await reloadSkills();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusySkill(null);
+    }
+  }
+
+  async function checkAll(): Promise<void> {
+    if (actionBusy) return;
+    setCheckingAll(true);
+    setError(null);
+    try {
+      const result = await api<{
+        results?: Array<{ status: string; error?: string | null }>;
+      }>("/api/skills/check", { method: "POST" });
+      const failed = (result.results ?? []).filter(
+        (item) => item.status === "source_unavailable",
+      );
+      if (failed.length > 0) {
+        setError(
+          `${failed.length} skill update check could not reach its source.`,
+        );
+      }
+      await reloadSkills();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCheckingAll(false);
+    }
+  }
+
   return (
     <section>
       <div className="viewhead">
         <h2>Skills</h2>
+        <button
+          type="button"
+          disabled={checkingAll}
+          onClick={() => void checkAll()}
+        >
+          {checkingAll ? "Checking…" : "Check all"}
+        </button>
         <button type="button" onClick={() => setAddOpen(true)}>
           + Add skill
         </button>
       </div>
+      {error && <p className="error">{error}</p>}
       <div className="mcpsection">
         {skills.length === 0 && (
           <p className="muted">No skills yet — add one above.</p>
         )}
-        {skills.map((sk) => (
-          <div className="mcpsrv" key={sk.id}>
-            <header>
-              <strong>{sk.name}</strong>
-              {sk.import_info && (
-                <span className="srcbadge">
-                  {`${safeImportOrigin(sk.import_info) ?? "git"} skill`}
-                </span>
+        {skills.map((sk) => {
+          const state = sk.update_state ?? null;
+          const isImported = Boolean(sk.import_info);
+          return (
+            <div className="mcpsrv" key={sk.id}>
+              <header>
+                <strong>{sk.name}</strong>
+                {isImported && (
+                  <span className="srcbadge">
+                    {`${safeImportOrigin(sk.import_info ?? "") ?? "git"} skill`}
+                  </span>
+                )}
+                <button type="button" onClick={() => setEditingSkill(sk)}>
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => setRemovingSkill(sk)}
+                >
+                  Delete
+                </button>
+              </header>
+              {sk.description && <p className="muted">{sk.description}</p>}
+              {isImported && (
+                <>
+                  <div className="skillstatus">
+                    <span className="muted">
+                      {state?.status
+                        ? `${updateStatusLabel(state.status)} · ${fmt(state.checked_at)}`
+                        : "Not checked yet"}
+                    </span>
+                    {state?.pinned && <span className="srcbadge">pinned</span>}
+                    {state?.modified && (
+                      <span className="srcbadge">local changes</span>
+                    )}
+                  </div>
+                  <div className="skillactions">
+                    <button
+                      type="button"
+                      disabled={actionBusy}
+                      onClick={() =>
+                        void runSkillAction(sk, `/api/skills/${sk.id}/check`)
+                      }
+                    >
+                      {busySkill === sk.id ? "Working…" : "Check"}
+                    </button>
+                    {state?.status === "update_available" && (
+                      <button
+                        type="button"
+                        disabled={actionBusy}
+                        onClick={() => setUpdatingSkill(sk)}
+                      >
+                        Update
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      disabled={actionBusy}
+                      onClick={() => setDetachingSkill(sk)}
+                    >
+                      Detach
+                    </button>
+                  </div>
+                </>
               )}
-              <button type="button" onClick={() => setEditingSkill(sk)}>
-                Edit
-              </button>
-              <button
-                type="button"
-                className="danger"
-                onClick={() => setRemovingSkill(sk)}
-              >
-                Delete
-              </button>
-            </header>
-            {sk.description && <p className="muted">{sk.description}</p>}
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
       {removingSkill && (
         <ConfirmDialog
@@ -7713,9 +7838,35 @@ export function SkillsPanel({
           onConfirm={() => {
             const target = removingSkill;
             setRemovingSkill(null);
-            api(`/api/skills/${target.id}`, { method: "DELETE" })
-              .then(reloadSkills)
-              .catch((e) => alert(e.message));
+            void runSkillAction(target, `/api/skills/${target.id}`, "DELETE");
+          }}
+        />
+      )}
+      {detachingSkill && (
+        <ConfirmDialog
+          text={`Stop tracking updates for ${detachingSkill.name}? Its current content stays available as a hand-written skill.`}
+          confirmLabel="Detach skill"
+          onCancel={() => setDetachingSkill(null)}
+          onConfirm={() => {
+            const target = detachingSkill;
+            setDetachingSkill(null);
+            void runSkillAction(target, `/api/skills/${target.id}/detach`);
+          }}
+        />
+      )}
+      {updatingSkill && (
+        <ConfirmDialog
+          text={
+            updatingSkill.update_state?.modified
+              ? `Replace local changes to ${updatingSkill.name} with the upstream bundle?`
+              : `Update ${updatingSkill.name} from its source?`
+          }
+          confirmLabel="Update skill"
+          onCancel={() => setUpdatingSkill(null)}
+          onConfirm={() => {
+            const target = updatingSkill;
+            setUpdatingSkill(null);
+            void runSkillAction(target, `/api/skills/${target.id}/update`);
           }}
         />
       )}
@@ -7740,6 +7891,12 @@ export function SkillsPanel({
       )}
     </section>
   );
+}
+
+function updateStatusLabel(status: SkillUpdateStatus): string {
+  if (status === "up_to_date") return "Up to date";
+  if (status === "update_available") return "Update available";
+  return "Source unavailable";
 }
 
 export function SkillModal({

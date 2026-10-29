@@ -8,6 +8,7 @@ import {
   latestErrorBotIds,
   updateTrigger,
 } from "./db.ts";
+import { runDailySkillChecks } from "./skillupdates.ts";
 
 export function nextRunAt(
   schedule: string,
@@ -120,6 +121,7 @@ export function runTick(): void {
     }
   }
   evaluateWatchdogs(Date.now());
+  void runDailySkillChecks().catch(() => undefined);
 }
 
 export function startScheduler(tickMs = 15_000): void {

@@ -2878,6 +2878,21 @@ main.scr-active,
   color: var(--muted);
 }
 
+.skillstatus {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.skillactions {
+  display: flex;
+  gap: 0.45rem;
+  margin-top: 0.25rem;
+  flex-wrap: wrap;
+}
+
 .srclist {
   list-style: none;
   margin: 0.4rem 0;
