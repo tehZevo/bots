@@ -51,6 +51,7 @@ const {
   App,
   BotCard,
   BotGeneral,
+  ConfigBackupSection,
   BotTags,
   findDuplicateEnvKey,
   mcpEnvMapFromRows,
@@ -1364,6 +1365,26 @@ test("provider API key rotation confirms before saving", async () => {
     await click(button("Save provider"));
     await click(window.document.querySelector(".confirm button.danger"));
     assert.ok(requests.includes("PUT /api/providers/p1"));
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("backup export toggle names its subject and updates state", async () => {
+  const root = await mount(React.createElement(ConfigBackupSection));
+  try {
+    assert.match(
+      window.document.body.textContent ?? "",
+      /Secret values in export/,
+    );
+    assert.match(window.document.body.textContent ?? "", /Names only/);
+
+    await click(
+      window.document.querySelector("#secret-values-export-label + input"),
+    );
+    assert.match(window.document.body.textContent ?? "", /Included/);
   } finally {
     await act(async () => {
       root.unmount();

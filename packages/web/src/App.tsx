@@ -3568,9 +3568,10 @@ export function ConfigBackupSection() {
       <p className="muted">Configuration backup</p>
       <div className="actions">
         <label className="switch">
+          <span id="secret-values-export-label">Secret values in export</span>
           <input
             type="checkbox"
-            aria-label="Include secret values in export"
+            aria-labelledby="secret-values-export-label"
             checked={includeValues}
             onChange={() => setIncludeValues((current) => !current)}
           />
