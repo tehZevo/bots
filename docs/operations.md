@@ -11,6 +11,7 @@ The orchestrator runs as one container bundling the API server and built web UI.
 | `DATABASE_PATH` | Optional full path to the SQLite file; otherwise `$DATA_DIR/bots.db` |
 | `SANDBOX_IMAGE` | Default sandbox image referenced by the default machine |
 | `ALLOW_REGISTRATION` | Set temporarily to `"true"` when creating accounts, then remove it |
+| `TRUST_PROXY` | Set `"true"` behind a trusted reverse proxy so rate limits use the first `X-Forwarded-For` hop; otherwise client IP comes from the socket address |
 
 Model providers and their API keys are stored in application settings, not environment variables. Optional LLM request caps (`LLM_CONTEXT_WINDOW`, `LLM_MAX_TOKENS`) and compaction controls (`COMPACTION_TOKEN_THRESHOLD`, `COMPACTION_RATIO`, `COMPACTION_KEEP_RECENT`) tune runtime behavior without storing credentials.
 

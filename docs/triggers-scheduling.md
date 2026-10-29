@@ -10,7 +10,7 @@ Accept standard cron expressions (`0 * * * *`) or relative intervals (`@every 30
 
 ## Webhook triggers
 
-Each webhook gets a URL (`POST /api/webhooks/<id>`) and a bearer secret, shown once at creation/rotation (rotating is destructive — confirm required). Requests authenticate first (`401` on bad token), then payload checks; bodies up to 64 KB are appended to the trigger message as `Event payload:`.
+Each webhook gets a URL (`POST /api/webhooks/<id>`) and a bearer secret, shown once at creation/rotation (rotating is destructive — confirm required). Bodies over 64 KB answer `413` before rate limiting; deliveries are capped at 60 requests/min overall and 30 requests/min per trigger id (`429 { "error": "rate_limited" }`). Valid-sized requests then authenticate (`401` on bad token), with bodies up to 64 KB appended to the trigger message as `Event payload:`.
 
 ## Continuous triggers
 
