@@ -183,7 +183,7 @@ import {
   repullDefaultImage,
   restartSandbox,
 } from "./sandbox.ts";
-import { nextRunAt } from "./scheduler.ts";
+import { nextRunAt, previewSchedule } from "./scheduler.ts";
 import { buildSearchResults, SEARCH_TYPES, type SearchType } from "./search.ts";
 import {
   type ClonedRepo,
@@ -1009,6 +1009,16 @@ export function createApp() {
       out.default_model = id || null;
     }
     return c.json(out);
+  });
+
+  // specs/triggers/human-scheduling.md — server-local preview; invalid schedules still answer.
+  app.post("/api/schedule/preview", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      schedule?: unknown;
+    } | null;
+    if (!body || typeof body.schedule !== "string")
+      return c.json({ valid: false, next: [] });
+    return c.json(previewSchedule(body.schedule));
   });
 
   type TemplateInput = {

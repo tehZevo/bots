@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import { PasswordSettings, SessionSettings } from "./auth.tsx";
 import { renderMarkdown } from "./markdown.ts";
 import { ensurePushSubscription, PushSection } from "./push.tsx";
+import { ScheduleEditor } from "./schedule.tsx";
 import { readStoredTheme, setStoredTheme } from "./theme.ts";
 
 export interface ApiKey {
@@ -7021,13 +7022,12 @@ export function Triggers({ botId }: { botId: string }) {
                   required
                 />
               </label>
-              {kind !== "webhook" && (
+              {kind === "schedule" && (
+                <ScheduleEditor value={schedule} onChange={setSchedule} />
+              )}
+              {kind === "continuous" && (
                 <input
-                  placeholder={
-                    kind === "continuous"
-                      ? "@every 30m (min 1m)"
-                      : "cron or @every 30m"
-                  }
+                  placeholder="@every 30m (min 1m)"
                   value={schedule}
                   onChange={(e) => setSchedule(e.target.value)}
                   required
@@ -7163,13 +7163,12 @@ function TriggerEditor({
           onChange={(e) => setMessage(e.target.value)}
         />
       </label>
-      {(trigger.kind === "schedule" || trigger.kind === "continuous") && (
+      {trigger.kind === "schedule" && (
+        <ScheduleEditor value={schedule} onChange={setSchedule} />
+      )}
+      {trigger.kind === "continuous" && (
         <input
-          placeholder={
-            trigger.kind === "continuous"
-              ? "@every 30m (min 1m)"
-              : "cron or @every 30m"
-          }
+          placeholder="@every 30m (min 1m)"
           value={schedule}
           onChange={(e) => setSchedule(e.target.value)}
         />

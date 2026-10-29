@@ -28,7 +28,7 @@ Open the web UI (default `http://localhost:8075`) and sign in — [Accounts & ac
    ```
 
 2. **Add a bot** — "Add bot" suggests a random name (↻ reshuffles it). Instructions and role are optional.
-3. **Run it** — press **Run now**, or add a trigger (cron / `@every 10m`, or a webhook) so the bot fires itself.
+3. **Run it** — press **Run now**, or add a scheduled, webhook, or continuous trigger so the bot fires itself.
 4. **Watch it work** — clicking a bot card opens its Chat sidebar; the gear in that sidebar opens General / Triggers / Logs tabs and actions. Each card carries a health dot — meanings below.
 
 ## Health levels at a glance

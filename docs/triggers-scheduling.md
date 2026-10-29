@@ -6,7 +6,9 @@ Triggers can carry an optional short name. The Triggers tab lists each trigger w
 
 ## Schedule triggers
 
-Accept standard cron expressions (`0 * * * *`) or relative intervals (`@every 30m`). The next fire time is shown on each trigger card; occurrences missed while the orchestrator was down do not pile up — every tick schedules strictly from now.
+Schedule triggers store a relative interval (`@every 30m`) or standard cron expression. The editor offers **Every**, **Daily**, **Weekdays**, **Weekly**, **Monthly**, and **Custom**. A plain-English sentence above the controls states what will happen; expressions no preset represents open Custom unchanged.
+
+A live **Next fires** preview lists five upcoming server-local occurrences. An invalid expression replaces that list with one error line. Occurrences missed while the orchestrator was down do not pile up — every tick schedules strictly from now.
 
 ## Webhook triggers
 
