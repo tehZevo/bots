@@ -137,7 +137,7 @@ External agents drive the same surface over MCP at streamable HTTP `POST /mcp`, 
 | POST | `/api/notifications/:id/read` | Mark one read — 404 unknown id |
 | POST | `/api/notifications/read-all` | Mark everything read |
 
-Created automatically when a run ends `error` (deduped per run). See [Notifications](/notifications).
+Created automatically when a run ends `error` (deduped per run). Each item carries its resolved click destination in `target_path`. See [Notifications](/notifications).
 
 ## Event destinations
 

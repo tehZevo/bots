@@ -601,6 +601,7 @@ function errorWithoutModel(
     title: `${bot.name}: run failed`,
     body: `Run ${kind} ended in error: ${error}.`,
     botId: bot.id,
+    runId,
     dedupeKey: `run-error:${runId}`,
   });
 }

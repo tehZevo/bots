@@ -383,6 +383,8 @@ interface NotificationItem {
   title: string;
   body: string;
   bot_id: string | null;
+  run_id?: string | null;
+  target_path?: string | null;
   read: number;
   created_at: number;
 }
@@ -1040,6 +1042,103 @@ async function waitFirstAction(botId: string, runId: string): Promise<void> {
   }
 }
 
+type BotModalTab = "general" | "triggers" | "logs" | "stats" | "files";
+
+const BOT_MODAL_TABS: readonly string[] = [
+  "general",
+  "triggers",
+  "logs",
+  "stats",
+  "files",
+];
+
+interface RouteSnapshot {
+  tab: Tab;
+  chatBotId: string | null;
+  detailOpen: boolean;
+  openBotId: string | null;
+  modalTab: BotModalTab;
+  replayRunId: string | null;
+}
+
+function routeFromUrl(url: URL): RouteSnapshot {
+  const tab = tabFromPath(url.pathname);
+  let chatBotId: string | null = null;
+  let openBotId: string | null = null;
+  let detailOpen = false;
+  let modalTab: BotModalTab = "general";
+  let replayRunId: string | null = null;
+  if (tab === "bots") {
+    chatBotId = url.searchParams.get("bot");
+    const openParam = url.searchParams.get("open");
+    const runParam = url.searchParams.get("run");
+    const modalParam = url.searchParams.get("mtab");
+    replayRunId = runParam;
+    if (modalParam && BOT_MODAL_TABS.includes(modalParam)) {
+      modalTab = modalParam as BotModalTab;
+    }
+    if (runParam) {
+      openBotId = openParam ?? chatBotId;
+      detailOpen = Boolean(openBotId);
+      modalTab = "logs";
+    } else if (openParam) {
+      openBotId = openParam;
+      detailOpen = true;
+    }
+  }
+  return { tab, chatBotId, detailOpen, openBotId, modalTab, replayRunId };
+}
+
+function routeFromLocation(): RouteSnapshot {
+  if (typeof location === "undefined") {
+    return {
+      tab: "bots",
+      chatBotId: null,
+      detailOpen: false,
+      openBotId: null,
+      modalTab: "general",
+      replayRunId: null,
+    };
+  }
+  return routeFromUrl(new URL(location.href));
+}
+
+function routeHref(route: RouteSnapshot): string {
+  if (route.tab === "settings" && typeof location !== "undefined") {
+    return `${location.pathname}${location.search}`;
+  }
+  const base = TAB_PATHS[route.tab];
+  if (route.tab !== "bots") return base;
+  const params = new URLSearchParams();
+  if (route.chatBotId) params.set("bot", route.chatBotId);
+  if (route.replayRunId && route.openBotId) {
+    params.set("run", route.replayRunId);
+  } else if (route.detailOpen && route.openBotId) {
+    params.set("open", route.openBotId);
+    if (route.modalTab !== "general") params.set("mtab", route.modalTab);
+  }
+  const query = params.toString();
+  return query ? `${base}?${query}` : base;
+}
+
+function notificationTargetPathFor(item: NotificationItem): string | null {
+  if (item.target_path) return item.target_path;
+  if (item.kind === "breaker") return "/settings?tab=system";
+  if (!item.bot_id) return null;
+  const chat = `/bots?bot=${encodeURIComponent(item.bot_id)}`;
+  if (
+    item.kind === "run_error" ||
+    item.kind === "watchdog" ||
+    item.kind === "blocked" ||
+    item.kind === "recovered"
+  ) {
+    return item.run_id
+      ? `${chat}&run=${encodeURIComponent(item.run_id)}`
+      : chat;
+  }
+  return null;
+}
+
 export function App() {
   const [bots, setBots] = useState<Bot[]>([]);
   const [tab, setTabRaw] = useState<Tab>(() =>
@@ -1070,22 +1169,6 @@ export function App() {
         history.pushState({}, "", TAB_PATHS[t]);
     });
   };
-  useEffect(() => {
-    if (typeof addEventListener === "undefined") return;
-    const onPop = () => {
-      const target = tabFromPath(location.pathname);
-      if (target === tabRef.current) return;
-      const label = anyDirtyLabel();
-      if (!label) {
-        setTabRaw(target);
-        return;
-      }
-      history.pushState({}, "", TAB_PATHS[tabRef.current]);
-      setPendingDiscard({ label, fn: () => setTabRaw(target) });
-    };
-    addEventListener("popstate", onPop);
-    return () => removeEventListener("popstate", onPop);
-  }, []);
   const [openBot, setOpenBot] = useState<string | null>(null);
   const [chatBot, setChatBot] = useState<string | null>(null);
   const [poking, setPoking] = useState<Record<string, boolean>>({});
@@ -1170,9 +1253,8 @@ export function App() {
     }
   };
 
-  const [modalTab, setModalTab] = useState<
-    "general" | "triggers" | "logs" | "stats" | "files"
-  >("general");
+  const [modalTab, setModalTab] = useState<BotModalTab>("general");
+  const modalTabOverride = useRef<BotModalTab | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [avatarMenu, setAvatarMenu] = useState(false);
   const [headerBusy, setHeaderBusy] = useState(false);
@@ -1196,6 +1278,19 @@ export function App() {
   const seenNotifIds = useRef<Set<string> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(false);
+  const botsRef = useRef(bots);
+  botsRef.current = bots;
+  const openBotRef = useRef(openBot);
+  openBotRef.current = openBot;
+  const chatBotRef = useRef(chatBot);
+  chatBotRef.current = chatBot;
+  const modalTabRef = useRef(modalTab);
+  modalTabRef.current = modalTab;
+  const detailOpenRef = useRef(detailOpen);
+  detailOpenRef.current = detailOpen;
+  const replayRunRef = useRef(replayRun);
+  replayRunRef.current = replayRun;
+  const suppressPopEvent = useRef(false);
 
   const load = useCallback(async () => {
     try {
@@ -1253,7 +1348,9 @@ export function App() {
   }, [detailOpen]);
 
   useEffect(() => {
-    setModalTab("general");
+    const nextModalTab = modalTabOverride.current ?? "general";
+    modalTabOverride.current = null;
+    setModalTab(nextModalTab);
     setRuns([]);
     if (!openBot) return;
     const loadRuns = async () =>
@@ -1324,6 +1421,137 @@ export function App() {
 
   const navigateTab = (nextTab: Tab) => discardGuard(() => switchTab(nextTab));
 
+  const currentRouteSnapshot = useCallback(
+    (): RouteSnapshot => ({
+      tab: tabRef.current,
+      chatBotId: chatBotRef.current,
+      detailOpen: detailOpenRef.current,
+      openBotId: openBotRef.current,
+      modalTab: modalTabRef.current,
+      replayRunId: replayRunRef.current,
+    }),
+    [],
+  );
+
+  const applyRouteSnapshot = useCallback((route: RouteSnapshot): void => {
+    setTabRaw(route.tab);
+    if (route.tab !== "bots") {
+      modalTabOverride.current = null;
+      setChatBot(null);
+      setOpenBot(null);
+      setDetailOpen(false);
+      setReplayRun(null);
+      return;
+    }
+    if (route.detailOpen) modalTabOverride.current = route.modalTab;
+    setChatBot(route.chatBotId);
+    setOpenBot(route.openBotId);
+    setDetailOpen(route.detailOpen);
+    setModalTab(route.modalTab);
+    setReplayRun(route.replayRunId);
+  }, []);
+
+  const ensureBotRouteTarget = useCallback(async (botId: string | null) => {
+    if (!botId) return true;
+    if (botsRef.current.some((row) => row.id === botId)) return true;
+    try {
+      const rows = await api<Bot[]>("/api/bots?archived=1");
+      if (!rows.some((row) => row.id === botId)) return false;
+      setIncludeArchived(true);
+      setBots(rows);
+      botsRef.current = rows;
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const applyNotificationPath = useCallback(
+    (raw: string): void => {
+      if (typeof history === "undefined" || typeof location === "undefined")
+        return;
+      let url: URL;
+      try {
+        url = new URL(raw, location.origin);
+      } catch {
+        return;
+      }
+      const target = routeFromUrl(url);
+      const previous = currentRouteSnapshot();
+      history.replaceState({ route: previous }, "", location.href);
+      history.pushState({ route: target }, "", `${url.pathname}${url.search}`);
+      void (async () => {
+        if (!(await ensureBotRouteTarget(target.chatBotId ?? target.openBotId)))
+          return;
+        applyRouteSnapshot(target);
+        if (target.tab === "settings") {
+          suppressPopEvent.current = true;
+          window.dispatchEvent(new PopStateEvent("popstate"));
+          suppressPopEvent.current = false;
+        }
+      })();
+    },
+    [applyRouteSnapshot, currentRouteSnapshot, ensureBotRouteTarget],
+  );
+
+  const navigateToNotificationPath = useCallback(
+    (raw: string) => discardGuard(() => applyNotificationPath(raw)),
+    [applyNotificationPath, discardGuard],
+  );
+
+  useEffect(() => {
+    if (typeof addEventListener === "undefined") return;
+    const onPop = (event: PopStateEvent) => {
+      if (suppressPopEvent.current) return;
+      const stateRoute = (event.state as { route?: RouteSnapshot } | null)
+        ?.route;
+      const target = stateRoute ?? routeFromLocation();
+      const label = anyDirtyLabel();
+      if (!label) {
+        applyRouteSnapshot(target);
+        if (target.tab === "settings") {
+          suppressPopEvent.current = true;
+          window.dispatchEvent(new PopStateEvent("popstate"));
+          suppressPopEvent.current = false;
+        }
+        return;
+      }
+      const previous = currentRouteSnapshot();
+      history.replaceState({ route: previous }, "", location.href);
+      setPendingDiscard({ label, fn: () => applyRouteSnapshot(target) });
+    };
+    addEventListener("popstate", onPop);
+    return () => removeEventListener("popstate", onPop);
+  }, [applyRouteSnapshot, currentRouteSnapshot]);
+
+  const initialNotificationApplied = useRef(false);
+  useEffect(() => {
+    if (initialNotificationApplied.current || typeof location === "undefined")
+      return;
+    const route = routeFromLocation();
+    if (!(route.tab === "bots" && (route.chatBotId || route.openBotId))) return;
+    initialNotificationApplied.current = true;
+    void (async () => {
+      if (await ensureBotRouteTarget(route.chatBotId ?? route.openBotId)) {
+        applyRouteSnapshot(route);
+      }
+    })();
+  }, [applyRouteSnapshot, ensureBotRouteTarget]);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("serviceWorker" in navigator))
+      return;
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: unknown; path?: unknown } | null;
+      if (data?.type !== "bots:navigate" || typeof data.path !== "string")
+        return;
+      navigateToNotificationPath(data.path);
+    };
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () =>
+      navigator.serviceWorker.removeEventListener("message", onMessage);
+  }, [navigateToNotificationPath]);
+
   const openSearchEntity = (match: SearchMatch) => {
     setSearchOpen(false);
     if (match.type === "archived_bots") {
@@ -1387,6 +1615,19 @@ export function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
+  }
+
+  function openNotification(notification: NotificationItem): void {
+    const target = notificationTargetPathFor(notification);
+    if (!target) {
+      if (notification.read === 0) void markOneNotification(notification.id);
+      return;
+    }
+    discardGuard(() => {
+      setNotificationPanelOpen(false);
+      if (notification.read === 0) void markOneNotification(notification.id);
+      applyNotificationPath(target);
+    });
   }
 
   const [rail, setRail] = useState(
@@ -1533,46 +1774,45 @@ export function App() {
                     <p className="notifempty">No notifications.</p>
                   ) : (
                     <ul className="notiflist">
-                      {notifications.map((notification) => (
-                        <li
-                          key={notification.id}
-                          className={notification.read ? "" : "unread"}
-                        >
-                          <button
-                            type="button"
-                            className="notifbody"
-                            disabled={notification.read === 0}
-                            title={
-                              notification.read ? undefined : "Mark as read"
-                            }
-                            onClick={() =>
-                              void markOneNotification(notification.id)
-                            }
+                      {notifications.map((notification) => {
+                        const target = notificationTargetPathFor(notification);
+                        return (
+                          <li
+                            key={notification.id}
+                            className={notification.read ? "" : "unread"}
                           >
-                            <strong>{notification.title}</strong>
-                            <time
-                              dateTime={new Date(
-                                notification.created_at,
-                              ).toISOString()}
+                            <button
+                              type="button"
+                              className="notifbody"
+                              disabled={!target && notification.read !== 0}
+                              title={target ? "Open source" : "Mark as read"}
+                              onClick={() => openNotification(notification)}
                             >
-                              {fmt(notification.created_at)}
-                            </time>
-                            <p>{notification.body}</p>
-                          </button>
-                          {!notification.read && (
-                            <div className="notifactions">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void markOneNotification(notification.id)
-                                }
+                              <strong>{notification.title}</strong>
+                              <time
+                                dateTime={new Date(
+                                  notification.created_at,
+                                ).toISOString()}
                               >
-                                Mark read
-                              </button>
-                            </div>
-                          )}
-                        </li>
-                      ))}
+                                {fmt(notification.created_at)}
+                              </time>
+                              <p>{notification.body}</p>
+                            </button>
+                            {!notification.read && (
+                              <div className="notifactions">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void markOneNotification(notification.id)
+                                  }
+                                >
+                                  Mark read
+                                </button>
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </section>
