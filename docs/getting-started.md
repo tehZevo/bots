@@ -16,35 +16,20 @@ services:
 
 All state lives under `$DATA_DIR` (default `/data`) as `bots.db` plus a `workspaces/` folder per bot. Mount that exact path from your compose file; mounting somewhere else is ignored and the image falls back to container-local storage, so data appears to survive even after you delete the host directory. See [Operations](/operations) for Docker socket security, runtime variables and backup guidance.
 
-## Sign in
-
-The API and UI are login-protected. Sessions live in an HttpOnly cookie for 7 days. Registration is off by default — start the container once with `ALLOW_REGISTRATION=true`, create your account, then remove it. Every signed-in user has equal access to all bots and settings; there is no admin tier. Settings → **General** holds self-service **Change password** (other sessions are logged out), while Settings → **System** shows the signed-in account and offers **Logout**. See [Accounts & access](/authentication) for API keys and browser-approved CLI sign-in.
-
-For a disposable local development database, start once with `DEV_SEED_AUTH=1`. The server idempotently creates the normal account `dev@example.com` / `devpassword` plus an API key named `dev`; when that key is newly created, its full value appears once in the startup log. Existing users and keys are left unchanged, and turning the flag off removes nothing — it only stops re-seeding.
-
 ## The console
 
-Open the web UI (default `http://localhost:8075`). The status bar up top shows totals at a glance, opens [Search & commands](/search), carries the global **Pause/Resume** toggle that holds or releases every bot at once, and offers a **Stop all** panic button that interrupts every running bot and arms the pause in one confirmed action. The sidebar switches between **Bots**, **Teams**, **Roles**, **Machines**, **Integrations**, **Skills**, **Templates**, **Projects**, **Tags**, **Secrets** and **Settings**; each tab owns a URL (e.g. `/bots`, `/teams`), so links open it directly, reloads keep it, and Back/Forward walk between tabs. Inside Settings, the **General**, **Providers**, and **System** sections use query deep links (`?tab=providers`, `?tab=system`; General is `/settings`). The General section offers theme as one segmented control — `Light | Dark | System`; the choice applies instantly, persists per device, and **System** follows your OS preference live (dark when there is no saved choice).
+Open the web UI (default `http://localhost:8075`) and sign in — [Accounts & access](/authentication) covers sessions and creating the first account, while [Operations](/operations#runtime-configuration) explains the development seed. The status bar up top shows totals at a glance, opens [Search & commands](/search), carries **Pause**/**Resume** for every bot, and offers **Stop all** ([details](/bots#lifecycle)). The sidebar switches between **Bots**, **Teams**, **Roles**, **Machines**, **Integrations**, **Skills**, **Templates**, **Projects**, **Tags**, **Secrets** and **Settings**; each tab owns a URL (e.g. `/bots`, `/teams`), so links open it directly, reloads keep it, and Back/Forward walk between tabs. Inside Settings, the **General**, **Providers**, and **System** sections use query deep links (`?tab=providers`, `?tab=system`; General is `/settings`).
 
-1. **Configure a model first** — Settings → **Providers**: add an OpenAI-compatible provider (base URL + API key) and pick a default model. Replacing a saved API key asks you to confirm the rotation before saving; leave the field empty to keep the existing key. Bots without their own model use the default; with none configured they show **Blocked**.
-
-   For local development, start the server with `DEV_FAKE_LLM=1`. Settings → **Providers** then shows a built-in read-only **Fake** provider that can be selected as the default without an API key. Plain fake-model messages reply `FAKE OK (<bot name>)` after one second. A message can also begin with a directive such as:
+1. **Configure a model first** — Settings → **Providers**: add an OpenAI-compatible provider (base URL + API key) and pick a default model. Replacing a saved API key asks you to confirm the rotation before saving; leave the field empty to keep the existing key. Bots without their own model use the default; with none configured they show **Blocked**. For local development, enable the fake-provider setting described in [runtime configuration](/operations#runtime-configuration); Settings → **Providers** then shows a built-in read-only **Fake** provider you can set as the default without an API key. A plain fake-model message replies `FAKE OK (<bot name>)`; a message can also script replies, thinking, tool calls and failures with a directive only fake models parse:
 
    ```text
    [[fake]] {"reply":"Hello!","thinking":true,"tool_calls":[{"name":"shell","output":"done"}],"delay_ms":500} [[/fake]]
    Show the scripted tool and reply flow.
    ```
 
-   The directive is parsed only by fake models, stripped before storage, and can script streamed replies, thinking, real tool calls with overridden output, transient `429` or `500` failures (`fail_http` + `fail_times`), hanging requests (`hang: true`), delays, and token usage. The flag must be present when the server boots; without it, the Fake provider is absent everywhere.
 2. **Add a bot** — "Add bot" suggests a random name (↻ reshuffles it). Instructions and role are optional.
 3. **Run it** — press **Run now**, or add a trigger (cron / `@every 10m`, or a webhook) so the bot fires itself.
-4. **Watch it work** — clicking a bot card opens its Chat sidebar; the gear in that sidebar opens General / Triggers / Logs tabs and actions. The colored dot on every card is its health level (table below); it pulses only while a run is active, each card independently.
-
-## Back up configuration
-
-Settings → **Configuration backup** exports bots, roles, skills with bundles, MCP servers, projects, tags, teams, templates, secret names/keys and API key hashes as one JSON file. Runs, chat history, usage totals, notifications, users, provider values, pause state, workspaces and avatars stay out of the snapshot.
-
-Secret values are omitted by default; flip **Secret values in export** to `Included` only when you intend to carry them in the file. Restore parses and validates the entire upload before writing anything, then upserts each record by name without deleting records missing from the backup. New secrets whose values were not included are requested before the import completes, while existing values remain unchanged unless a value is supplied. Running bots keep their current loop and pick restored state up at their next run; see the [API reference](/api) for `/api/backup/config`.
+4. **Watch it work** — clicking a bot card opens its Chat sidebar; the gear in that sidebar opens General / Triggers / Logs tabs and actions. Each card carries a health dot — meanings below.
 
 ## Health levels at a glance
 
@@ -66,6 +51,6 @@ Secret values are omitted by default; flip **Secret values in export** to `Inclu
 - [Triggers & scheduling](/triggers-scheduling) — cron, `@every`, webhooks
 - [Secrets](/secrets) — environment variables for sandboxes and transcript redaction
 - [PWA install](/pwa) — standalone app shell and offline behavior
-- [CLI basics](/cli) — terminal access to the same REST API
+- [CLI basics](/cli) — terminal access to bots, runs and triggers
 - [Operations](/operations) — Docker socket security, runtime configuration, backup and restore
 - [API](/api) — everything the UI can do, headless

@@ -37,15 +37,4 @@ Requests time out after 10 seconds and never block a run, trigger fire, or notif
 
 Disabled destinations receive nothing and retain their existing logs. While global pause is active, no new events fire except `breaker.tripped`. **Send test** sends a manual `ping` event to an enabled destination and reports its HTTP status and latency inline; it works without waiting for a matching application event. Creating or editing a destination takes effect immediately.
 
-## API
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| GET | `/api/hooks` | List destinations; secrets are hidden |
-| POST | `/api/hooks` | Create `{ name, url, secret, event_types[] }` |
-| PUT | `/api/hooks/:id` | Update a destination; omit or blank `secret` to keep it |
-| DELETE | `/api/hooks/:id` | Delete the destination and its delivery logs |
-| GET | `/api/hooks/:id/deliveries` | Recent attempts, newest first; `?limit=` 1–250 (default 100) |
-| POST | `/api/hooks/:id/test` | Send `ping`; returns status and latency — `409` when disabled |
-
-See [API reference](/api), [Notifications](/notifications), and [Triggers & scheduling](/triggers-scheduling).
+Routes for destinations, delivery logs and the test endpoint — including the `409` a disabled destination answers on `/test` — are in the [API reference](/api#event-destinations). See also [Notifications](/notifications) and [Triggers & scheduling](/triggers-scheduling).

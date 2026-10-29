@@ -24,4 +24,4 @@ Before tool results are stored or replayed, exact matches of assigned secret val
 
 ## API
 
-Secret records live under `/api/secrets`. List and read routes return metadata without values; `GET /api/secrets/:id/value` reveals the current plaintext value for an authorized browser action. Bots expose `secret_ids`, and team rows carry inherited assignments through their update route. See the [API reference](/api) for request shapes.
+Secret records are managed through `/api/secrets`; request shapes, value access and assignment fields live in the [API reference](/api#secrets).
