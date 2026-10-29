@@ -6,6 +6,6 @@ Manage them under **Tags**: one card per tag showing how many bots carry it. Add
 
 Attach tags to a bot in its detail **General** tab: a chip list with an autocomplete input. The dropdown lists not-yet-attached tags whose names contain what you type; when nothing matches, it offers **+ Create "&lt;name&gt;"** instead — clicking creates the tag and attaches it immediately, then clears the field (a failed create keeps your text). Enter commits like choosing: an exact existing name is attached rather than duplicated, anything else creates.
 
-The Bots dashboard gains a `Tag:` dropdown multiselect beside the status and role filters; bots carrying at least one of the chosen tags are kept, and all filters combine.
+The Bots dashboard can filter by tag alongside status and role; the filter's exact behavior lives in [Bots](/bots#cards-and-filters).
 
 Everything is available headlessly via `/api/tags` (list includes per-tag bot counts; assignment goes through `PATCH /api/bots/:id` with `tag_ids`).

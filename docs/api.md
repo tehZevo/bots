@@ -6,18 +6,18 @@ Everything the UI does is available headlessly under `/api` (JSON), documented a
 
 Every route requires a session cookie (web UI login) or `Authorization: Bearer <api key>`; anything else answers `401 { error }`. Open exceptions: `/api/health`, the auth routes below, and webhook endpoints (`POST /api/webhooks/:triggerId`), which authenticate with their trigger secret instead. Cookie state changes are CSRF-guarded: same-origin `Origin` when present, JSON bodies otherwise.
 
-Create keys in **Settings → System → API keys**: each value is `bots_` + 40 hex chars, shown exactly once and stored hashed; the list shows name, created-at and last-used (updated at most once per minute). Revoking fails closed — requests with a revoked or malformed key get `401 { "error": "invalid api key" }`. Management itself is session-only: `GET /api/api-keys`, `POST /api/api-keys` and `DELETE /api/api-keys/:keyId` reject Bearer requests with `403 { "error": "session authentication required" }`, so a stolen key can neither mint replacement keys nor enumerate or revoke the owner's others. For UI key management, account setup and browser-approved CLI sign-in, see [Accounts & access](/authentication).
+Key management is session-only — see [Accounts & access](/authentication) for the UI flow, including one-time display and revocation. `GET /api/api-keys`, `POST /api/api-keys` and `DELETE /api/api-keys/:keyId` reject Bearer requests with `403 { "error": "session authentication required" }`, so a stolen key can neither mint replacement keys nor enumerate or revoke the owner's others. The list shows name, created-at and last-used (updated at most once per minute); a request with a revoked or malformed key gets `401 { "error": "invalid api key" }`.
 
-Public auth and webhook endpoints are rate-limited in process memory with `429 { "error": "rate_limited" }` when exceeded: login/signup allow 10 failed credential attempts per client IP per 15 minutes (successes reset the count), public auth routes cap each IP at 300 requests/min, webhook deliveries cap all endpoint traffic at 60 requests/min and each trigger id at 30 requests/min. Oversized webhook payloads still fail with `413` before a rate-limit response. Client IP is the socket address; set `TRUST_PROXY=true` to use the first `X-Forwarded-For` hop instead.
+Public auth endpoints are rate-limited in process memory with `429 { "error": "rate_limited" }`: login/signup allow 10 failed credential attempts per client IP per 15 minutes (successes reset the count), and public auth routes cap each IP at 300 requests/min. Client IP comes from the socket address or, when trusted-proxy mode is enabled, the first `X-Forwarded-For` hop ([runtime configuration](/operations#runtime-configuration)). Webhook delivery budgets are listed under [Webhooks](#webhooks).
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/api/auth/config` | `{ allow_registration, has_users }` — drives the sign-in screen |
-| POST | `/api/auth/signup` | Create account — 403 unless `ALLOW_REGISTRATION=true`, weak password → 400, duplicate → 409; sets session cookie |
-| POST | `/api/auth/login` | Email + password → session cookie (7 days); wrong credentials → 401 |
+| POST | `/api/auth/signup` | Create account — 403 while registration is disabled, weak password → 400, duplicate → 409; sets session cookie |
+| POST | `/api/auth/login` | Email + password → session cookie; wrong credentials → 401 |
 | GET | `/api/auth/me` | `{ email }` of the current caller — plus `key_id` when the request used an API key |
 | POST | `/api/auth/logout` | Drop this session |
-| POST | `/api/auth/password` | `{ current, new }` — 403 on wrong current; other sessions are invalidated |
+| POST | `/api/auth/password` | `{ current, new }` — 403 on wrong current; short password → 400 |
 
 ## API keys
 
@@ -29,7 +29,7 @@ Public auth and webhook endpoints are rate-limited in process memory with `429 {
 
 ## Device login (browser-approved CLI access)
 
-A terminal client requests a short code, the user approves it in the browser, and the client polls for a one-time API key (OAuth 2.0 device authorization, RFC 8628). Pending grants do not survive a server restart.
+A terminal client requests a short code, the user approves it in the browser, and the client polls for a one-time API key (OAuth 2.0 device authorization, RFC 8628). The approval flow and what users see on `/device` are owned by [Accounts & access](/authentication#sign-in-from-a-terminal-device-login).
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -38,16 +38,16 @@ A terminal client requests a short code, the user approves it in the browser, an
 | POST | `/api/auth/device/approve` | Session + CSRF — `{ user_code, decision: "approve" \| "deny", key_name? }` → `{ ok: true }`; approval mints an API key named `bots-cli <client> <UTC date>` unless a name is given |
 | POST | `/api/auth/device/token` | Public — poll with `{ device_code }`. Errors carry an OAuth code: `authorization_pending`, `slow_down`, `expired_token`, `access_denied`; the first success returns `{ api_key, key_id, key_name, email }` exactly once and the plaintext key is not retained after claim |
 
-The approval page lives at `/device` (`verification_uri_complete` deep-links it with the code); it requires a login session, shows the client name and expiry before approval, and never displays the issued key.
+The approval page lives at `/device` (`verification_uri_complete` deep-links it with the code) and requires a login session.
 
 ## Configuration backup
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/api/backup/config` | Export configuration only — `?include_values=true` embeds secret values; default export omits them |
-| POST | `/api/backup/config` | Import a raw snapshot or `{ config, secret_values }`; validates the whole file before changing anything and returns created/updated counts per kind |
+| POST | `/api/backup/config` | Import a raw snapshot or `{ config, secret_values }`; returns created/updated counts per kind — [restore semantics](/operations#configuration-backup) |
 
-Both routes require a browser session and reject API-key bearer authentication with `403`. Snapshots cover bots — including each bot's `archived` flag — plus role/tag/project/team references, roles, skills with bundles, MCP servers, projects, tags, teams, templates, secret names and keys, and API key hashes. Runs, chat history, usage totals, notifications, users, provider values, pause state, workspaces and avatars are excluded. Restores upsert by name and never delete; missing values for new secrets must be supplied before the import completes. A restore that creates an API key without a stored hash returns its raw value once in `api_key_values`.
+Both routes require a browser session and reject API-key bearer authentication with `403`. Import answers with created/updated counts per kind; an import missing new-secret values fails with `missing_secret_names`, and a restore that creates an API key without a stored hash returns its raw value once in `api_key_values`. What the snapshot covers and how restores behave is described in [Operations](/operations#configuration-backup).
 
 ## Bots
 
@@ -82,7 +82,7 @@ Both routes require a browser session and reject API-key bearer authentication w
 | GET | `/api/breaker` | `{ limit_tokens, tokens_30d, exceeded }` — the server-wide trailing-30-day cap and usage (`limit_tokens: 0` = unlimited) |
 | PUT | `/api/breaker` | `{ limit_tokens: int ≥ 0 }` — set or clear (0) the cap; bringing it under usage re-arms resume — 400 on a non-integer or negative value |
 
-The breaker is checked when a run reaches its terminal status; crossing the cap arms the global pause and raises one notification. See [Bots](/bots) and [Settings](/getting-started).
+The cap is evaluated when a run reaches its terminal status; what a trip does to bots and the pause state lives in [Bots](/bots#lifecycle).
 
 ## Triggers
 
@@ -150,7 +150,7 @@ Created automatically when a run ends `error` (deduped per run). Each item carri
 | GET | `/api/hooks/:id/deliveries` | Recent attempts newest first; `?limit=` 1–250 (default 100) |
 | POST | `/api/hooks/:id/test` | Send a manual `ping`; returns status/latency — `409` when disabled |
 
-Outbound deliveries POST `{ id, type, occurred_at, data }` with `X-Bots-Signature: sha256=<hmac>` and never block runs. Supported events are `run.finished`, `bot.blocked`, `bot.recovered`, `notification.created`, and `breaker.tripped`; while globally paused only `breaker.tripped` fires automatically. See [Event destinations](/event-destinations).
+Outbound deliveries POST `{ id, type, occurred_at, data }` with `X-Bots-Signature: sha256=<hmac>`. Supported event types and delivery behavior live in [Event destinations](/event-destinations).
 
 ## Roles, skills & MCP servers
 
