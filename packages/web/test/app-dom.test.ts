@@ -48,6 +48,7 @@ Object.defineProperty(window.navigator, "clipboard", {
 const React = await import("react");
 const { createRoot } = await import("react-dom/client");
 const {
+  applyOptimisticRunStates,
   App,
   BotCard,
   BotGeneral,
@@ -56,6 +57,7 @@ const {
   mcpEnvMapFromRows,
   mcpEnvRowsFromRecord,
   McpServerModal,
+  optimisticRunUpdate,
   ProviderFormModal,
   Triggers,
 } = await import("../src/App.tsx");
@@ -159,7 +161,9 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       { role: "assistant", text: "all good" },
     ]);
   }
-  if (url === "/api/bots/b1/messages" && method === "POST") return json({});
+  if (url === "/api/bots/b1/messages" && method === "POST") {
+    return json({ runId: "chat-run", steered: false });
+  }
   if (url === "/api/bots/b1/context-usage") {
     return json({
       context_window: 32000,
@@ -1368,5 +1372,119 @@ test("provider API key rotation confirms before saving", async () => {
     await act(async () => {
       root.unmount();
     });
+  }
+});
+
+test("optimistic run overrides are confirmed or corrected by polls", () => {
+  const at = Date.now();
+  const idle = {
+    ...bot,
+    run_state: "enabled" as const,
+    health: "blue" as const,
+  };
+  const running = {
+    ...idle,
+    run_state: "running" as const,
+    health: "green" as const,
+  };
+  const override = {
+    ...optimisticRunUpdate("running"),
+    authoritativeAt: at + 2_000,
+    expiresAt: at + 60_000,
+  };
+
+  let result = applyOptimisticRunStates([idle], { b1: override }, at);
+  assert.equal(result.rows[0].run_state, "running");
+  assert.ok(result.overrides.b1);
+
+  result = applyOptimisticRunStates([running], { b1: override }, at + 100);
+  assert.equal(result.overrides.b1, undefined);
+  assert.equal(result.rows[0].health, "green");
+
+  result = applyOptimisticRunStates([idle], { b1: override }, at + 2_100);
+  assert.equal(result.overrides.b1, undefined);
+  assert.equal(result.rows[0].run_state, "enabled");
+
+  const fresh = optimisticRunUpdate("running");
+  assert.ok(fresh.authoritativeAt > at);
+  assert.ok(fresh.expiresAt > fresh.authoritativeAt);
+});
+
+test("accepted chat send flips cues immediately", async () => {
+  requests.length = 0;
+  const previous = { ...bot };
+  bot.run_state = "enabled";
+  bot.health = "blue";
+  let root: ReturnType<typeof createRoot> | undefined;
+  try {
+    root = await mount(React.createElement(App));
+    assert.equal(byLabel("bot is working"), null);
+
+    await click(byLabel("Sable (null)"));
+    assert.ok(
+      !window.document.querySelector(
+        '[data-bot-card="b1"] + .quickhead .dot.green.pulse',
+      ),
+    );
+
+    const input = window.document.querySelector(
+      'input[placeholder="Message the bot…"]',
+    );
+    await typeInto(input, "check");
+    await click(button("Send"));
+
+    assert.ok(byLabel("bot is working"));
+    assert.ok(
+      window.document.querySelector(
+        '[data-bot-card="b1"] + .quickhead .dot.green.pulse',
+      ),
+    );
+  } finally {
+    Object.assign(bot, previous);
+    if (root) {
+      await act(async () => {
+        root?.unmount();
+      });
+    }
+  }
+});
+
+test("accepted stop flips the running cue immediately", async () => {
+  requests.length = 0;
+  const previous = { ...bot };
+  bot.run_state = "running";
+  bot.health = "green";
+  let root: ReturnType<typeof createRoot> | undefined;
+  try {
+    root = await mount(React.createElement(App));
+    await click(byLabel("Sable (null)"));
+    await click(byLabel("Sable settings"));
+
+    assert.ok(
+      window.document.querySelector(
+        ".detailhead-actions [aria-label='Stop while running']",
+      ),
+    );
+    await click(byLabel("Stop while running"));
+
+    assert.equal(
+      window.document.querySelector(
+        ".detailhead-actions [aria-label='Stop while running']",
+      ),
+      null,
+    );
+    assert.ok(requests.includes("POST /api/bots/b1/interrupt"));
+    assert.ok(
+      !window.document.querySelector(
+        '[data-bot-card="b1"] + .quickhead .dot.green.pulse',
+      ),
+    );
+  } finally {
+    Object.assign(bot, previous);
+    if (root) {
+      await act(async () => {
+        root?.unmount();
+      });
+    }
   }
 });
