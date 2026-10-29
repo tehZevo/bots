@@ -11,7 +11,7 @@ The orchestrator runs as one container bundling the API server and built web UI.
 | `DATABASE_PATH` | Optional full path to the SQLite file; otherwise `$DATA_DIR/bots.db` |
 | `SANDBOX_IMAGE` | Default sandbox image referenced by the default machine |
 | `ALLOW_REGISTRATION` | Set temporarily to `"true"` when creating accounts, then remove it |
-| `BOTS_ALLOW_PRIVATE_NETWORK` | Development/testing only — set `"1"` to allow loopback, private and link-local URLs in outbound fetches; unset by default |
+| `BOTS_ALLOW_PRIVATE_NETWORK` | Trusted single-host escape hatch — set `"1"` to disable the SSRF guard, allowing all address ranges and `file:` skill-import clone URLs; unset by default |
 
 Model providers and their API keys are stored in application settings, not environment variables. Optional LLM request caps (`LLM_CONTEXT_WINDOW`, `LLM_MAX_TOKENS`) and compaction controls (`COMPACTION_TOKEN_THRESHOLD`, `COMPACTION_RATIO`, `COMPACTION_KEEP_RECENT`) tune runtime behavior without storing credentials.
 
