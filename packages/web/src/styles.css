@@ -997,6 +997,38 @@ mark {
   border-color: var(--muted);
 }
 
+.card.archived {
+  opacity: 0.65;
+}
+
+.archivebadge,
+.detailarchive {
+  flex-shrink: 0;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 0.68rem;
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.detailarchive {
+  margin-top: 2px;
+}
+
+.filtertoggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
 .card strong {
   display: block;
   max-width: 100%;
