@@ -556,6 +556,43 @@ export function openApiDoc(): Json {
     params: ["tagId"],
   });
 
+  paths["/api/schedule/preview"] = {
+    post: {
+      summary: "Preview the next five fire times for a schedule",
+      requestBody: {
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["schedule"],
+              properties: { schedule: str },
+            },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "ok",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["valid", "next"],
+                properties: {
+                  valid: { type: "boolean" },
+                  next: {
+                    type: "array",
+                    items: { type: "string", format: "date-time" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+
   paths["/api/search"] = {
     get: {
       summary:

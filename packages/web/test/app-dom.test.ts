@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { JSDOM } from "jsdom";
+import type { ScheduleMode } from "../src/schedule.tsx";
 
 const dom = new JSDOM(
   '<!doctype html><html><body><div id="root"></div></body></html>',
@@ -62,6 +63,9 @@ const {
   ProviderFormModal,
   Triggers,
 } = await import("../src/App.tsx");
+const { parseScheduleState, scheduleFromState, ScheduleEditor } = await import(
+  "../src/schedule.tsx"
+);
 const act = React.act;
 
 const now = Date.now();
@@ -240,6 +244,20 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   }
   if (url === "/api/bots/b1/triggers" && method === "POST") {
     return json({ ...trigger, id: "t2", secret: "s3cret" });
+  }
+  if (url === "/api/schedule/preview" && method === "POST") {
+    const schedule = String(
+      (JSON.parse(String(init?.body)) as { schedule?: unknown }).schedule ?? "",
+    );
+    if (!schedule || schedule.includes("invalid")) {
+      return json({ valid: false, next: [] });
+    }
+    return json({
+      valid: true,
+      next: Array.from({ length: 5 }, (_, index) =>
+        new Date(now + (index + 1) * 3_600_000).toISOString(),
+      ),
+    });
   }
   if (url === "/api/teams") {
     return json([
@@ -794,7 +812,7 @@ test("trigger editor creates and edits triggers", async () => {
   ];
   assert.deepEqual(
     draftFields.map((field) => field.firstChild?.textContent?.trim()),
-    ["Type", "Name (optional)", "Message"],
+    ["Type", "Name (optional)", "Message", "Schedule"],
   );
   await typeInto(
     window.document.querySelector(
@@ -825,6 +843,89 @@ test("trigger editor creates and edits triggers", async () => {
   await act(async () => {
     root.unmount();
   });
+});
+
+test("human schedule controls round-trip stored expressions", () => {
+  const cases: [string, ScheduleMode?][] = [
+    ["@every 30m"],
+    ["5 9 * * *", "daily"],
+    ["30 9 * * 1-5", "weekdays"],
+    ["30 9 * * 1,4,6", "weekly"],
+    ["0 8 15 * *", "monthly"],
+    ["*/7 * * * *", "custom"],
+    ["not a cron", "custom"],
+  ];
+  for (const [raw, mode] of cases) {
+    const state = parseScheduleState(raw);
+    if (mode) assert.equal(state.mode, mode, raw);
+    assert.equal(scheduleFromState(state), raw);
+  }
+});
+
+test("schedule editor shows its sentence and live next fires", async () => {
+  const root = await mount(
+    React.createElement(ScheduleEditor, {
+      value: "30 9 * * 1-5",
+      onChange: () => undefined,
+      debounceMs: 0,
+    }),
+  );
+
+  try {
+    assert.equal(
+      window.document.querySelector(".schedule-sentence")?.textContent,
+      "Runs on weekdays at 09:30",
+    );
+    assert.equal(
+      (byLabel("Schedule type") as HTMLSelectElement).value,
+      "weekdays",
+    );
+    let ready = false;
+    for (let attempt = 0; attempt < 25 && !ready; attempt++) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+      ready =
+        window.document.querySelectorAll(".schedule-preview li").length === 5;
+    }
+    assert.ok(ready, "expected five next fire times");
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("schedule editor replaces an invalid preview with one error line", async () => {
+  const root = await mount(
+    React.createElement(ScheduleEditor, {
+      value: "invalid schedule",
+      onChange: () => undefined,
+      debounceMs: 0,
+    }),
+  );
+
+  try {
+    let ready = false;
+    for (let attempt = 0; attempt < 25 && !ready; attempt++) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+      ready = Boolean(window.document.querySelector(".schedule-error"));
+    }
+    assert.equal(
+      window.document.querySelector(".schedule-error")?.textContent,
+      "Invalid schedule expression.",
+    );
+    assert.equal(
+      window.document.querySelectorAll(".schedule-preview li").length,
+      0,
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
 });
 
 test("bot cards show the assigned role under the name, hidden when unset", async () => {

@@ -1183,6 +1183,84 @@ pre {
   padding-top: 0;
 }
 
+.schedule-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: min(100%, 34rem);
+}
+
+.schedule-sentence {
+  margin: 0;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.schedule-controls {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.schedule-controls .field {
+  margin: 0;
+}
+
+.schedule-number {
+  width: 6rem;
+}
+
+.schedule-days {
+  border: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.6rem;
+  margin: 0;
+  padding: 0;
+}
+
+.schedule-days legend {
+  color: var(--muted);
+  font-size: 0.8rem;
+  padding: 0 0 0.25rem;
+}
+
+.schedule-days label {
+  align-items: center;
+  color: inherit;
+  display: flex;
+  gap: 0.25rem;
+  min-height: 0;
+}
+
+.schedule-days input[type="checkbox"] {
+  height: 1rem;
+  min-height: 0;
+  width: 1rem;
+}
+
+.schedule-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.25rem;
+}
+
+.schedule-preview ul {
+  color: var(--muted);
+  display: grid;
+  gap: 0.15rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.schedule-error {
+  color: var(--err);
+  margin: 0;
+}
+
 @media (max-width: 720px) {
   .layout {
     grid-template-columns: 1fr;

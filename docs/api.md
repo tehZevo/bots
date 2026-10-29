@@ -92,6 +92,7 @@ The cap is evaluated when a run reaches its terminal status; what a trip does to
 | PATCH | `/api/triggers/:id` | Update `message`, `schedule`, or `enabled` (bool; resume never catch-up-fires) |
 | DELETE | `/api/triggers/:id` | Remove |
 | POST | `/api/triggers/:id/rotate-secret` | New webhook secret (destructive — invalidates the old one immediately) |
+| POST | `/api/schedule/preview` | `{ schedule }` → `{ valid, next[] }` — up to five server-local ISO occurrences; an invalid expression returns `valid: false` and no entries |
 
 ## Templates
 

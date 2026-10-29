@@ -409,6 +409,28 @@ test("trigger CRUD via nested create and patches", async () => {
   assert.equal((await req("DELETE", "/api/triggers/nope")).status, 404);
 });
 
+test("schedule preview validates without writing", async () => {
+  const p = await req("POST", "/api/schedule/preview", {
+    schedule: "@every 1m",
+  });
+  assert.equal(p.status, 200);
+  assert.equal(p.json.valid, true);
+  assert.ok(Array.isArray(p.json.next));
+  assert.equal((p.json.next as unknown[]).length, 5);
+
+  const invalid = await req("POST", "/api/schedule/preview", {
+    schedule: "not a cron",
+  });
+  assert.deepEqual(invalid.json, { valid: false, next: [] });
+
+  const anon = await app.request("/api/schedule/preview", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ schedule: "@every 1m" }),
+  });
+  assert.equal(anon.status, 401);
+});
+
 test("notifications list, validation, read flows", async () => {
   const l = await req("GET", "/api/notifications");
   assert.ok(Array.isArray(l.json.items));

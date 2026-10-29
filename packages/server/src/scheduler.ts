@@ -29,6 +29,47 @@ export function nextRunAt(
   }
 }
 
+export interface SchedulePreview {
+  valid: boolean;
+  next: string[];
+}
+
+export function previewSchedule(
+  schedule: string,
+  count = 5,
+  from = new Date(),
+): SchedulePreview {
+  const limit = Math.min(Math.max(count, 0), 5);
+  const trimmed = schedule.trim();
+  if (!trimmed) return { valid: false, next: [] };
+
+  let cursor = new Date(from);
+  const next: string[] = [];
+  try {
+    for (let i = 0; i < limit; i++) {
+      let at: number;
+      if (trimmed.startsWith("@every ")) {
+        const ms = parseDuration(trimmed.slice(7));
+        if (ms === null || ms <= 0) return { valid: false, next: [] };
+        at = cursor.getTime() + ms;
+      } else {
+        const parsed = CronExpressionParser.parse(trimmed, {
+          currentDate: cursor,
+        })
+          .next()
+          .toDate()
+          .getTime();
+        at = Math.max(parsed, cursor.getTime() + 1);
+      }
+      next.push(new Date(at).toISOString());
+      cursor = new Date(at);
+    }
+    return { valid: true, next };
+  } catch {
+    return { valid: false, next: [] };
+  }
+}
+
 function parseDuration(spec: string): number | null {
   const match = /^(\d+)\s*(s|m|h|d)$/i.exec(spec);
   if (!match) return null;
