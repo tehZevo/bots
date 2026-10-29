@@ -158,6 +158,8 @@ CRUD on `/api/roles`, `/api/skills`, `/api/mcp-servers`. Roles accept `instructi
 
 Skill import (never writes until confirmed): `GET /api/skills/search?q=` proxies skills.sh candidates, `POST /api/skills/preview` resolves a source (`owner/repo`, repo URL with optional `/tree/<ref>/<path>`, `@<skill>` filter, `#<ref>` pin) into per-`SKILL.md` previews with commit, file count, size and content hash, and `POST /api/skills/import { source, folders[] }` stores the selected bundles byte-for-byte plus immutable provenance (`import_info` on the skill row) — rejecting unreachable sources, oversized bundles (>200 files or >5 MB) and invalid frontmatter with nothing saved.
 
+Skill updates: imported skill payloads include `update_state` (`status`, `checked_at`, `modified`, `pinned`); hand-written rows return null. `POST /api/skills/check` checks every imported skill sequentially and returns `{ results, skills }`. Single-skill `/check` and `/update` actions return `{ id, status, error, skill }`: checks record `up_to_date`, `update_available`, or `source_unavailable`; updates return `updated`, `up_to_date`, `source_unavailable`, or `pinned`. Checks never mutate installed content; applying an update replaces metadata, instructions, and bundled files while preserving the id and grants. `POST /api/skills/:id/detach` returns the detached skill with provenance cleared and current content retained.
+
 ## Webhooks
 
 `POST /api/webhooks/:triggerId` with `Authorization: Bearer <secret>` — oversized bodies over 64 KB answer `413 { "error": "payload too large" }` first, then endpoint/trigger budgets answer `429 { "error": "rate_limited" }`; bad tokens answer `401`, while disabled triggers/bots and global pause answer `409`.

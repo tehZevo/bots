@@ -199,6 +199,14 @@ import {
   storeBundle,
 } from "./skillimport.ts";
 import {
+  checkSkillUpdate,
+  detachSkill,
+  enrichSkill,
+  listSkillPayloads,
+  refreshImportedModified,
+  updateImportedSkill,
+} from "./skillupdates.ts";
+import {
   listWorkspace,
   readWorkspaceFile,
   WorkspaceError,
@@ -2805,7 +2813,7 @@ export function createApp() {
     return c.json({ ok: true, runId });
   });
 
-  app.get("/api/skills", (c) => c.json(listSkills()));
+  app.get("/api/skills", (c) => c.json(listSkillPayloads()));
 
   app.post("/api/skills", async (c) => {
     const body = await c.req.json<Record<string, unknown>>();
@@ -2826,14 +2834,16 @@ export function createApp() {
       import_info: null,
     };
     insertSkill(skill);
-    return c.json(skill, 201);
+    return c.json(enrichSkill(getSkill(skill.id) ?? skill), 201);
   });
 
   app.patch("/api/skills/:skillId", async (c) => {
     const id = c.req.param("skillId");
-    if (!getSkill(id)) return c.json({ error: "not found" }, 404);
+    const current = getSkill(id);
+    if (!current) return c.json({ error: "not found" }, 404);
     const body = await c.req.json<Record<string, unknown>>();
     const fields: Record<string, string> = {};
+    let changed = false;
     for (const key of ["name", "description", "instructions"] as const) {
       if (body[key] === undefined) continue;
       if (typeof body[key] !== "string")
@@ -2842,9 +2852,16 @@ export function createApp() {
       if ((key === "name" || key === "instructions") && !value)
         return c.json({ error: `${key} is required` }, 400);
       fields[key] = value;
+      if (current[key] !== value) changed = true;
     }
     updateSkill(id, fields);
-    return c.json(getSkill(id));
+    const updated = getSkill(id)!;
+    if (changed && current.import_info) {
+      return c.json(
+        (await refreshImportedModified(id)) ?? enrichSkill(updated),
+      );
+    }
+    return c.json(enrichSkill(updated));
   });
 
   app.delete("/api/skills/:skillId", (c) => {
@@ -2999,7 +3016,7 @@ export function createApp() {
           import_info: JSON.stringify(info),
         });
         storeBundle(id, cloned.dir, b.preview.folder);
-        created.push(getSkill(id));
+        created.push(enrichSkill(getSkill(id)!));
       }
       return c.json({ skills: created }, 201);
     } catch (err) {
@@ -3010,6 +3027,47 @@ export function createApp() {
     } finally {
       cleanupClone(cloned.dir);
     }
+  });
+
+  app.post("/api/skills/check", async (c) => {
+    const actions = [];
+    for (const skill of listSkillPayloads()) {
+      if (!skill.update_state) continue;
+      actions.push(await checkSkillUpdate(skill.id));
+    }
+    return c.json({
+      results: actions.map(({ id, name, status, error }) => ({
+        id,
+        name,
+        status,
+        error,
+      })),
+      skills: actions.flatMap((action) => (action.skill ? [action.skill] : [])),
+    });
+  });
+
+  app.post("/api/skills/:skillId/check", async (c) => {
+    const result = await checkSkillUpdate(c.req.param("skillId"));
+    if (result.status === "not_found")
+      return c.json({ error: "not found" }, 404);
+    if (result.status === "not_imported")
+      return c.json({ error: "skill is not imported" }, 400);
+    return c.json(result);
+  });
+
+  app.post("/api/skills/:skillId/update", async (c) => {
+    const result = await updateImportedSkill(c.req.param("skillId"));
+    if (result.status === "not_found")
+      return c.json({ error: "not found" }, 404);
+    if (result.status === "not_imported")
+      return c.json({ error: "skill is not imported" }, 400);
+    return c.json(result);
+  });
+
+  app.post("/api/skills/:skillId/detach", (c) => {
+    const skill = detachSkill(c.req.param("skillId"));
+    if (!skill) return c.json({ error: "not found" }, 404);
+    return c.json(skill);
   });
 
   app.get("/api/mcp-servers", (c) => c.json(listMcpServers()));

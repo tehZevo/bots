@@ -20,6 +20,12 @@ On the **Import** tab, search [skills.sh](https://skills.sh) by name/keyword and
 
 Imports save nothing — rejecting with an error — when the source is unreachable or private, a bundle exceeds 200 files or 5 MB, or a `SKILL.md` lacks a valid frontmatter name/description.
 
+### Keeping imported skills current
+
+Imported cards show their latest update check; **Check all** in the Skills header checks every imported skill at once. Checks compare the source bundle with the installed hash and never change local content; background checks also run once per day without applying updates. Branch and default-branch imports track newer commits, while tag and commit imports stay pinned.
+
+When an update is available, **Update** replaces the skill's metadata, instructions, and bundled files while preserving its id and grants. Editing an imported skill marks it as having local changes; updating asks before replacing those edits. **Detach** keeps the current content as a hand-written skill and stops future checks. An unreachable source records `Source unavailable` without deleting the installed bundle.
+
 ## Capabilities (MCP servers)
 
 Anything beyond the baseline tools comes from [MCP integrations](/integrations-mcp). Granted servers' tools appear to the agent namespaced as `<server>_<tool>`; if one server is unreachable at loop start it's skipped without breaking the run, and failing tool calls return an error string instead of killing the loop.

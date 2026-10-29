@@ -727,6 +727,94 @@ export function openApiDoc(): Json {
       },
     },
   };
+
+  const updateStateSchema = {
+    type: "object",
+    properties: {
+      status: {
+        enum: ["up_to_date", "update_available", "source_unavailable"],
+      },
+      checked_at: numOrNone,
+      modified: { type: "boolean" },
+      pinned: { type: "boolean" },
+    },
+  };
+
+  const checkResultSchema = {
+    type: "object",
+    properties: {
+      id: str,
+      name: strOrNone,
+      status: {
+        enum: ["up_to_date", "update_available", "source_unavailable"],
+      },
+      error: strOrNone,
+    },
+  };
+
+  const checkResponseSchema = {
+    type: "object",
+    properties: {
+      id: str,
+      name: strOrNone,
+      status: {
+        enum: ["up_to_date", "update_available", "source_unavailable"],
+      },
+      error: strOrNone,
+      skill: ref("Skill"),
+    },
+  };
+
+  const updateResponseSchema = {
+    type: "object",
+    properties: {
+      id: str,
+      name: strOrNone,
+      status: {
+        enum: ["updated", "up_to_date", "source_unavailable", "pinned"],
+      },
+      error: strOrNone,
+      skill: ref("Skill"),
+    },
+  };
+
+  add("/api/skills/check", "post", "Check every imported skill for updates", {
+    res: {
+      type: "object",
+      properties: {
+        results: { type: "array", items: checkResultSchema },
+        skills: { type: "array", items: ref("Skill") },
+      },
+    },
+  });
+  add("/api/skills/{skillId}/check", "post", "Check one imported skill", {
+    params: ["skillId"],
+    res: checkResponseSchema,
+  });
+  decorate("/api/skills/{skillId}/check", "post", {
+    "400": error4xx("skill is not imported"),
+    "404": error4xx("unknown skill"),
+  });
+  add(
+    "/api/skills/{skillId}/update",
+    "post",
+    "Apply an upstream update to one imported skill",
+    { params: ["skillId"], res: updateResponseSchema },
+  );
+  decorate("/api/skills/{skillId}/update", "post", {
+    "400": error4xx("skill is not imported"),
+    "404": error4xx("unknown skill"),
+  });
+  add(
+    "/api/skills/{skillId}/detach",
+    "post",
+    "Clear update provenance while keeping current content",
+    { params: ["skillId"], res: ref("Skill") },
+  );
+  decorate("/api/skills/{skillId}/detach", "post", {
+    "404": error4xx("unknown skill"),
+  });
+
   add("/api/mcp-servers", "get", "List MCP servers");
   add("/api/mcp-servers", "post", "Create an MCP server", {
     body: ref("McpServer"),
@@ -1088,6 +1176,9 @@ export function openApiDoc(): Json {
             name: str,
             description: str,
             instructions: str,
+            created_at: { type: "integer" },
+            import_info: strOrNone,
+            update_state: { anyOf: [{ type: "null" }, updateStateSchema] },
           },
         },
         McpServer: {
