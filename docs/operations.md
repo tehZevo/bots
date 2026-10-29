@@ -10,6 +10,8 @@ The orchestrator runs as one container bundling the API server and built web UI.
 | `DATA_DIR` | Directory containing database state and bot workspaces; the image defaults to `/data` |
 | `DATABASE_PATH` | Optional full path to the SQLite file; otherwise `$DATA_DIR/bots.db` |
 | `SANDBOX_IMAGE` | Default sandbox image referenced by the default machine |
+| `SECRETS_KEY` | 32 random bytes as hex, used to encrypt secret values, provider API keys and VAPID material; keep it outside the data volume |
+| `SECRETS_KEY_OLD` | Set alongside a new `SECRETS_KEY` for one boot to re-encrypt stored material in place |
 | `ALLOW_REGISTRATION` | Set temporarily to `"true"` when creating accounts, then remove it |
 | `DEV_FAKE_LLM` | Set to `"1"` at boot to expose the built-in read-only Fake provider for local development |
 | `DEV_SEED_AUTH` | Set to `"1"` for local development only — idempotently seeds `dev@example.com` / `devpassword` plus an API key named `dev`; the full generated value is logged once when created, and existing users or keys are preserved |
@@ -20,7 +22,7 @@ The orchestrator runs as one container bundling the API server and built web UI.
 | `COMPACTION_RATIO` | Fraction of the context window at which automatic compaction runs, default `0.75` |
 | `COMPACTION_KEEP_RECENT` | Most recent messages kept verbatim when compacting, default `16` |
 
-Model providers and their API keys are stored in application settings, not environment variables.
+Model providers live in application settings, not environment variables; their API keys use the same encrypted at-rest protection as managed secrets. A database or volume copy without `SECRETS_KEY` yields no plaintext credentials.
 
 `GET /api/health` returns a minimal successful health response and is suitable for container health checks. Sandbox images are checked when first needed and pulled transparently if absent; a failed pull fails the affected bot run rather than stopping other bots.
 

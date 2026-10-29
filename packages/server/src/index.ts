@@ -16,9 +16,11 @@ import { initDurableRuntime } from "./pi-runtime.ts";
 import { attachPushNotifications } from "./push.ts";
 import { startSandboxReaper } from "./sandbox.ts";
 import { startScheduler } from "./scheduler.ts";
+import { prepareSecretStorage } from "./secret-storage.ts";
 
 async function main(): Promise<void> {
   mkdirSync(dirname(config.databasePath), { recursive: true });
+  await prepareSecretStorage();
 
   clearDeviceGrants(); // pending device grants never survive a restart
 

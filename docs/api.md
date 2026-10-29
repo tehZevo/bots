@@ -124,7 +124,7 @@ Responses are `{ groups: [{ type, total, matches }] }`, capped at eight matches 
 | PATCH | `/api/secrets/:secretId` | Update supplied fields; replacing `value` is destructive |
 | DELETE | `/api/secrets/:secretId` | Remove — running sandboxes must restart to drop its variable |
 
-Bots return their `secret_ids` in the bot API and accept updates through `PATCH /api/bots/:id`; teams support `secret_ids` on their PATCH route. See [Secrets](/secrets) for injection and redaction behavior.
+Creating a secret or replacing its value returns `503 { "error": … }` when no usable `SECRETS_KEY` is configured. Bots return their `secret_ids` in the bot API and accept updates through `PATCH /api/bots/:id`; teams support `secret_ids` on their PATCH route. See [Secrets](/secrets) for injection, storage and redaction behavior.
 
 ## Control MCP (`/mcp`)
 

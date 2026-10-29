@@ -9,6 +9,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import { config } from "./config.ts";
+import { decryptSecret, encryptSecret } from "./encryption.ts";
 import { notificationTargetPath } from "./notification-targets.ts";
 
 export interface BotRow {
@@ -1259,7 +1260,24 @@ db.exec(`
     secret_id TEXT NOT NULL REFERENCES secret(id) ON DELETE CASCADE,
     PRIMARY KEY (team_id, secret_id)
   );
+
+  CREATE TABLE IF NOT EXISTS secret_material (
+    name TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
 `);
+
+function secretLabel(name: string): string {
+  return `secret "${name}"`;
+}
+
+interface RawSecretRow extends Omit<SecretRow, "value"> {
+  value: string;
+}
+
+function toSecret(row: RawSecretRow): SecretRow {
+  return { ...row, value: decryptSecret(row.value, secretLabel(row.name)) };
+}
 
 export function listSecret(): Omit<SecretRow, "value">[] {
   return db
@@ -1269,40 +1287,118 @@ export function listSecret(): Omit<SecretRow, "value">[] {
     .all() as Omit<SecretRow, "value">[];
 }
 
-export function getSecret(id: string): SecretRow | undefined {
+function getRawSecret(id: string): RawSecretRow | undefined {
   return db.prepare("SELECT * FROM secret WHERE id = ?").get(id) as
-    | SecretRow
+    | RawSecretRow
     | undefined;
 }
 
+export function getSecret(id: string): SecretRow | undefined {
+  const row = getRawSecret(id);
+  return row && toSecret(row);
+}
+
 export function findSecretByName(name: string): SecretRow | undefined {
-  return db
+  const row = db
     .prepare("SELECT * FROM secret WHERE name = ? COLLATE NOCASE")
-    .get(name) as SecretRow | undefined;
+    .get(name) as RawSecretRow | undefined;
+  return row && toSecret(row);
 }
 
 export function insertSecret(s: SecretRow): void {
   db.prepare(
     `INSERT INTO secret (id, name, key, value, created_at)
      VALUES (@id, @name, @key, @value, @created_at)`,
-  ).run(s);
+  ).run({ ...s, value: encryptSecret(s.value) });
 }
 
 export function updateSecret(
   id: string,
   patch: Partial<Pick<SecretRow, "name" | "key" | "value">>,
 ): void {
-  const cur = getSecret(id);
+  const cur = getRawSecret(id);
   if (!cur) throw new Error(`unknown secret ${id}`);
   db.prepare(
     `UPDATE secret SET name = @name, key = @key, value = @value WHERE id = @id`,
-  ).run({ ...cur, ...patch, id });
+  ).run({
+    ...cur,
+    ...patch,
+    value: patch.value === undefined ? cur.value : encryptSecret(patch.value),
+  });
+}
+
+export function listStoredSecretValues(): {
+  id: string;
+  name: string;
+  value: string;
+}[] {
+  return db
+    .prepare("SELECT id, name, value FROM secret ORDER BY rowid")
+    .all() as { id: string; name: string; value: string }[];
+}
+
+export function setStoredSecretValue(id: string, stored: string): void {
+  db.prepare("UPDATE secret SET value = ? WHERE id = ?").run(stored, id);
 }
 
 export function deleteSecret(id: string): void {
   db.prepare("DELETE FROM bot_secret WHERE secret_id = ?").run(id);
   db.prepare("DELETE FROM team_secret WHERE secret_id = ?").run(id);
   db.prepare("DELETE FROM secret WHERE id = ?").run(id);
+}
+
+export const VAPID_MATERIAL_NAME = "vapid";
+
+function materialLabel(name: string): string {
+  return name === VAPID_MATERIAL_NAME
+    ? "push VAPID key"
+    : `encrypted material "${name}"`;
+}
+
+function getRawSecretMaterial(name: string): string | undefined {
+  const row = db
+    .prepare("SELECT value FROM secret_material WHERE name = ?")
+    .get(name) as { value: string } | undefined;
+  return row?.value;
+}
+
+export function listStoredSecretMaterials(): { name: string; value: string }[] {
+  return db
+    .prepare("SELECT name, value FROM secret_material ORDER BY name")
+    .all() as { name: string; value: string }[];
+}
+
+export function setStoredSecretMaterialValue(
+  name: string,
+  stored: string,
+): void {
+  db.prepare(
+    `INSERT INTO secret_material (name, value) VALUES (?, ?)
+     ON CONFLICT(name) DO UPDATE SET value = excluded.value`,
+  ).run(name, stored);
+}
+
+export function hasSecretMaterial(name: string): boolean {
+  return getRawSecretMaterial(name) !== undefined;
+}
+
+export function getSecretMaterial(name: string): string | undefined {
+  const stored = getRawSecretMaterial(name);
+  return stored === undefined
+    ? undefined
+    : decryptSecret(stored, materialLabel(name));
+}
+
+export function setSecretMaterial(name: string, value: string): void {
+  setStoredSecretMaterialValue(name, encryptSecret(value));
+}
+
+export function getVapidPairJson(): string | undefined {
+  return getSecretMaterial(VAPID_MATERIAL_NAME);
+}
+
+export function saveVapidPairJson(value: string): void {
+  setSecretMaterial(VAPID_MATERIAL_NAME, value);
 }
 
 function assertKnownSecrets(ids: string[]): void {
@@ -1351,23 +1447,25 @@ export function teamSecretIds(teamId: string): string[] {
 }
 
 function botSecretRows(botId: string): SecretRow[] {
-  return db
+  const rows = db
     .prepare(
       `SELECT s.* FROM bot_secret bs JOIN secret s ON s.id = bs.secret_id
        WHERE bs.bot_id = ? ORDER BY s.name ASC, s.key ASC`,
     )
-    .all(botId) as SecretRow[];
+    .all(botId) as RawSecretRow[];
+  return rows.map(toSecret);
 }
 
 function teamSecretRowsForBot(botId: string): SecretRow[] {
-  return db
+  const rows = db
     .prepare(
       `SELECT DISTINCT s.* FROM team_secret ts
        JOIN team_members tm ON tm.team_id = ts.team_id
        JOIN secret s ON s.id = ts.secret_id
        WHERE tm.bot_id = ? ORDER BY s.name ASC, s.key ASC`,
     )
-    .all(botId) as SecretRow[];
+    .all(botId) as RawSecretRow[];
+  return rows.map(toSecret);
 }
 
 export function secretEnvForBot(botId: string): Record<string, string> {
@@ -2132,7 +2230,11 @@ function toProvider(row: ProviderDbRow): ProviderRow {
   } catch {
     // fall through with empty list
   }
-  return { ...row, models };
+  return {
+    ...row,
+    api_key: decryptSecret(row.api_key, `provider "${row.name}"`),
+    models,
+  };
 }
 
 export function listProviders(): ProviderRow[] {
@@ -2156,7 +2258,7 @@ export function insertProvider(p: ProviderRow): void {
     p.id,
     p.name,
     p.base_url,
-    p.api_key,
+    encryptSecret(p.api_key),
     JSON.stringify(p.models),
     p.created_at,
   );
@@ -2168,11 +2270,21 @@ export function updateProvider(
 ): boolean {
   const sets: string[] = [];
   const vals: unknown[] = [];
-  for (const key of ["name", "base_url", "api_key", "models"] as const) {
-    if (fields[key] !== undefined) {
-      sets.push(`${key} = ?`);
-      vals.push(key === "models" ? JSON.stringify(fields.models) : fields[key]);
-    }
+  if (fields.name !== undefined) {
+    sets.push("name = ?");
+    vals.push(fields.name);
+  }
+  if (fields.base_url !== undefined) {
+    sets.push("base_url = ?");
+    vals.push(fields.base_url);
+  }
+  if (fields.api_key !== undefined) {
+    sets.push("api_key = ?");
+    vals.push(encryptSecret(fields.api_key));
+  }
+  if (fields.models !== undefined) {
+    sets.push("models = ?");
+    vals.push(JSON.stringify(fields.models));
   }
   if (sets.length === 0) return false;
   vals.push(id);
@@ -2184,6 +2296,20 @@ export function updateProvider(
 
 export function deleteProvider(id: string): boolean {
   return db.prepare("DELETE FROM providers WHERE id = ?").run(id).changes > 0;
+}
+
+export function listStoredProviderApiKeys(): {
+  id: string;
+  name: string;
+  api_key: string;
+}[] {
+  return db
+    .prepare("SELECT id, name, api_key FROM providers ORDER BY rowid")
+    .all() as { id: string; name: string; api_key: string }[];
+}
+
+export function setStoredProviderApiKey(id: string, stored: string): void {
+  db.prepare("UPDATE providers SET api_key = ? WHERE id = ?").run(stored, id);
 }
 
 export interface HookDestinationRow {
