@@ -1282,11 +1282,15 @@ export function createApp() {
   });
 
   app.get("/api/api-keys", (c) => {
+    const denied = denyApiKey(c);
+    if (denied) return denied;
     const user = c.get("user") as { id: string; email: string };
     return c.json(listApiKeys(user.id));
   });
 
   app.post("/api/api-keys", async (c) => {
+    const denied = denyApiKey(c);
+    if (denied) return denied;
     const body = (await c.req.json().catch(() => null)) as {
       name?: unknown;
     } | null;
@@ -1306,6 +1310,8 @@ export function createApp() {
   });
 
   app.delete("/api/api-keys/:keyId", (c) => {
+    const denied = denyApiKey(c);
+    if (denied) return denied;
     const user = c.get("user") as { id: string; email: string };
     if (!deleteApiKey(c.req.param("keyId"), user.id))
       return c.json({ error: "not found" }, 404);
