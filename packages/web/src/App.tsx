@@ -1294,6 +1294,22 @@ export function App() {
     return () => document.removeEventListener("keydown", onKey);
   }, [notificationPanelOpen, addOpen, detailOpen, chatBot]);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "`" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target?.closest("input, textarea, select") ||
+        target?.isContentEditable
+      )
+        return;
+      e.preventDefault();
+      setSearchOpen(true);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
   const botFilter = botQuery.trim().toLowerCase();
   const visibleBots = bots.filter(
     (bot) =>
@@ -1482,10 +1498,13 @@ export function App() {
             type="button"
             className="searchtoggle"
             aria-label="Open search"
-            title="Search records or run commands"
+            title="Search records or run commands (backtick)"
             onClick={() => setSearchOpen(true)}
           >
             Search
+            <kbd className="searchshortcut" aria-hidden="true">
+              `
+            </kbd>
           </button>
           <div className="notifwrap">
             <button

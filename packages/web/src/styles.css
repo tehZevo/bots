@@ -489,6 +489,9 @@ article header {
 }
 
 .searchtoggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
   min-height: 2rem;
   padding: 0 0.85rem;
   border-radius: var(--radius-control);
@@ -500,6 +503,18 @@ article header {
 
 .searchtoggle:hover {
   color: var(--text);
+}
+
+.searchshortcut {
+  min-width: 1.2rem;
+  padding: 0.08rem 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  text-align: center;
 }
 
 .searchoverlay {
