@@ -47,6 +47,7 @@ class FakeSubscription {
 
   async unsubscribe(): Promise<boolean> {
     this.unsubscribed = true;
+    if (existing === this) existing = null;
     return true;
   }
 }
@@ -59,6 +60,7 @@ let putBodies: Record<string, string>[] = [];
 let deleteEndpoints: string[] = [];
 let keyRequests = 0;
 let failSubscribeTimes = 0;
+let failPutTimes = 0;
 let endpointCounter = 1;
 
 const notificationMock = {
@@ -92,6 +94,13 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     return new Response(JSON.stringify({ key: currentKey }), { status: 200 });
   }
   if (url === "/api/push/subscription" && method === "PUT") {
+    if (failPutTimes > 0) {
+      failPutTimes--;
+      return new Response(
+        JSON.stringify({ error: "Registration failed - push service error" }),
+        { status: 502 },
+      );
+    }
     putBodies.push(JSON.parse(String(init?.body)) as Record<string, string>);
     return new Response(JSON.stringify({ ok: true }), { status: 201 });
   }
@@ -213,6 +222,7 @@ async function setup(options: {
   deleteEndpoints = [];
   keyRequests = 0;
   failSubscribeTimes = 0;
+  failPutTimes = 0;
   endpointCounter = 1;
   existing =
     options.existingKey === undefined || options.existingKey === null
@@ -311,6 +321,88 @@ test("unsubscribe removes the server subscription and local registration", async
     await waitFor(() => bodyText().includes("Off"));
     const button = exactButton("Unsubscribe") as HTMLButtonElement | null;
     assert.ok(button?.disabled);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("a failed server registration discards the stale client and offers Retry", async () => {
+  await setup({ permission: "granted", existingKey: "ABC" });
+  failPutTimes = 1;
+  const old = existing;
+  assert.ok(old);
+  const root = await mount(React.createElement(PushSection));
+  try {
+    await waitFor(
+      () => deleteEndpoints.length === 1 && old.unsubscribed,
+      "stale push cleanup",
+    );
+    assert.deepEqual(deleteEndpoints, [old.endpoint]);
+    assert.equal(putBodies.length, 0);
+    assert.ok(exactButton("Retry"));
+    assert.equal(exactButton("Unsubscribe"), null);
+    assert.match(bodyText(), /Registration failed - push service error/);
+
+    await click(exactButton("Retry"));
+    await waitFor(() => putBodies.length === 1, "retry subscription PUT");
+    assert.notEqual(existing?.endpoint, old.endpoint);
+    assert.equal(putBodies[0]?.endpoint, existing?.endpoint);
+    assert.ok(exactButton("Unsubscribe"));
+    assert.equal(exactButton("Retry"), null);
+    assert.match(bodyText(), /Subscribed/);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("a repeated push-service failure offers Retry instead of Unsubscribe", async () => {
+  await setup({ permission: "default" });
+  failSubscribeTimes = 2;
+  const root = await mount(React.createElement(PushSection));
+  try {
+    await waitFor(() =>
+      bodyText().includes("Registration failed - push service error"),
+    );
+    assert.equal(subscribeCalls.length, 2);
+    assert.ok(exactButton("Retry"));
+    assert.equal(exactButton("Unsubscribe"), null);
+
+    await click(exactButton("Retry"));
+    await waitFor(
+      () => putBodies.length === 1,
+      "explicit retry subscription PUT",
+    );
+    assert.match(bodyText(), /Subscribed/);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("a stale registration is removed and retried after the prompt was dismissed", async () => {
+  await setup({ permission: "default", marker: true, existingKey: "old" });
+  const old = existing;
+  assert.ok(old);
+  const root = await mount(React.createElement(PushSection));
+  try {
+    await waitFor(
+      () => deleteEndpoints.length === 1 && old.unsubscribed,
+      "dismissed stale cleanup",
+    );
+    assert.deepEqual(deleteEndpoints, [old.endpoint]);
+    assert.match(bodyText(), /Push registration expired/);
+    assert.ok(exactButton("Retry"));
+    assert.equal(exactButton("Unsubscribe"), null);
+
+    await click(exactButton("Retry"));
+    await waitFor(() => putBodies.length === 1, "stale retry subscription PUT");
+    assert.notEqual(existing?.endpoint, old.endpoint);
+    assert.match(bodyText(), /Subscribed/);
   } finally {
     await act(async () => {
       root.unmount();
