@@ -114,6 +114,25 @@ async function removeSubscription(endpoint: string): Promise<void> {
   }
 }
 
+async function discardSubscription(
+  subscription: PushSubscription,
+): Promise<void> {
+  await removeSubscription(subscription.endpoint).catch(() => undefined);
+  try {
+    await subscription.unsubscribe();
+  } catch {
+    // A browser registration that cannot be discarded is retried explicitly.
+  }
+}
+
+function failedState(error: unknown): PushState {
+  return publish({
+    status: notificationPermission() === "denied" ? "blocked" : "error",
+    subscribed: false,
+    error: errorMessage(error),
+  });
+}
+
 async function persistSubscription(
   subscription: PushSubscription,
 ): Promise<PushState> {
@@ -189,31 +208,18 @@ async function runEnsurePushSubscription(): Promise<PushState> {
       try {
         return await persistSubscription(existing);
       } catch (error) {
-        return publish({
-          status: notificationPermission() === "denied" ? "blocked" : "error",
-          subscribed: true,
-          error: errorMessage(error),
-        });
+        await discardSubscription(existing);
+        return failedState(error);
       }
     }
 
-    const perm = notificationPermission();
+    await discardSubscription(existing);
+    existing = null;
     if (
-      perm !== "denied" &&
-      !(perm === "default" && localStorage.getItem(PROMPTED_KEY))
+      notificationPermission() === "default" &&
+      localStorage.getItem(PROMPTED_KEY)
     ) {
-      try {
-        await removeSubscription(existing.endpoint);
-      } catch {}
-      try {
-        await existing.unsubscribe();
-      } catch {}
-      existing = null;
-    } else {
-      return publish({
-        status: perm === "denied" ? "blocked" : "off",
-        subscribed: true,
-      });
+      return failedState(new Error("Push registration expired"));
     }
   }
 
@@ -244,11 +250,8 @@ async function runEnsurePushSubscription(): Promise<PushState> {
   try {
     return await persistSubscription(subscription);
   } catch (error) {
-    return publish({
-      status: "error",
-      subscribed: true,
-      error: errorMessage(error),
-    });
+    await discardSubscription(subscription);
+    return failedState(error);
   }
 }
 
@@ -271,6 +274,20 @@ export async function ensurePushSubscription(): Promise<PushState> {
   return ensurePromise;
 }
 
+export async function retryPushSubscription(): Promise<PushState> {
+  localStorage.removeItem(PROMPTED_KEY);
+  try {
+    const registration = await waitForRegistration();
+    const subscription = registration
+      ? await registration.pushManager.getSubscription()
+      : null;
+    if (subscription) await discardSubscription(subscription);
+  } catch {
+    // The fresh attempt below reports the first failure that remains.
+  }
+  return ensurePushSubscription();
+}
+
 export async function unsubscribePush(): Promise<PushState> {
   try {
     const registration = await waitForRegistration();
@@ -287,11 +304,7 @@ export async function unsubscribePush(): Promise<PushState> {
       subscribed: false,
     });
   } catch (error) {
-    return publish({
-      status: "error",
-      subscribed: true,
-      error: errorMessage(error),
-    });
+    return failedState(error);
   }
 }
 
@@ -318,13 +331,19 @@ export function PushSection() {
     <>
       <p className="muted">Browser push</p>
       <div className="actions">
-        <button
-          type="button"
-          disabled={!state.subscribed || state.status === "checking"}
-          onClick={() => void unsubscribePush()}
-        >
-          Unsubscribe
-        </button>
+        {state.status === "error" ? (
+          <button type="button" onClick={() => void retryPushSubscription()}>
+            Retry
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={!state.subscribed || state.status === "checking"}
+            onClick={() => void unsubscribePush()}
+          >
+            Unsubscribe
+          </button>
+        )}
         <span className="state">{state.error ?? LABELS[state.status]}</span>
       </div>
     </>

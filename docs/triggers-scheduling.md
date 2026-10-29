@@ -2,15 +2,17 @@
 
 Triggers inject messages into a bot's loop: the configured text, on a schedule, when someone calls a webhook URL, or a fixed interval after each run finishes.
 
-Triggers can carry an optional short name. The Triggers tab lists each trigger with its name (or the raw schedule / `webhook <id>` label when unnamed) on the top line and, beneath it in muted italic, the type — `Schedule`, `Webhook` or `Continuous` — plus `(paused)` while disabled. Name the ones you operate by hand; leave throwaways anonymous.
+Triggers can carry an optional short name. The Triggers tab lists each trigger with its name — or the raw schedule / `webhook <id>` label when unnamed — plus its type and `(paused)` while disabled. Name the ones you operate by hand; leave throwaways anonymous.
 
 ## Schedule triggers
 
-Accept standard cron expressions (`0 * * * *`) or relative intervals (`@every 30m`). The next fire time is shown on each trigger card; occurrences missed while the orchestrator was down do not pile up — every tick schedules strictly from now.
+Schedule triggers store a relative interval (`@every 30m`) or standard cron expression. The editor offers **Every**, **Daily**, **Weekdays**, **Weekly**, **Monthly**, and **Custom**. A plain-English sentence above the controls states what will happen; expressions no preset represents open Custom unchanged.
+
+A live **Next fires** preview lists five upcoming server-local occurrences. An invalid expression replaces that list with one error line. Occurrences missed while the orchestrator was down do not pile up — every tick schedules strictly from now.
 
 ## Webhook triggers
 
-Each webhook gets a URL (`POST /api/webhooks/<id>`) and a bearer secret, shown once at creation/rotation (rotating is destructive — confirm required). Requests authenticate first (`401` on bad token), then payload checks; bodies up to 64 KB are appended to the trigger message as `Event payload:`.
+Each webhook gets a URL (`POST /api/webhooks/<id>`) and a bearer secret shown once at creation/rotation; rotating is destructive and requires confirmation. Accepted bodies are appended to the trigger message as `Event payload:`. Size limits, rate budgets and their status codes are in the [API reference](/api#webhooks).
 
 ## Continuous triggers
 
@@ -18,4 +20,4 @@ A continuous trigger fires an interval (`@every 30m`, minimum 1 minute) after th
 
 ## Pausing
 
-Every trigger has its own switch independent of the bot: paused cards mute and label themselves, schedule triggers never catch-up-fire on resume (cron picks the next slot, `@every` counts from the moment you re-enable), continuous triggers simply wait for the next finished run, and webhooks answer `409 trigger is disabled` after auth. Disabling the whole bot dominates everything.
+Every trigger has its own switch independent of the bot. Paused cards show `(paused)`; schedule triggers never catch-up-fire on resume (cron picks the next slot, `@every` counts from re-enable), continuous triggers wait for the next finished run, and webhooks are rejected after authentication. Disabling the whole bot dominates everything.

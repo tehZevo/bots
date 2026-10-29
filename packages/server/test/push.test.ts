@@ -7,6 +7,8 @@ import { test } from "node:test";
 const dir = mkdtempSync(join(tmpdir(), "bots-test-"));
 process.env.DATA_DIR = dir;
 process.env.DATABASE_PATH = join(dir, "t.db");
+process.env.SECRETS_KEY =
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 process.env.ALLOW_REGISTRATION = "true";
 const { createApp } = await import("../src/api.ts");
@@ -135,6 +137,12 @@ test("new notifications push; gone subscriptions are pruned", async () => {
     /^vapid t=[\w-]+\.[\w-]+\.[\w-]+, k=[\w-]+$/,
   );
   assert.equal(headers.ttl, "86400");
+  assert.equal(headers["content-type"], "application/json");
+  const payload = JSON.parse(String(calls[0].init?.body)) as Record<
+    string,
+    unknown
+  >;
+  assert.equal(payload.target, "/bots?bot=bot-p&run=run-p");
 
   nextStatus = 410;
   db.createNotification({ kind: "test", title: "t", body: "b" });

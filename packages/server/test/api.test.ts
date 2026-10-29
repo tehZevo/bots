@@ -409,6 +409,28 @@ test("trigger CRUD via nested create and patches", async () => {
   assert.equal((await req("DELETE", "/api/triggers/nope")).status, 404);
 });
 
+test("schedule preview validates without writing", async () => {
+  const p = await req("POST", "/api/schedule/preview", {
+    schedule: "@every 1m",
+  });
+  assert.equal(p.status, 200);
+  assert.equal(p.json.valid, true);
+  assert.ok(Array.isArray(p.json.next));
+  assert.equal((p.json.next as unknown[]).length, 5);
+
+  const invalid = await req("POST", "/api/schedule/preview", {
+    schedule: "not a cron",
+  });
+  assert.deepEqual(invalid.json, { valid: false, next: [] });
+
+  const anon = await app.request("/api/schedule/preview", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ schedule: "@every 1m" }),
+  });
+  assert.equal(anon.status, 401);
+});
+
 test("notifications list, validation, read flows", async () => {
   const l = await req("GET", "/api/notifications");
   assert.ok(Array.isArray(l.json.items));
@@ -613,6 +635,7 @@ test("api keys: create, list, bearer auth, revoke", async () => {
   const created = await req("POST", "/api/api-keys", { name: "cli" });
   assert.equal(created.status, 201);
   const value = created.json.value as string;
+  const id = created.json.id as string;
   assert.match(value, /^bots_[0-9a-f]{40}$/);
   const listRes = await authedRequest("/api/api-keys");
   const keys = (await listRes.json()) as Record<string, unknown>[];
@@ -627,7 +650,30 @@ test("api keys: create, list, bearer auth, revoke", async () => {
     },
   });
   assert.equal(bad.status, 401);
-  const id = created.json.id as string;
+
+  const keyManagement = async (method: string, path: string, body?: unknown) =>
+    app.request(path, {
+      method,
+      headers: {
+        authorization: `Bearer ${value}`,
+        cookie: "",
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+
+  for (const [method, path, body] of [
+    ["GET", "/api/api-keys"],
+    ["POST", "/api/api-keys", { name: "stolen-persistence" }],
+    ["DELETE", `/api/api-keys/${id}`],
+  ] as const) {
+    const denied = await keyManagement(method, path, body);
+    assert.equal(denied.status, 403);
+    assert.deepEqual(await denied.json(), {
+      error: "session authentication required",
+    });
+  }
+
   assert.equal((await req("DELETE", `/api/api-keys/${id}`)).status, 200);
   assert.equal(
     (

@@ -52,6 +52,23 @@ export function openApiDoc(): Json {
     };
   };
 
+  const decorate = (
+    path: string,
+    method: string,
+    extra: Record<string, Json>,
+  ): void => {
+    const operation = paths[path]?.[method];
+    if (!operation) return;
+    let responses = operation.responses as Record<string, Json> | undefined;
+    if (!responses) {
+      responses = {};
+      operation.responses = responses;
+    }
+    for (const [status, body] of Object.entries(extra)) {
+      responses[status] = body;
+    }
+  };
+
   add("/api/health", "get", "Liveness probe");
   for (const [p, m, d] of [
     ["/api/auth/config", "get", "Registration availability and user presence"],
@@ -74,6 +91,19 @@ export function openApiDoc(): Json {
     ],
   ] as const)
     add(p, m, d);
+
+  const rateLimited429: Record<string, Json> = {
+    "429": error4xx("rate_limited"),
+  };
+  for (const [path, method] of [
+    ["/api/auth/config", "get"],
+    ["/api/auth/signup", "post"],
+    ["/api/auth/login", "post"],
+    ["/api/auth/device/code", "post"],
+    ["/api/auth/device/token", "post"],
+  ] as const) {
+    decorate(path, method, rateLimited429);
+  }
 
   paths["/api/auth/me"].get = {
     summary: "Current identity; key_id is present for API-key requests",
@@ -282,9 +312,25 @@ export function openApiDoc(): Json {
       },
     },
   );
-  add("/api/bots", "get", "List bots with health and run state", {
-    res: { type: "array", items: ref("Bot") },
-  });
+  paths["/api/bots"] = {
+    get: {
+      summary:
+        "List bots with health and run state; archived rows require ?archived=1",
+      parameters: [
+        { name: "archived", in: "query", required: false, schema: str },
+      ],
+      responses: {
+        "200": {
+          description: "ok",
+          content: {
+            "application/json": {
+              schema: { type: "array", items: ref("Bot") },
+            },
+          },
+        },
+      },
+    },
+  };
   add("/api/bots", "post", "Create a bot", {
     body: ref("BotInput"),
     res: ref("Bot"),
@@ -301,6 +347,19 @@ export function openApiDoc(): Json {
   add("/api/bots/{id}", "delete", "Delete a bot and its history", {
     params: ["id"],
   });
+  add("/api/bots/{id}/archive", "post", "Archive the bot, stopping any run", {
+    params: ["id"],
+    res: ref("Bot"),
+  });
+  add(
+    "/api/bots/{id}/unarchive",
+    "post",
+    "Restore an archived bot in disabled state",
+    {
+      params: ["id"],
+      res: ref("Bot"),
+    },
+  );
   add("/api/bots/{id}/run", "post", "Inject a manual run message", {
     params: ["id"],
     body: { type: "object" },
@@ -424,6 +483,11 @@ export function openApiDoc(): Json {
       params: ["triggerId"],
     },
   );
+  decorate("/api/webhooks/{triggerId}", "post", {
+    "413": error4xx("payload too large"),
+    ...rateLimited429,
+  });
+
   add("/api/roles", "get", "List roles", {
     res: { type: "array", items: ref("Role") },
   });
@@ -491,6 +555,43 @@ export function openApiDoc(): Json {
   add("/api/tags/{tagId}", "delete", "Delete a tag and its attachments", {
     params: ["tagId"],
   });
+
+  paths["/api/schedule/preview"] = {
+    post: {
+      summary: "Preview the next five fire times for a schedule",
+      requestBody: {
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["schedule"],
+              properties: { schedule: str },
+            },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "ok",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["valid", "next"],
+                properties: {
+                  valid: { type: "boolean" },
+                  next: {
+                    type: "array",
+                    items: { type: "string", format: "date-time" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
 
   paths["/api/search"] = {
     get: {
@@ -663,6 +764,94 @@ export function openApiDoc(): Json {
       },
     },
   };
+
+  const updateStateSchema = {
+    type: "object",
+    properties: {
+      status: {
+        enum: ["up_to_date", "update_available", "source_unavailable"],
+      },
+      checked_at: numOrNone,
+      modified: { type: "boolean" },
+      pinned: { type: "boolean" },
+    },
+  };
+
+  const checkResultSchema = {
+    type: "object",
+    properties: {
+      id: str,
+      name: strOrNone,
+      status: {
+        enum: ["up_to_date", "update_available", "source_unavailable"],
+      },
+      error: strOrNone,
+    },
+  };
+
+  const checkResponseSchema = {
+    type: "object",
+    properties: {
+      id: str,
+      name: strOrNone,
+      status: {
+        enum: ["up_to_date", "update_available", "source_unavailable"],
+      },
+      error: strOrNone,
+      skill: ref("Skill"),
+    },
+  };
+
+  const updateResponseSchema = {
+    type: "object",
+    properties: {
+      id: str,
+      name: strOrNone,
+      status: {
+        enum: ["updated", "up_to_date", "source_unavailable", "pinned"],
+      },
+      error: strOrNone,
+      skill: ref("Skill"),
+    },
+  };
+
+  add("/api/skills/check", "post", "Check every imported skill for updates", {
+    res: {
+      type: "object",
+      properties: {
+        results: { type: "array", items: checkResultSchema },
+        skills: { type: "array", items: ref("Skill") },
+      },
+    },
+  });
+  add("/api/skills/{skillId}/check", "post", "Check one imported skill", {
+    params: ["skillId"],
+    res: checkResponseSchema,
+  });
+  decorate("/api/skills/{skillId}/check", "post", {
+    "400": error4xx("skill is not imported"),
+    "404": error4xx("unknown skill"),
+  });
+  add(
+    "/api/skills/{skillId}/update",
+    "post",
+    "Apply an upstream update to one imported skill",
+    { params: ["skillId"], res: updateResponseSchema },
+  );
+  decorate("/api/skills/{skillId}/update", "post", {
+    "400": error4xx("skill is not imported"),
+    "404": error4xx("unknown skill"),
+  });
+  add(
+    "/api/skills/{skillId}/detach",
+    "post",
+    "Clear update provenance while keeping current content",
+    { params: ["skillId"], res: ref("Skill") },
+  );
+  decorate("/api/skills/{skillId}/detach", "post", {
+    "404": error4xx("unknown skill"),
+  });
+
   add("/api/mcp-servers", "get", "List MCP servers");
   add("/api/mcp-servers", "post", "Create an MCP server", {
     body: ref("McpServer"),
@@ -704,16 +893,41 @@ export function openApiDoc(): Json {
   add("/api/notifications/{id}/read", "post", "Mark one notification read", {
     params: ["id"],
   });
-  add("/api/api-keys", "get", "List API keys (values not stored)", {
-    res: { type: "array", items: ref("ApiKey") },
-  });
-  add("/api/api-keys", "post", "Create an API key; value shown once", {
-    body: { type: "object", required: ["name"], properties: { name: str } },
-    res: { allOf: [ref("ApiKey"), { properties: { value: str } }] },
-  });
-  add("/api/api-keys/{keyId}", "delete", "Revoke an API key", {
+  add(
+    "/api/api-keys",
+    "get",
+    "List API keys (values not stored; session only)",
+    {
+      res: { type: "array", items: ref("ApiKey") },
+    },
+  );
+  add(
+    "/api/api-keys",
+    "post",
+    "Create an API key; value shown once (session only)",
+    {
+      body: { type: "object", required: ["name"], properties: { name: str } },
+      res: { allOf: [ref("ApiKey"), { properties: { value: str } }] },
+    },
+  );
+  add("/api/api-keys/{keyId}", "delete", "Revoke an API key (session only)", {
     params: ["keyId"],
   });
+
+  const markSessionOnly = (path: string, method: string): void => {
+    const operation = (paths[path] as Record<string, Json> | undefined)?.[
+      method
+    ] as Record<string, unknown> | undefined;
+    if (!operation) return;
+    operation.security = [{ sessionCookie: [] }];
+    const responses = operation.responses as Record<string, Json> | undefined;
+    if (!responses) return;
+    responses["403"] = error4xx("session authentication required");
+  };
+
+  markSessionOnly("/api/api-keys", "get");
+  markSessionOnly("/api/api-keys", "post");
+  markSessionOnly("/api/api-keys/{keyId}", "delete");
   add("/api/push/key", "get", "VAPID public key for browser push", {
     res: { type: "object", properties: { key: str } },
   });
@@ -923,6 +1137,7 @@ export function openApiDoc(): Json {
             machine_id: strOrNone,
             sound: strOrNone,
             enabled: { type: "integer" },
+            archived: { type: "integer" },
             token_budget: { type: ["integer", "null"] },
             watchdog_hours: { type: ["integer", "null"] },
             created_at: { type: "integer" },
@@ -998,6 +1213,9 @@ export function openApiDoc(): Json {
             name: str,
             description: str,
             instructions: str,
+            created_at: { type: "integer" },
+            import_info: strOrNone,
+            update_state: { anyOf: [{ type: "null" }, updateStateSchema] },
           },
         },
         McpServer: {

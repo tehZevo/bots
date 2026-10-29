@@ -1,40 +1,27 @@
 # CLI basics
 
-The `bots` command-line client drives the same REST API as the web UI. It uses API keys and server-side permissions, validation and errors — it never reads the SQLite database or bypasses an endpoint.
+`bots` drives the REST API with server-side permissions, validation and errors; it never reads SQLite directly.
 
 ## Configuration
 
-One server is stored per install in:
-
-- `$XDG_CONFIG_HOME/bots/config.json`, falling back to `~/.config/bots/config.json`
-- `%APPDATA%` on Windows
-
-The file contains the URL, email, API key and key metadata, uses restrictive permissions and can be relocated with `--config`. Flags override environment variables, which in turn override the file:
+One server is stored per install in `$XDG_CONFIG_HOME/bots/config.json` (`%APPDATA%` on Windows), with restrictive permissions; `--config` relocates it. The file stores the URL, email, API key and key metadata. Flags override environment variables, which override the file:
 
 ```bash
 BOTS_URL=https://bots.example.com
 BOTS_API_KEY=bots_…
 ```
 
-URLs must be absolute. HTTPS is required except for `localhost`, `127.0.0.1` and `::1`; use `--insecure` only when you intentionally accept plain HTTP elsewhere, and expect a warning.
+URLs must be absolute. HTTPS is required except for `localhost`, `127.0.0.1` and `::1`; use `--insecure` only when you intentionally accept plain HTTP elsewhere.
 
 ## Authentication
-
-Start with the device flow:
 
 ```bash
 bots auth login --url https://bots.example.com
 ```
 
-The CLI requests an eight-character code, opens the browser approval page when possible, waits for approval and stores the returned API key. Use `--web` explicitly for the browser flow or `--no-browser` to force print-only mode. Terminal password login and pasting an existing `--api-key` are also supported; those paths are mutually exclusive with device login.
+The CLI requests an eight-character code, opens the browser approval page when possible, waits for approval and stores the returned API key — [Accounts & access](/authentication#sign-in-from-a-terminal-device-login) describes what you see in the browser. Use `--web` explicitly for the browser flow or `--no-browser` to force print-only mode; terminal password login and a pasted `--api-key` are mutually exclusive with device login.
 
-Check what is configured without exposing credentials:
-
-```bash
-bots auth status
-```
-
-`bots auth logout` removes the local config and, by default, revokes its stored key first. Pass `--keep-key` when you want to retain the credential for another install.
+`bots auth status` checks configuration without exposing credentials. `bots auth logout` removes the local config and, by default, revokes its stored key first; pass `--keep-key` to retain it for another install.
 
 ## Common commands
 
@@ -53,9 +40,9 @@ Use `--help` at any level to see supported verbs and flags. Update commands send
 
 ## Safety, output and exit codes
 
-Destructive commands confirm on an interactive terminal by default. When stdin is not a TTY they refuse to send the request until you pass `--yes`; no other flag implies confirmation. Secrets returned once — webhook secrets, API keys and rotated values — are printed only in their creating command’s result.
+Destructive commands confirm on an interactive terminal by default. When stdin is not a TTY, they refuse until you pass `--yes`; no other flag implies confirmation. Secrets returned once — webhook secrets, API keys and rotated values — appear only in their creating command’s result.
 
-Human output uses tables for lists and key/value lines for records. `--quiet` emits ids or essential results one per line for scripting; there is currently no general structured-JSON output flag. Progress and errors go to stderr, normal results to stdout.
+Human output uses tables for lists and key/value lines for records; `--quiet` emits ids or essential results one per line for scripting, with progress/errors on stderr and normal results on stdout.
 
 | Exit code | Meaning |
 | --- | --- |

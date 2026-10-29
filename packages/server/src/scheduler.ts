@@ -8,6 +8,7 @@ import {
   latestErrorBotIds,
   updateTrigger,
 } from "./db.ts";
+import { runDailySkillChecks } from "./skillupdates.ts";
 
 export function nextRunAt(
   schedule: string,
@@ -26,6 +27,47 @@ export function nextRunAt(
       .getTime();
   } catch {
     return null;
+  }
+}
+
+export interface SchedulePreview {
+  valid: boolean;
+  next: string[];
+}
+
+export function previewSchedule(
+  schedule: string,
+  count = 5,
+  from = new Date(),
+): SchedulePreview {
+  const limit = Math.min(Math.max(count, 0), 5);
+  const trimmed = schedule.trim();
+  if (!trimmed) return { valid: false, next: [] };
+
+  let cursor = new Date(from);
+  const next: string[] = [];
+  try {
+    for (let i = 0; i < limit; i++) {
+      let at: number;
+      if (trimmed.startsWith("@every ")) {
+        const ms = parseDuration(trimmed.slice(7));
+        if (ms === null || ms <= 0) return { valid: false, next: [] };
+        at = cursor.getTime() + ms;
+      } else {
+        const parsed = CronExpressionParser.parse(trimmed, {
+          currentDate: cursor,
+        })
+          .next()
+          .toDate()
+          .getTime();
+        at = Math.max(parsed, cursor.getTime() + 1);
+      }
+      next.push(new Date(at).toISOString());
+      cursor = new Date(at);
+    }
+    return { valid: true, next };
+  } catch {
+    return { valid: false, next: [] };
   }
 }
 
@@ -66,7 +108,7 @@ export function runTick(): void {
       if (paused) continue;
       updateTrigger(trigger.id, { next_run_at: null });
       const bot = getBot(trigger.bot_id);
-      if (!bot?.enabled) continue;
+      if (!bot?.enabled || bot.archived) continue;
       errers ??= latestErrorBotIds();
       if (isBlocked(trigger.bot_id, errers)) continue;
       inject(bot, trigger.message, "continuous");
@@ -74,11 +116,12 @@ export function runTick(): void {
       updateTrigger(trigger.id, { next_run_at: nextRunAt(trigger.schedule) });
       if (paused) continue;
       const bot = getBot(trigger.bot_id);
-      if (!bot?.enabled) continue;
+      if (!bot?.enabled || bot.archived) continue;
       inject(bot, trigger.message, "schedule");
     }
   }
   evaluateWatchdogs(Date.now());
+  void runDailySkillChecks().catch(() => undefined);
 }
 
 export function startScheduler(tickMs = 15_000): void {

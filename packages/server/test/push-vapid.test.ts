@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -7,6 +7,8 @@ import test from "node:test";
 const dir = mkdtempSync(join(tmpdir(), "bots-vapid-"));
 process.env.DATA_DIR = dir;
 process.env.DATABASE_PATH = join(dir, "t.db");
+process.env.SECRETS_KEY =
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 process.env.ALLOW_REGISTRATION = "true";
 writeFileSync(
   join(dir, "vapid.json"),
@@ -56,10 +58,17 @@ test("corrupt VAPID state regenerates one valid pair", async () => {
   const raw = Buffer.from(first.key, "base64url");
   assert.equal(raw.length, 65);
   assert.equal(raw[0], 0x04);
-  const stored = JSON.parse(readFileSync(join(dir, "vapid.json"), "utf8")) as {
-    publicKey: string;
-  };
-  assert.equal(stored.publicKey, first.key);
+  assert.ok(!existsSync(join(dir, "vapid.json")));
+
+  const storedMaterial = db
+    .listStoredSecretMaterials()
+    .find((m) => m.name === "vapid");
+  assert.ok(storedMaterial?.value.startsWith("enc:v1:"));
+  assert.equal(
+    (JSON.parse(db.getVapidPairJson() ?? "{}") as { publicKey?: string })
+      .publicKey,
+    first.key,
+  );
 
   const calls: { url: string; headers?: HeadersInit }[] = [];
   setPushTransport((async (url: string | URL | Request, init?: RequestInit) => {
@@ -74,7 +83,10 @@ test("corrupt VAPID state regenerates one valid pair", async () => {
     p256dh: "BNzip",
     auth: "bXlhdA",
   });
-  await dispatchNewNotification();
+  db.createNotification({ kind: "test", title: "t", body: "b" });
+  const notification = db.listNotifications()[0];
+  assert.ok(notification);
+  await dispatchNewNotification(notification);
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "https://push.example.com/s/vapid");

@@ -1,12 +1,33 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { dataDir } from "./config.ts";
 import {
+  getVapidPairJson,
   listPushSubscriptions,
+  type NotificationRow,
   type PushSubscriptionRow,
   removePushSubscription,
+  saveVapidPairJson,
   setOnNewNotification,
 } from "./db.ts";
+import { currentEncryptionKey } from "./encryption.ts";
+import { migrateLegacyVapidFile } from "./secret-storage.ts";
+
+interface PushPayload {
+  id: string;
+  title: string;
+  body: string;
+  target: string | null;
+}
+
+function pushPayload(notification: NotificationRow): PushPayload {
+  return {
+    id: notification.id,
+    title: notification.title,
+    body: notification.body.slice(0, 200),
+    target: notification.target_path,
+  };
+}
 
 let transport: typeof fetch | null = null;
 
@@ -68,29 +89,56 @@ async function isValidPair(keysValue: VapidKeys): Promise<boolean> {
   }
 }
 
+function parsedVapidKeys(raw: string): VapidKeys | null {
+  try {
+    const value = JSON.parse(raw) as unknown;
+    if (!value || typeof value !== "object") return null;
+    const candidate = value as Partial<VapidKeys>;
+    if (typeof candidate.publicKey === "string" && candidate.privateKey) {
+      return {
+        publicKey: candidate.publicKey,
+        privateKey: candidate.privateKey as JsonWebKey,
+      };
+    }
+  } catch {
+    // fall through below
+  }
+  return null;
+}
+
+async function legacyKeys(): Promise<VapidKeys | null> {
+  try {
+    return parsedVapidKeys(await readFile(keyFile(), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+async function persistKeys(pair: VapidKeys): Promise<void> {
+  saveVapidPairJson(JSON.stringify(pair));
+  try {
+    await unlink(keyFile());
+  } catch {
+    // The encrypted SQLite row is authoritative once written.
+  }
+}
+
 async function generateKeys(): Promise<VapidKeys> {
   const pair = await crypto.subtle.generateKey(
     { name: "ECDSA", namedCurve: "P-256" },
     true,
     ["sign", "verify"],
   );
-  cached = {
+  const keysValue: VapidKeys = {
     publicKey: b64url(await crypto.subtle.exportKey("raw", pair.publicKey)),
     privateKey: (await crypto.subtle.exportKey(
       "jwk",
       pair.privateKey,
     )) as JsonWebKey,
   };
+  await persistKeys(keysValue);
+  cached = keysValue;
   signingKey = null;
-  try {
-    await mkdir(dataDir, { recursive: true });
-    await writeFile(keyFile(), JSON.stringify(cached));
-  } catch (e) {
-    console.error(
-      "push: failed to persist VAPID key — existing subscriptions break after restart:",
-      e,
-    );
-  }
   return cached;
 }
 
@@ -98,13 +146,11 @@ async function keys(): Promise<VapidKeys> {
   if (cached) return cached;
   if (loading) return loading;
   loading = (async () => {
-    let loaded: VapidKeys | null = null;
-    try {
-      const parsed = JSON.parse(await readFile(keyFile(), "utf8")) as VapidKeys;
-      if (parsed.publicKey && parsed.privateKey) loaded = parsed;
-    } catch {
-      // fall through to generation below
-    }
+    await migrateLegacyVapidFile();
+    const encrypted = getVapidPairJson();
+    let loaded = encrypted ? parsedVapidKeys(encrypted) : null;
+    if (!loaded && !currentEncryptionKey()) loaded = await legacyKeys();
+
     if (loaded) {
       if (await isValidPair(loaded)) {
         cached = loaded;
@@ -178,14 +224,19 @@ async function vapidAuthHeader(endpoint: string): Promise<string> {
   return `vapid t=${header}.${payload}.${b64url(derToRaw(new Uint8Array(sig)))}, k=${k.publicKey}`;
 }
 
-async function sendPush(sub: PushSubscriptionRow): Promise<void> {
+async function sendPush(
+  sub: PushSubscriptionRow,
+  notification: NotificationRow,
+): Promise<void> {
   try {
     const doFetch = transport ?? fetch;
     const res = await doFetch(sub.endpoint, {
       method: "POST",
+      body: JSON.stringify(pushPayload(notification)),
       signal: AbortSignal.timeout(5_000),
       headers: {
         authorization: await vapidAuthHeader(sub.endpoint),
+        "content-type": "application/json",
         ttl: "86400",
       },
     });
@@ -196,12 +247,16 @@ async function sendPush(sub: PushSubscriptionRow): Promise<void> {
   }
 }
 
-export async function dispatchNewNotification(): Promise<void> {
-  await Promise.all(listPushSubscriptions().map((s) => sendPush(s)));
+export async function dispatchNewNotification(
+  notification: NotificationRow,
+): Promise<void> {
+  await Promise.all(
+    listPushSubscriptions().map((s) => sendPush(s, notification)),
+  );
 }
 
 export function attachPushNotifications(): void {
-  setOnNewNotification(() => {
-    void dispatchNewNotification();
+  setOnNewNotification((notification) => {
+    void dispatchNewNotification(notification);
   });
 }

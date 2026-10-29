@@ -44,6 +44,7 @@ const {
   SettingsGeneral,
   SettingsProviders,
   SettingsSystem,
+  ConfigBackupSection,
   RolesPanel,
   TeamsPanel,
   BotTeams,
@@ -318,6 +319,12 @@ test("settings tabs separate preferences, providers, and system", () => {
   assert.match(system, /Logout/);
   assert.match(system, /API keys/);
   assert.match(system, /Control MCP enabled/);
+});
+
+test("config backup export toggle names its subject and state", () => {
+  const markup = renderToStaticMarkup(React.createElement(ConfigBackupSection));
+  assert.match(markup, /Secret values in export/);
+  assert.match(markup, /Names only/);
 });
 
 test("modals render", () => {

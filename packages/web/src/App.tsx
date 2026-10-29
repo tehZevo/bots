@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import { PasswordSettings, SessionSettings } from "./auth.tsx";
 import { renderMarkdown } from "./markdown.ts";
 import { ensurePushSubscription, PushSection } from "./push.tsx";
+import { ScheduleEditor } from "./schedule.tsx";
 import { readStoredTheme, setStoredTheme } from "./theme.ts";
 
 export interface ApiKey {
@@ -60,6 +61,7 @@ interface Bot {
   avatar_color: number | null;
   sound: string | null;
   enabled: number;
+  archived: number;
   created_at: number;
   run_state: "running" | "enabled" | "disabled";
   health: "green" | "blue" | "yellow" | "red" | "gray";
@@ -68,6 +70,58 @@ interface Bot {
   current_task: string | null;
   current_task_updated_at: number | null;
   watchdog_hours?: number | null;
+}
+
+export interface OptimisticRunState {
+  run_state: "running" | "enabled";
+  health: "green" | "blue";
+  authoritativeAt: number;
+  expiresAt: number;
+}
+
+export type OptimisticRunStates = Record<string, OptimisticRunState>;
+
+const OPTIMISTIC_RUN_GRACE_MS = 2000;
+const OPTIMISTIC_RUN_MAX_MS = 60000;
+
+export function optimisticRunUpdate(
+  run_state: "running" | "enabled",
+): OptimisticRunState {
+  const at = Date.now();
+  return {
+    run_state,
+    health: run_state === "running" ? "green" : "blue",
+    authoritativeAt: at + OPTIMISTIC_RUN_GRACE_MS,
+    expiresAt: at + OPTIMISTIC_RUN_MAX_MS,
+  };
+}
+
+export function applyOptimisticRunStates(
+  rows: Bot[],
+  overrides: OptimisticRunStates,
+  now = Date.now(),
+): { rows: Bot[]; overrides: OptimisticRunStates } {
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const kept: OptimisticRunStates = {};
+  for (const [id, override] of Object.entries(overrides)) {
+    if (now >= override.expiresAt) continue;
+    const current = byId.get(id);
+    if (!current || current.run_state === override.run_state) continue;
+    if (now >= override.authoritativeAt) continue;
+    kept[id] = override;
+  }
+  return {
+    rows: rows.map((row) =>
+      kept[row.id]
+        ? {
+            ...row,
+            run_state: kept[row.id].run_state,
+            health: kept[row.id].health,
+          }
+        : row,
+    ),
+    overrides: kept,
+  };
 }
 
 interface GrantOption {
@@ -330,6 +384,8 @@ interface NotificationItem {
   title: string;
   body: string;
   bot_id: string | null;
+  run_id?: string | null;
+  target_path?: string | null;
   read: number;
   created_at: number;
 }
@@ -772,14 +828,15 @@ export function BotCard({
     });
   }, []);
 
+  const unavailable = !bot.enabled || Boolean(bot.archived);
   const quickActions: { label: string; run: () => void; disabled?: boolean }[] =
     [
-      { label: "Open chat", run: onChat, disabled: !bot.enabled },
-      { label: "Run now", run: onRun, disabled: !bot.enabled || paused },
+      { label: "Open chat", run: onChat, disabled: unavailable },
+      { label: "Run now", run: onRun, disabled: unavailable || paused },
       ...(bot.run_state === "running" ? [{ label: "Stop", run: onStop }] : []),
       { label: "Settings", run: onSettings },
       { label: "Clear memory", run: onClearMemory },
-      { label: "Delete", run: onDelete, disabled: !bot.enabled },
+      { label: "Delete", run: onDelete, disabled: unavailable },
     ];
 
   useEffect(() => {
@@ -823,7 +880,7 @@ export function BotCard({
     <div className="cardwrap">
       <button
         type="button"
-        className="card"
+        className={`card${bot.archived ? " archived" : ""}`}
         data-bot-card={bot.id}
         aria-label={`${bot.name} (${bot.status})`}
         onClick={() => onChat()}
@@ -838,6 +895,9 @@ export function BotCard({
           />
           <span className="cardtext">
             <strong title={bot.name}>{bot.name}</strong>
+            {bot.archived ? (
+              <span className="archivebadge">Archived</span>
+            ) : null}
             {bot.role_name ? (
               <em className="cardrole" title={bot.role_name}>
                 ({bot.role_name})
@@ -983,6 +1043,103 @@ async function waitFirstAction(botId: string, runId: string): Promise<void> {
   }
 }
 
+type BotModalTab = "general" | "triggers" | "logs" | "stats" | "files";
+
+const BOT_MODAL_TABS: readonly string[] = [
+  "general",
+  "triggers",
+  "logs",
+  "stats",
+  "files",
+];
+
+interface RouteSnapshot {
+  tab: Tab;
+  chatBotId: string | null;
+  detailOpen: boolean;
+  openBotId: string | null;
+  modalTab: BotModalTab;
+  replayRunId: string | null;
+}
+
+function routeFromUrl(url: URL): RouteSnapshot {
+  const tab = tabFromPath(url.pathname);
+  let chatBotId: string | null = null;
+  let openBotId: string | null = null;
+  let detailOpen = false;
+  let modalTab: BotModalTab = "general";
+  let replayRunId: string | null = null;
+  if (tab === "bots") {
+    chatBotId = url.searchParams.get("bot");
+    const openParam = url.searchParams.get("open");
+    const runParam = url.searchParams.get("run");
+    const modalParam = url.searchParams.get("mtab");
+    replayRunId = runParam;
+    if (modalParam && BOT_MODAL_TABS.includes(modalParam)) {
+      modalTab = modalParam as BotModalTab;
+    }
+    if (runParam) {
+      openBotId = openParam ?? chatBotId;
+      detailOpen = Boolean(openBotId);
+      modalTab = "logs";
+    } else if (openParam) {
+      openBotId = openParam;
+      detailOpen = true;
+    }
+  }
+  return { tab, chatBotId, detailOpen, openBotId, modalTab, replayRunId };
+}
+
+function routeFromLocation(): RouteSnapshot {
+  if (typeof location === "undefined") {
+    return {
+      tab: "bots",
+      chatBotId: null,
+      detailOpen: false,
+      openBotId: null,
+      modalTab: "general",
+      replayRunId: null,
+    };
+  }
+  return routeFromUrl(new URL(location.href));
+}
+
+function routeHref(route: RouteSnapshot): string {
+  if (route.tab === "settings" && typeof location !== "undefined") {
+    return `${location.pathname}${location.search}`;
+  }
+  const base = TAB_PATHS[route.tab];
+  if (route.tab !== "bots") return base;
+  const params = new URLSearchParams();
+  if (route.chatBotId) params.set("bot", route.chatBotId);
+  if (route.replayRunId && route.openBotId) {
+    params.set("run", route.replayRunId);
+  } else if (route.detailOpen && route.openBotId) {
+    params.set("open", route.openBotId);
+    if (route.modalTab !== "general") params.set("mtab", route.modalTab);
+  }
+  const query = params.toString();
+  return query ? `${base}?${query}` : base;
+}
+
+function notificationTargetPathFor(item: NotificationItem): string | null {
+  if (item.target_path) return item.target_path;
+  if (item.kind === "breaker") return "/settings?tab=system";
+  if (!item.bot_id) return null;
+  const chat = `/bots?bot=${encodeURIComponent(item.bot_id)}`;
+  if (
+    item.kind === "run_error" ||
+    item.kind === "watchdog" ||
+    item.kind === "blocked" ||
+    item.kind === "recovered"
+  ) {
+    return item.run_id
+      ? `${chat}&run=${encodeURIComponent(item.run_id)}`
+      : chat;
+  }
+  return null;
+}
+
 export function App() {
   const [bots, setBots] = useState<Bot[]>([]);
   const [tab, setTabRaw] = useState<Tab>(() =>
@@ -1013,25 +1170,10 @@ export function App() {
         history.pushState({}, "", TAB_PATHS[t]);
     });
   };
-  useEffect(() => {
-    if (typeof addEventListener === "undefined") return;
-    const onPop = () => {
-      const target = tabFromPath(location.pathname);
-      if (target === tabRef.current) return;
-      const label = anyDirtyLabel();
-      if (!label) {
-        setTabRaw(target);
-        return;
-      }
-      history.pushState({}, "", TAB_PATHS[tabRef.current]);
-      setPendingDiscard({ label, fn: () => setTabRaw(target) });
-    };
-    addEventListener("popstate", onPop);
-    return () => removeEventListener("popstate", onPop);
-  }, []);
   const [openBot, setOpenBot] = useState<string | null>(null);
   const [chatBot, setChatBot] = useState<string | null>(null);
   const [poking, setPoking] = useState<Record<string, boolean>>({});
+  const optimisticRuns = useRef<OptimisticRunStates>({});
   const [paused, setPausedState] = useState(false);
   const [pauseReason, setPauseReason] = useState<string | null>(null);
   const [breaker, setBreaker] = useState<Breaker | null>(null);
@@ -1051,11 +1193,40 @@ export function App() {
       .catch(() => undefined);
   };
 
+  const setOptimisticRunState = useCallback(
+    (botId: string, run_state: "running" | "enabled") => {
+      const update = optimisticRunUpdate(run_state);
+      optimisticRuns.current = { ...optimisticRuns.current, [botId]: update };
+      setBots((rows) =>
+        rows.map((row) =>
+          row.id === botId
+            ? { ...row, run_state: update.run_state, health: update.health }
+            : row,
+        ),
+      );
+    },
+    [],
+  );
+
+  const stopBotWork = useCallback(
+    async (botId: string): Promise<void> => {
+      await api(`/api/bots/${botId}/interrupt`, { method: "POST" });
+      setOptimisticRunState(botId, "enabled");
+    },
+    [setOptimisticRunState],
+  );
+
   const poke = (bot: Bot) => {
     if (!bot.enabled || paused || poking[bot.id]) return;
     setPoking((p) => ({ ...p, [bot.id]: true }));
-    void api<{ runId: string }>(`/api/bots/${bot.id}/run`, { method: "POST" })
-      .then((r) => waitFirstAction(bot.id, r.runId))
+    void api<{ runId: string | null }>(`/api/bots/${bot.id}/run`, {
+      method: "POST",
+    })
+      .then((r) => {
+        if (!r.runId) return;
+        setOptimisticRunState(bot.id, "running");
+        return waitFirstAction(bot.id, r.runId);
+      })
       .catch(() => undefined)
       .finally(() => setPoking((p) => ({ ...p, [bot.id]: false })));
   };
@@ -1068,20 +1239,23 @@ export function App() {
     if (!target || !target.enabled || paused || target.run_state === "running")
       return;
     try {
-      await api(`/api/bots/${botId}/run`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message }),
-      });
+      const result = await api<{ runId: string | null }>(
+        `/api/bots/${botId}/run`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message }),
+        },
+      );
+      if (result.runId) setOptimisticRunState(botId, "running");
       await load();
     } catch (err) {
       alert(err instanceof Error ? err.message : String(err));
     }
   };
 
-  const [modalTab, setModalTab] = useState<
-    "general" | "triggers" | "logs" | "stats" | "files"
-  >("general");
+  const [modalTab, setModalTab] = useState<BotModalTab>("general");
+  const modalTabOverride = useRef<BotModalTab | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [avatarMenu, setAvatarMenu] = useState(false);
   const [headerBusy, setHeaderBusy] = useState(false);
@@ -1092,6 +1266,7 @@ export function App() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [tagSel, setTagSel] = useState<string[]>([]);
+  const [includeArchived, setIncludeArchived] = useState(false);
   const [runs, setRuns] = useState<Run[]>([]);
   const [replayRun, setReplayRun] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -1104,6 +1279,19 @@ export function App() {
   const seenNotifIds = useRef<Set<string> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(false);
+  const botsRef = useRef(bots);
+  botsRef.current = bots;
+  const openBotRef = useRef(openBot);
+  openBotRef.current = openBot;
+  const chatBotRef = useRef(chatBot);
+  chatBotRef.current = chatBot;
+  const modalTabRef = useRef(modalTab);
+  modalTabRef.current = modalTab;
+  const detailOpenRef = useRef(detailOpen);
+  detailOpenRef.current = detailOpen;
+  const replayRunRef = useRef(replayRun);
+  replayRunRef.current = replayRun;
+  const suppressPopEvent = useRef(false);
 
   const load = useCallback(async () => {
     try {
@@ -1115,7 +1303,7 @@ export function App() {
         pauseData,
         breakerData,
       ] = await Promise.all([
-        api<Bot[]>("/api/bots"),
+        api<Bot[]>(`/api/bots${includeArchived ? "?archived=1" : ""}`),
         api<NotificationsResponse>("/api/notifications"),
         api<Role[]>("/api/roles"),
         api<Tag[]>("/api/tags").catch(() => []),
@@ -1124,7 +1312,9 @@ export function App() {
         ),
         api<Breaker>("/api/breaker").catch(() => null),
       ]);
-      setBots(botData);
+      const applied = applyOptimisticRunStates(botData, optimisticRuns.current);
+      optimisticRuns.current = applied.overrides;
+      setBots(applied.rows);
       setPausedState(pauseData.paused);
       setPauseReason(pauseData.reason ?? null);
       setBreaker(breakerData);
@@ -1145,7 +1335,7 @@ export function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, []);
+  }, [includeArchived]);
 
   useEffect(() => {
     void load();
@@ -1159,7 +1349,9 @@ export function App() {
   }, [detailOpen]);
 
   useEffect(() => {
-    setModalTab("general");
+    const nextModalTab = modalTabOverride.current ?? "general";
+    modalTabOverride.current = null;
+    setModalTab(nextModalTab);
     setRuns([]);
     if (!openBot) return;
     const loadRuns = async () =>
@@ -1200,6 +1392,22 @@ export function App() {
     return () => document.removeEventListener("keydown", onKey);
   }, [notificationPanelOpen, addOpen, detailOpen, chatBot]);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "`" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target?.closest("input, textarea, select") ||
+        target?.isContentEditable
+      )
+        return;
+      e.preventDefault();
+      setSearchOpen(true);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
   const botFilter = botQuery.trim().toLowerCase();
   const visibleBots = bots.filter(
     (bot) =>
@@ -1230,8 +1438,157 @@ export function App() {
 
   const navigateTab = (nextTab: Tab) => discardGuard(() => switchTab(nextTab));
 
+  const currentRouteSnapshot = useCallback(
+    (): RouteSnapshot => ({
+      tab: tabRef.current,
+      chatBotId: chatBotRef.current,
+      detailOpen: detailOpenRef.current,
+      openBotId: openBotRef.current,
+      modalTab: modalTabRef.current,
+      replayRunId: replayRunRef.current,
+    }),
+    [],
+  );
+
+  const applyRouteSnapshot = useCallback((route: RouteSnapshot): void => {
+    setTabRaw(route.tab);
+    if (route.tab !== "bots") {
+      modalTabOverride.current = null;
+      setChatBot(null);
+      setOpenBot(null);
+      setDetailOpen(false);
+      setReplayRun(null);
+      return;
+    }
+    if (route.detailOpen) modalTabOverride.current = route.modalTab;
+    setChatBot(route.chatBotId);
+    setOpenBot(route.openBotId);
+    setDetailOpen(route.detailOpen);
+    setModalTab(route.modalTab);
+    setReplayRun(route.replayRunId);
+  }, []);
+
+  const ensureBotRouteTarget = useCallback(async (botId: string | null) => {
+    if (!botId) return true;
+    if (botsRef.current.some((row) => row.id === botId)) return true;
+    try {
+      const rows = await api<Bot[]>("/api/bots?archived=1");
+      if (!rows.some((row) => row.id === botId)) return false;
+      setIncludeArchived(true);
+      setBots(rows);
+      botsRef.current = rows;
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const applyNotificationPath = useCallback(
+    (raw: string): void => {
+      if (typeof history === "undefined" || typeof location === "undefined")
+        return;
+      let url: URL;
+      try {
+        url = new URL(raw, location.origin);
+      } catch {
+        return;
+      }
+      const target = routeFromUrl(url);
+      const previous = currentRouteSnapshot();
+      history.replaceState({ route: previous }, "", location.href);
+      history.pushState({ route: target }, "", `${url.pathname}${url.search}`);
+      void (async () => {
+        if (!(await ensureBotRouteTarget(target.chatBotId ?? target.openBotId)))
+          return;
+        applyRouteSnapshot(target);
+        if (target.tab === "settings") {
+          suppressPopEvent.current = true;
+          window.dispatchEvent(new PopStateEvent("popstate"));
+          suppressPopEvent.current = false;
+        }
+      })();
+    },
+    [applyRouteSnapshot, currentRouteSnapshot, ensureBotRouteTarget],
+  );
+
+  const navigateToNotificationPath = useCallback(
+    (raw: string) => discardGuard(() => applyNotificationPath(raw)),
+    [applyNotificationPath, discardGuard],
+  );
+
+  useEffect(() => {
+    if (typeof addEventListener === "undefined") return;
+    const onPop = (event: PopStateEvent) => {
+      if (suppressPopEvent.current) return;
+      const stateRoute = (event.state as { route?: RouteSnapshot } | null)
+        ?.route;
+      const target = stateRoute ?? routeFromLocation();
+      const label = anyDirtyLabel();
+      if (!label) {
+        applyRouteSnapshot(target);
+        if (target.tab === "settings") {
+          suppressPopEvent.current = true;
+          window.dispatchEvent(new PopStateEvent("popstate"));
+          suppressPopEvent.current = false;
+        }
+        return;
+      }
+      const previous = currentRouteSnapshot();
+      history.replaceState({ route: previous }, "", location.href);
+      setPendingDiscard({ label, fn: () => applyRouteSnapshot(target) });
+    };
+    addEventListener("popstate", onPop);
+    return () => removeEventListener("popstate", onPop);
+  }, [applyRouteSnapshot, currentRouteSnapshot]);
+
+  const initialNotificationApplied = useRef(false);
+  useEffect(() => {
+    if (initialNotificationApplied.current || typeof location === "undefined")
+      return;
+    const route = routeFromLocation();
+    if (!(route.tab === "bots" && (route.chatBotId || route.openBotId))) return;
+    initialNotificationApplied.current = true;
+    void (async () => {
+      if (await ensureBotRouteTarget(route.chatBotId ?? route.openBotId)) {
+        applyRouteSnapshot(route);
+      }
+    })();
+  }, [applyRouteSnapshot, ensureBotRouteTarget]);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("serviceWorker" in navigator))
+      return;
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: unknown; path?: unknown } | null;
+      if (data?.type !== "bots:navigate" || typeof data.path !== "string")
+        return;
+      navigateToNotificationPath(data.path);
+    };
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () =>
+      navigator.serviceWorker.removeEventListener("message", onMessage);
+  }, [navigateToNotificationPath]);
+
   const openSearchEntity = (match: SearchMatch) => {
     setSearchOpen(false);
+    if (match.type === "archived_bots") {
+      discardGuard(() => {
+        void (async () => {
+          try {
+            const rows = await api<Bot[]>("/api/bots?archived=1");
+            if (!rows.some((bot) => bot.id === match.id)) return;
+            setIncludeArchived(true);
+            setBots(rows);
+            switchTab("bots");
+            setOpenBot(match.id);
+            setDetailOpen(true);
+          } catch {
+            /* the periodic reload will retry */
+          }
+        })();
+      });
+      return;
+    }
     if (match.type === "bots") {
       discardGuard(() => {
         setChatBot(match.id);
@@ -1275,6 +1632,19 @@ export function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
+  }
+
+  function openNotification(notification: NotificationItem): void {
+    const target = notificationTargetPathFor(notification);
+    if (!target) {
+      if (notification.read === 0) void markOneNotification(notification.id);
+      return;
+    }
+    discardGuard(() => {
+      setNotificationPanelOpen(false);
+      if (notification.read === 0) void markOneNotification(notification.id);
+      applyNotificationPath(target);
+    });
   }
 
   const [rail, setRail] = useState(
@@ -1370,10 +1740,13 @@ export function App() {
             type="button"
             className="searchtoggle"
             aria-label="Open search"
-            title="Search records or run commands"
+            title="Search records or run commands (backtick)"
             onClick={() => setSearchOpen(true)}
           >
             Search
+            <kbd className="searchshortcut" aria-hidden="true">
+              `
+            </kbd>
           </button>
           <div className="notifwrap">
             <button
@@ -1421,46 +1794,45 @@ export function App() {
                     <p className="notifempty">No notifications.</p>
                   ) : (
                     <ul className="notiflist">
-                      {notifications.map((notification) => (
-                        <li
-                          key={notification.id}
-                          className={notification.read ? "" : "unread"}
-                        >
-                          <button
-                            type="button"
-                            className="notifbody"
-                            disabled={notification.read === 0}
-                            title={
-                              notification.read ? undefined : "Mark as read"
-                            }
-                            onClick={() =>
-                              void markOneNotification(notification.id)
-                            }
+                      {notifications.map((notification) => {
+                        const target = notificationTargetPathFor(notification);
+                        return (
+                          <li
+                            key={notification.id}
+                            className={notification.read ? "" : "unread"}
                           >
-                            <strong>{notification.title}</strong>
-                            <time
-                              dateTime={new Date(
-                                notification.created_at,
-                              ).toISOString()}
+                            <button
+                              type="button"
+                              className="notifbody"
+                              disabled={!target && notification.read !== 0}
+                              title={target ? "Open source" : "Mark as read"}
+                              onClick={() => openNotification(notification)}
                             >
-                              {fmt(notification.created_at)}
-                            </time>
-                            <p>{notification.body}</p>
-                          </button>
-                          {!notification.read && (
-                            <div className="notifactions">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void markOneNotification(notification.id)
-                                }
+                              <strong>{notification.title}</strong>
+                              <time
+                                dateTime={new Date(
+                                  notification.created_at,
+                                ).toISOString()}
                               >
-                                Mark read
-                              </button>
-                            </div>
-                          )}
-                        </li>
-                      ))}
+                                {fmt(notification.created_at)}
+                              </time>
+                              <p>{notification.body}</p>
+                            </button>
+                            {!notification.read && (
+                              <div className="notifactions">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void markOneNotification(notification.id)
+                                  }
+                                >
+                                  Mark read
+                                </button>
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </section>
@@ -1627,6 +1999,14 @@ export function App() {
                       </div>
                     </details>
                   )}
+                  <label className="filtertoggle">
+                    <input
+                      type="checkbox"
+                      checked={includeArchived}
+                      onChange={(e) => setIncludeArchived(e.target.checked)}
+                    />{" "}
+                    Include archived
+                  </label>
                 </div>
                 <div className="cards">
                   {visibleBots.map((bot) => (
@@ -1635,12 +2015,17 @@ export function App() {
                       bot={bot}
                       poking={!!poking[bot.id]}
                       paused={paused}
-                      onChat={() => setChatBot(bot.id)}
+                      onChat={() => {
+                        if (bot.archived) {
+                          setOpenBot(bot.id);
+                          setDetailOpen(true);
+                        } else {
+                          setChatBot(bot.id);
+                        }
+                      }}
                       onRun={() => poke(bot)}
                       onStop={() =>
-                        void api(`/api/bots/${bot.id}/interrupt`, {
-                          method: "POST",
-                        })
+                        void stopBotWork(bot.id)
                           .then(() => void load())
                           .catch(() => undefined)
                       }
@@ -1711,6 +2096,9 @@ export function App() {
           {chatBotRow && (
             <ChatSidebar
               bot={chatBotRow}
+              onRunAccepted={() =>
+                setOptimisticRunState(chatBotRow.id, "running")
+              }
               onSettings={() => {
                 setOpenBot(chatBotRow.id);
                 setDetailOpen(true);
@@ -1760,6 +2148,9 @@ export function App() {
                     />
                   )}
                   <h2>{openBotRow.name}</h2>
+                  {openBotRow.archived ? (
+                    <span className="archivebadge detailarchive">Archived</span>
+                  ) : null}
                   {openBotRow.current_task && !openBotRow.status && (
                     <p className="taskline">
                       {openBotRow.current_task}
@@ -1791,7 +2182,7 @@ export function App() {
                         type="checkbox"
                         aria-label="Bot enabled"
                         checked={openBotRow.enabled !== 0}
-                        disabled={headerBusy}
+                        disabled={headerBusy || Boolean(openBotRow.archived)}
                         onChange={() => {
                           setHeaderBusy(true);
                           void api(`/api/bots/${openBotRow.id}`, {
@@ -1808,7 +2199,9 @@ export function App() {
                       />
                       <span className="knob" />
                       <span className="state">
-                        {openBotRow.enabled ? "Enabled" : "Disabled"}
+                        {openBotRow.archived || !openBotRow.enabled
+                          ? "Disabled"
+                          : "Enabled"}
                       </span>
                     </label>
                     {openBotRow.run_state === "running" && (
@@ -1819,9 +2212,7 @@ export function App() {
                         disabled={headerBusy}
                         onClick={() => {
                           setHeaderBusy(true);
-                          void api(`/api/bots/${openBotRow.id}/interrupt`, {
-                            method: "POST",
-                          })
+                          void stopBotWork(openBotRow.id)
                             .then(load)
                             .catch((e) => alert(e.message))
                             .finally(() => setHeaderBusy(false));
@@ -1974,10 +2365,17 @@ export function App() {
             onCancel={() => setStopAllConfirm(false)}
             onConfirm={() => {
               setStopAllConfirm(false);
+              const runningIds = bots
+                .filter((b) => b.run_state === "running")
+                .map((b) => b.id);
               void api<{ stopped: number }>("/api/stop-all", {
                 method: "POST",
               })
-                .then(() => void load())
+                .then(() => {
+                  for (const id of runningIds)
+                    setOptimisticRunState(id, "enabled");
+                  void load();
+                })
                 .catch(() => undefined);
             }}
           />
@@ -1991,6 +2389,7 @@ export function App() {
             onNavigate={navigateTab}
             onNewBot={openSearchNewBot}
             onChanged={load}
+            onRunStateChange={setOptimisticRunState}
           />
         )}
       </div>
@@ -2568,6 +2967,7 @@ interface Provider {
   base_url: string;
   models: string[];
   has_key: boolean;
+  builtin?: boolean;
 }
 
 interface BotGeneralSettings {
@@ -2901,22 +3301,28 @@ export function SettingsProviders() {
               </span>
             </div>
             <div className="actions">
-              <button
-                type="button"
-                onClick={() => {
-                  setFormProvider(p);
-                  setFormOpen(true);
-                }}
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                className="danger"
-                onClick={() => setConfirmDelete(p)}
-              >
-                Delete
-              </button>
+              {p.builtin ? (
+                <span className="muted">built-in</span>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormProvider(p);
+                      setFormOpen(true);
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() => setConfirmDelete(p)}
+                  >
+                    Delete
+                  </button>
+                </>
+              )}
             </div>
           </li>
         ))}
@@ -3568,9 +3974,10 @@ export function ConfigBackupSection() {
       <p className="muted">Configuration backup</p>
       <div className="actions">
         <label className="switch">
+          <span id="secret-values-export-label">Secret values in export</span>
           <input
             type="checkbox"
-            aria-label="Include secret values in export"
+            aria-labelledby="secret-values-export-label"
             checked={includeValues}
             onChange={() => setIncludeValues((current) => !current)}
           />
@@ -5405,9 +5812,9 @@ export function BotGeneral({
   );
   const [defaultModel, setDefaultModel] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [pending, setPending] = useState<"delete" | "clear" | "restart" | null>(
-    null,
-  );
+  const [pending, setPending] = useState<
+    "delete" | "clear" | "restart" | "archive" | null
+  >(null);
   const [tplDraft, setTplDraft] = useState<
     (Omit<Template, "id" | "created_at"> & { id?: string }) | null
   >(null);
@@ -5475,6 +5882,12 @@ export function BotGeneral({
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
+
+  const archiveBot = () => {
+    void api(`/api/bots/${bot.id}/archive`, { method: "POST" })
+      .then(onChanged)
+      .catch((err) => alert(err.message));
+  };
 
   return (
     <>
@@ -5630,6 +6043,28 @@ export function BotGeneral({
         <button type="button" onClick={() => void openTemplateDraft()}>
           Save as template…
         </button>
+        {bot.archived ? (
+          <button
+            type="button"
+            onClick={() => {
+              void api(`/api/bots/${bot.id}/unarchive`, { method: "POST" })
+                .then(onChanged)
+                .catch((err) => alert(err.message));
+            }}
+          >
+            Unarchive
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              if (bot.run_state === "running") setPending("archive");
+              else archiveBot();
+            }}
+          >
+            Archive
+          </button>
+        )}
         <button
           type="button"
           className="danger"
@@ -5683,6 +6118,17 @@ export function BotGeneral({
             api(`/api/bots/${bot.id}/restart-machine`, { method: "POST" })
               .then(onChanged)
               .catch((e) => alert(e.message));
+          }}
+        />
+      )}
+      {pending === "archive" && (
+        <ConfirmDialog
+          text={`Archive bot ${bot.name}? Its running task is stopped first; it stays disabled until you unarchive and enable it.`}
+          confirmLabel="Archive bot"
+          onCancel={() => setPending(null)}
+          onConfirm={() => {
+            setPending(null);
+            archiveBot();
           }}
         />
       )}
@@ -5757,6 +6203,7 @@ export function useDiscardGuard(
 
 type SearchEntityType =
   | "bots"
+  | "archived_bots"
   | "roles"
   | "skills"
   | "projects"
@@ -5777,7 +6224,10 @@ interface SearchGroupResponse {
   matches: SearchMatch[];
 }
 
-type PendingEntityEditType = Exclude<SearchEntityType, "bots">;
+type PendingEntityEditType = Exclude<
+  SearchEntityType,
+  "bots" | "archived_bots"
+>;
 
 interface PendingEntityEdit {
   type: PendingEntityEditType;
@@ -5786,6 +6236,7 @@ interface PendingEntityEdit {
 
 const SEARCH_LABELS: Record<SearchEntityType, string> = {
   bots: "Bots",
+  archived_bots: "Archived bots",
   roles: "Roles",
   skills: "Skills",
   projects: "Projects",
@@ -5856,6 +6307,7 @@ export function SearchOverlay({
   onNavigate,
   onNewBot,
   onChanged,
+  onRunStateChange,
 }: {
   bots: Bot[];
   paused: boolean;
@@ -5864,6 +6316,7 @@ export function SearchOverlay({
   onNavigate: (tab: Tab) => void;
   onNewBot: () => void;
   onChanged: () => void;
+  onRunStateChange?: (botId: string, run_state: "running" | "enabled") => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const previousFocus = useRef<Element | null>(null);
@@ -5917,15 +6370,24 @@ export function SearchOverlay({
     const sortedBots = [...bots].sort((a, b) => a.name.localeCompare(b.name));
     const botCommands: SearchCommand[] = sortedBots.flatMap((bot) => {
       const running = bot.run_state === "running";
+      const unavailableReason = bot.archived
+        ? "Bot archived"
+        : !bot.enabled
+          ? "Bot disabled"
+          : undefined;
       return [
         {
           id: `run-${bot.id}`,
           label: `Run ${bot.name}`,
           group: "Bot actions" as const,
           bot,
-          disabledReason: !bot.enabled ? "Bot disabled" : undefined,
+          disabledReason: unavailableReason,
           run: async () => {
-            await api(`/api/bots/${bot.id}/run`, { method: "POST" });
+            const result = await api<{ runId: string | null }>(
+              `/api/bots/${bot.id}/run`,
+              { method: "POST" },
+            );
+            if (result.runId) onRunStateChange?.(bot.id, "running");
           },
         },
         {
@@ -5936,6 +6398,7 @@ export function SearchOverlay({
           disabledReason: running ? undefined : "Not running",
           run: async () => {
             await api(`/api/bots/${bot.id}/interrupt`, { method: "POST" });
+            onRunStateChange?.(bot.id, "enabled");
           },
         },
         {
@@ -5943,7 +6406,8 @@ export function SearchOverlay({
           label: `Enable ${bot.name}`,
           group: "Bot actions" as const,
           bot,
-          disabledReason: bot.enabled ? "Already enabled" : undefined,
+          disabledReason:
+            unavailableReason ?? (bot.enabled ? "Already enabled" : undefined),
           run: async () => {
             await api(`/api/bots/${bot.id}`, {
               method: "PATCH",
@@ -5957,7 +6421,7 @@ export function SearchOverlay({
           label: `Disable ${bot.name}`,
           group: "Bot actions" as const,
           bot,
-          disabledReason: bot.enabled ? undefined : "Already disabled",
+          disabledReason: unavailableReason ? "Already disabled" : undefined,
           run: async () => {
             await api(`/api/bots/${bot.id}`, {
               method: "PATCH",
@@ -6014,6 +6478,10 @@ export function SearchOverlay({
         },
         run: async () => {
           await api("/api/stop-all", { method: "POST" });
+          for (const bot of sortedBots) {
+            if (bot.run_state === "running")
+              onRunStateChange?.(bot.id, "enabled");
+          }
         },
       },
       {
@@ -6034,7 +6502,7 @@ export function SearchOverlay({
         },
       })),
     ];
-  }, [bots, paused, onNavigate, onNewBot]);
+  }, [bots, paused, onNavigate, onNewBot, onRunStateChange]);
 
   useEffect(() => {
     if (commandMode) return;
@@ -6554,13 +7022,12 @@ export function Triggers({ botId }: { botId: string }) {
                   required
                 />
               </label>
-              {kind !== "webhook" && (
+              {kind === "schedule" && (
+                <ScheduleEditor value={schedule} onChange={setSchedule} />
+              )}
+              {kind === "continuous" && (
                 <input
-                  placeholder={
-                    kind === "continuous"
-                      ? "@every 30m (min 1m)"
-                      : "cron or @every 30m"
-                  }
+                  placeholder="@every 30m (min 1m)"
                   value={schedule}
                   onChange={(e) => setSchedule(e.target.value)}
                   required
@@ -6696,13 +7163,12 @@ function TriggerEditor({
           onChange={(e) => setMessage(e.target.value)}
         />
       </label>
-      {(trigger.kind === "schedule" || trigger.kind === "continuous") && (
+      {trigger.kind === "schedule" && (
+        <ScheduleEditor value={schedule} onChange={setSchedule} />
+      )}
+      {trigger.kind === "continuous" && (
         <input
-          placeholder={
-            trigger.kind === "continuous"
-              ? "@every 30m (min 1m)"
-              : "cron or @every 30m"
-          }
+          placeholder="@every 30m (min 1m)"
           value={schedule}
           onChange={(e) => setSchedule(e.target.value)}
         />
@@ -6812,10 +7278,12 @@ export function ChatTurnView({
 
 export function ChatSidebar({
   bot,
+  onRunAccepted,
   onSettings,
   onClose,
 }: {
   bot: Bot | null;
+  onRunAccepted?: () => void;
   onSettings: () => void;
   onClose: () => void;
 }) {
@@ -6853,6 +7321,7 @@ export function ChatSidebar({
         botName={bot.name}
         enabled={bot.enabled === 1}
         working={bot.run_state === "running"}
+        onRunAccepted={onRunAccepted}
       />
     </aside>
   );
@@ -6863,11 +7332,13 @@ export function Chat({
   botName,
   enabled = true,
   working = false,
+  onRunAccepted,
 }: {
   botId: string;
   botName: string;
   enabled?: boolean;
   working?: boolean;
+  onRunAccepted?: () => void;
 }) {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [draft, setDraft] = useState("");
@@ -6917,11 +7388,15 @@ export function Chat({
     setTurns((prev) => [...prev, { role: "user", text }]);
     setDraft("");
     try {
-      await api(`/api/bots/${botId}/messages`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
+      const result = await api<{ runId?: string | null }>(
+        `/api/bots/${botId}/messages`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text }),
+        },
+      );
+      if (result.runId) onRunAccepted?.();
       await loadChat();
     } catch (e) {
       pendingRef.current = null;
@@ -6977,6 +7452,18 @@ export function Chat({
   );
 }
 
+type SkillUpdateStatus =
+  | "up_to_date"
+  | "update_available"
+  | "source_unavailable";
+
+interface SkillUpdateState {
+  status: SkillUpdateStatus | null;
+  checked_at: number | null;
+  modified: boolean;
+  pinned: boolean;
+}
+
 interface Skill {
   id: string;
   name: string;
@@ -6984,6 +7471,7 @@ interface Skill {
   instructions: string;
   created_at: number;
   import_info?: string | null;
+  update_state?: SkillUpdateState | null;
 }
 
 export type McpEnvMode = "literal" | "secret";
@@ -7172,6 +7660,11 @@ export function SkillsPanel({
   const [addOpen, setAddOpen] = useState(false);
   const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
   const [removingSkill, setRemovingSkill] = useState<Skill | null>(null);
+  const [detachingSkill, setDetachingSkill] = useState<Skill | null>(null);
+  const [updatingSkill, setUpdatingSkill] = useState<Skill | null>(null);
+  const [busySkill, setBusySkill] = useState<string | null>(null);
+  const [checkingAll, setCheckingAll] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const reloadSkills = useCallback(
     () =>
@@ -7194,41 +7687,148 @@ export function SkillsPanel({
     onOpened?.();
   }, [onOpened, openId, skills]);
 
+  const actionBusy = busySkill !== null || checkingAll;
+
+  async function runSkillAction(
+    skill: Skill,
+    path: string,
+    method = "POST",
+  ): Promise<void> {
+    setBusySkill(skill.id);
+    setError(null);
+    try {
+      const result = await api<{ status?: string; error?: string | null }>(
+        path,
+        {
+          method,
+        },
+      );
+      if (result.status === "source_unavailable") {
+        setError(
+          result.error ?? `Could not reach the source for ${skill.name}.`,
+        );
+      }
+      await reloadSkills();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusySkill(null);
+    }
+  }
+
+  async function checkAll(): Promise<void> {
+    if (actionBusy) return;
+    setCheckingAll(true);
+    setError(null);
+    try {
+      const result = await api<{
+        results?: Array<{ status: string; error?: string | null }>;
+      }>("/api/skills/check", { method: "POST" });
+      const failed = (result.results ?? []).filter(
+        (item) => item.status === "source_unavailable",
+      );
+      if (failed.length > 0) {
+        setError(
+          `${failed.length} skill update check could not reach its source.`,
+        );
+      }
+      await reloadSkills();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCheckingAll(false);
+    }
+  }
+
   return (
     <section>
       <div className="viewhead">
         <h2>Skills</h2>
+        <button
+          type="button"
+          disabled={checkingAll}
+          onClick={() => void checkAll()}
+        >
+          {checkingAll ? "Checking…" : "Check all"}
+        </button>
         <button type="button" onClick={() => setAddOpen(true)}>
           + Add skill
         </button>
       </div>
+      {error && <p className="error">{error}</p>}
       <div className="mcpsection">
         {skills.length === 0 && (
           <p className="muted">No skills yet — add one above.</p>
         )}
-        {skills.map((sk) => (
-          <div className="mcpsrv" key={sk.id}>
-            <header>
-              <strong>{sk.name}</strong>
-              {sk.import_info && (
-                <span className="srcbadge">
-                  {`${safeImportOrigin(sk.import_info) ?? "git"} skill`}
-                </span>
+        {skills.map((sk) => {
+          const state = sk.update_state ?? null;
+          const isImported = Boolean(sk.import_info);
+          return (
+            <div className="mcpsrv" key={sk.id}>
+              <header>
+                <strong>{sk.name}</strong>
+                {isImported && (
+                  <span className="srcbadge">
+                    {`${safeImportOrigin(sk.import_info ?? "") ?? "git"} skill`}
+                  </span>
+                )}
+                <button type="button" onClick={() => setEditingSkill(sk)}>
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => setRemovingSkill(sk)}
+                >
+                  Delete
+                </button>
+              </header>
+              {sk.description && <p className="muted">{sk.description}</p>}
+              {isImported && (
+                <>
+                  <div className="skillstatus">
+                    <span className="muted">
+                      {state?.status
+                        ? `${updateStatusLabel(state.status)} · ${fmt(state.checked_at)}`
+                        : "Not checked yet"}
+                    </span>
+                    {state?.pinned && <span className="srcbadge">pinned</span>}
+                    {state?.modified && (
+                      <span className="srcbadge">local changes</span>
+                    )}
+                  </div>
+                  <div className="skillactions">
+                    <button
+                      type="button"
+                      disabled={actionBusy}
+                      onClick={() =>
+                        void runSkillAction(sk, `/api/skills/${sk.id}/check`)
+                      }
+                    >
+                      {busySkill === sk.id ? "Working…" : "Check"}
+                    </button>
+                    {state?.status === "update_available" && (
+                      <button
+                        type="button"
+                        disabled={actionBusy}
+                        onClick={() => setUpdatingSkill(sk)}
+                      >
+                        Update
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      disabled={actionBusy}
+                      onClick={() => setDetachingSkill(sk)}
+                    >
+                      Detach
+                    </button>
+                  </div>
+                </>
               )}
-              <button type="button" onClick={() => setEditingSkill(sk)}>
-                Edit
-              </button>
-              <button
-                type="button"
-                className="danger"
-                onClick={() => setRemovingSkill(sk)}
-              >
-                Delete
-              </button>
-            </header>
-            {sk.description && <p className="muted">{sk.description}</p>}
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
       {removingSkill && (
         <ConfirmDialog
@@ -7238,9 +7838,35 @@ export function SkillsPanel({
           onConfirm={() => {
             const target = removingSkill;
             setRemovingSkill(null);
-            api(`/api/skills/${target.id}`, { method: "DELETE" })
-              .then(reloadSkills)
-              .catch((e) => alert(e.message));
+            void runSkillAction(target, `/api/skills/${target.id}`, "DELETE");
+          }}
+        />
+      )}
+      {detachingSkill && (
+        <ConfirmDialog
+          text={`Stop tracking updates for ${detachingSkill.name}? Its current content stays available as a hand-written skill.`}
+          confirmLabel="Detach skill"
+          onCancel={() => setDetachingSkill(null)}
+          onConfirm={() => {
+            const target = detachingSkill;
+            setDetachingSkill(null);
+            void runSkillAction(target, `/api/skills/${target.id}/detach`);
+          }}
+        />
+      )}
+      {updatingSkill && (
+        <ConfirmDialog
+          text={
+            updatingSkill.update_state?.modified
+              ? `Replace local changes to ${updatingSkill.name} with the upstream bundle?`
+              : `Update ${updatingSkill.name} from its source?`
+          }
+          confirmLabel="Update skill"
+          onCancel={() => setUpdatingSkill(null)}
+          onConfirm={() => {
+            const target = updatingSkill;
+            setUpdatingSkill(null);
+            void runSkillAction(target, `/api/skills/${target.id}/update`);
           }}
         />
       )}
@@ -7265,6 +7891,12 @@ export function SkillsPanel({
       )}
     </section>
   );
+}
+
+function updateStatusLabel(status: SkillUpdateStatus): string {
+  if (status === "up_to_date") return "Up to date";
+  if (status === "update_available") return "Update available";
+  return "Source unavailable";
 }
 
 export function SkillModal({

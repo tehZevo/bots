@@ -9,6 +9,8 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import { config } from "./config.ts";
+import { decryptSecret, encryptSecret } from "./encryption.ts";
+import { notificationTargetPath } from "./notification-targets.ts";
 
 export interface BotRow {
   id: string;
@@ -21,6 +23,7 @@ export interface BotRow {
   avatar_color: number | null;
   sound: string | null;
   enabled: number;
+  archived: number;
   current_task: string | null;
   current_task_updated_at: number | null;
   status: string | null;
@@ -78,6 +81,8 @@ export interface NotificationRow {
   title: string;
   body: string;
   bot_id: string | null;
+  run_id: string | null;
+  target_path: string | null;
   dedupe_key: string | null;
   read: number;
   created_at: number;
@@ -151,6 +156,7 @@ db.exec(`
     avatar_color INTEGER,
     sound TEXT,
     enabled INTEGER NOT NULL DEFAULT 1,
+    archived INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
   );
 
@@ -294,6 +300,8 @@ db.exec(`
     title TEXT NOT NULL,
     body TEXT NOT NULL,
     bot_id TEXT REFERENCES bots(id) ON DELETE CASCADE,
+    run_id TEXT,
+    target_path TEXT,
     dedupe_key TEXT UNIQUE,
     "read" INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
@@ -538,6 +546,42 @@ if (!triggerColumns.has("secret"))
 if (!triggerColumns.has("name"))
   db.prepare("ALTER TABLE triggers ADD COLUMN name TEXT").run();
 
+const notificationColumns = new Set(
+  (
+    db.prepare("PRAGMA table_info(notifications)").all() as { name: string }[]
+  ).map((column) => column.name),
+);
+if (!notificationColumns.has("run_id"))
+  db.prepare("ALTER TABLE notifications ADD COLUMN run_id TEXT").run();
+if (!notificationColumns.has("target_path"))
+  db.prepare("ALTER TABLE notifications ADD COLUMN target_path TEXT").run();
+
+for (const row of db
+  .prepare(
+    "SELECT id, kind, bot_id, run_id, dedupe_key FROM notifications WHERE target_path IS NULL",
+  )
+  .all() as {
+  id: string;
+  kind: string;
+  bot_id: string | null;
+  run_id: string | null;
+  dedupe_key: string | null;
+}[]) {
+  const legacyRunId =
+    row.run_id ??
+    /^(?:run-error|watchdog):(.+)$/.exec(row.dedupe_key ?? "")?.[1];
+  const path = notificationTargetPath({
+    kind: row.kind,
+    botId: row.bot_id,
+    runId: legacyRunId ?? null,
+  });
+  if (legacyRunId || path) {
+    db.prepare(
+      "UPDATE notifications SET run_id = ?, target_path = ? WHERE id = ?",
+    ).run(legacyRunId ?? null, path, row.id);
+  }
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS machines (
     id TEXT PRIMARY KEY,
@@ -564,6 +608,10 @@ if (!botColumns.has("watchdog_tripped"))
 if (!botColumns.has("watchdog_run_started_at"))
   db.prepare(
     "ALTER TABLE bots ADD COLUMN watchdog_run_started_at INTEGER",
+  ).run();
+if (!botColumns.has("archived"))
+  db.prepare(
+    "ALTER TABLE bots ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
   ).run();
 
 db.exec(`
@@ -618,8 +666,11 @@ if (!messageForeignKeys.has("run_id->runs")) {
 
 db.pragma("foreign_keys = ON");
 
-export function listBots(): BotRow[] {
-  return db.prepare("SELECT * FROM bots ORDER BY created_at").all() as BotRow[];
+export function listBots(includeArchived = false): BotRow[] {
+  const where = includeArchived ? "" : "WHERE archived = 0";
+  return db
+    .prepare(`SELECT * FROM bots ${where} ORDER BY created_at`)
+    .all() as BotRow[];
 }
 
 export function getBot(id: string): BotRow | undefined {
@@ -639,6 +690,7 @@ type NewBot = Omit<
   | "watchdog_hours"
   | "watchdog_tripped"
   | "watchdog_run_started_at"
+  | "archived"
 > &
   Partial<
     Pick<
@@ -650,14 +702,16 @@ type NewBot = Omit<
       | "avatar_color"
       | "sound"
       | "watchdog_hours"
+      | "archived"
     >
   >;
 
 export function insertBot(bot: NewBot): void {
   db.prepare(
-    `INSERT INTO bots (id, name, instructions, model_id, role_id, machine_id, avatar_shape, avatar_color, sound, watchdog_hours, enabled, created_at)
-     VALUES (@id, @name, @instructions, @model_id, @role_id, @machine_id, @avatar_shape, @avatar_color, @sound, @watchdog_hours, @enabled, @created_at)`,
+    `INSERT INTO bots (id, name, instructions, model_id, role_id, machine_id, avatar_shape, avatar_color, sound, watchdog_hours, enabled, archived, created_at)
+     VALUES (@id, @name, @instructions, @model_id, @role_id, @machine_id, @avatar_shape, @avatar_color, @sound, @watchdog_hours, @enabled, @archived, @created_at)`,
   ).run({
+    archived: 0,
     model_id: null,
     role_id: null,
     machine_id: null,
@@ -1206,7 +1260,24 @@ db.exec(`
     secret_id TEXT NOT NULL REFERENCES secret(id) ON DELETE CASCADE,
     PRIMARY KEY (team_id, secret_id)
   );
+
+  CREATE TABLE IF NOT EXISTS secret_material (
+    name TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
 `);
+
+function secretLabel(name: string): string {
+  return `secret "${name}"`;
+}
+
+interface RawSecretRow extends Omit<SecretRow, "value"> {
+  value: string;
+}
+
+function toSecret(row: RawSecretRow): SecretRow {
+  return { ...row, value: decryptSecret(row.value, secretLabel(row.name)) };
+}
 
 export function listSecret(): Omit<SecretRow, "value">[] {
   return db
@@ -1216,40 +1287,118 @@ export function listSecret(): Omit<SecretRow, "value">[] {
     .all() as Omit<SecretRow, "value">[];
 }
 
-export function getSecret(id: string): SecretRow | undefined {
+function getRawSecret(id: string): RawSecretRow | undefined {
   return db.prepare("SELECT * FROM secret WHERE id = ?").get(id) as
-    | SecretRow
+    | RawSecretRow
     | undefined;
 }
 
+export function getSecret(id: string): SecretRow | undefined {
+  const row = getRawSecret(id);
+  return row && toSecret(row);
+}
+
 export function findSecretByName(name: string): SecretRow | undefined {
-  return db
+  const row = db
     .prepare("SELECT * FROM secret WHERE name = ? COLLATE NOCASE")
-    .get(name) as SecretRow | undefined;
+    .get(name) as RawSecretRow | undefined;
+  return row && toSecret(row);
 }
 
 export function insertSecret(s: SecretRow): void {
   db.prepare(
     `INSERT INTO secret (id, name, key, value, created_at)
      VALUES (@id, @name, @key, @value, @created_at)`,
-  ).run(s);
+  ).run({ ...s, value: encryptSecret(s.value) });
 }
 
 export function updateSecret(
   id: string,
   patch: Partial<Pick<SecretRow, "name" | "key" | "value">>,
 ): void {
-  const cur = getSecret(id);
+  const cur = getRawSecret(id);
   if (!cur) throw new Error(`unknown secret ${id}`);
   db.prepare(
     `UPDATE secret SET name = @name, key = @key, value = @value WHERE id = @id`,
-  ).run({ ...cur, ...patch, id });
+  ).run({
+    ...cur,
+    ...patch,
+    value: patch.value === undefined ? cur.value : encryptSecret(patch.value),
+  });
+}
+
+export function listStoredSecretValues(): {
+  id: string;
+  name: string;
+  value: string;
+}[] {
+  return db
+    .prepare("SELECT id, name, value FROM secret ORDER BY rowid")
+    .all() as { id: string; name: string; value: string }[];
+}
+
+export function setStoredSecretValue(id: string, stored: string): void {
+  db.prepare("UPDATE secret SET value = ? WHERE id = ?").run(stored, id);
 }
 
 export function deleteSecret(id: string): void {
   db.prepare("DELETE FROM bot_secret WHERE secret_id = ?").run(id);
   db.prepare("DELETE FROM team_secret WHERE secret_id = ?").run(id);
   db.prepare("DELETE FROM secret WHERE id = ?").run(id);
+}
+
+export const VAPID_MATERIAL_NAME = "vapid";
+
+function materialLabel(name: string): string {
+  return name === VAPID_MATERIAL_NAME
+    ? "push VAPID key"
+    : `encrypted material "${name}"`;
+}
+
+function getRawSecretMaterial(name: string): string | undefined {
+  const row = db
+    .prepare("SELECT value FROM secret_material WHERE name = ?")
+    .get(name) as { value: string } | undefined;
+  return row?.value;
+}
+
+export function listStoredSecretMaterials(): { name: string; value: string }[] {
+  return db
+    .prepare("SELECT name, value FROM secret_material ORDER BY name")
+    .all() as { name: string; value: string }[];
+}
+
+export function setStoredSecretMaterialValue(
+  name: string,
+  stored: string,
+): void {
+  db.prepare(
+    `INSERT INTO secret_material (name, value) VALUES (?, ?)
+     ON CONFLICT(name) DO UPDATE SET value = excluded.value`,
+  ).run(name, stored);
+}
+
+export function hasSecretMaterial(name: string): boolean {
+  return getRawSecretMaterial(name) !== undefined;
+}
+
+export function getSecretMaterial(name: string): string | undefined {
+  const stored = getRawSecretMaterial(name);
+  return stored === undefined
+    ? undefined
+    : decryptSecret(stored, materialLabel(name));
+}
+
+export function setSecretMaterial(name: string, value: string): void {
+  setStoredSecretMaterialValue(name, encryptSecret(value));
+}
+
+export function getVapidPairJson(): string | undefined {
+  return getSecretMaterial(VAPID_MATERIAL_NAME);
+}
+
+export function saveVapidPairJson(value: string): void {
+  setSecretMaterial(VAPID_MATERIAL_NAME, value);
 }
 
 function assertKnownSecrets(ids: string[]): void {
@@ -1298,23 +1447,25 @@ export function teamSecretIds(teamId: string): string[] {
 }
 
 function botSecretRows(botId: string): SecretRow[] {
-  return db
+  const rows = db
     .prepare(
       `SELECT s.* FROM bot_secret bs JOIN secret s ON s.id = bs.secret_id
        WHERE bs.bot_id = ? ORDER BY s.name ASC, s.key ASC`,
     )
-    .all(botId) as SecretRow[];
+    .all(botId) as RawSecretRow[];
+  return rows.map(toSecret);
 }
 
 function teamSecretRowsForBot(botId: string): SecretRow[] {
-  return db
+  const rows = db
     .prepare(
       `SELECT DISTINCT s.* FROM team_secret ts
        JOIN team_members tm ON tm.team_id = ts.team_id
        JOIN secret s ON s.id = ts.secret_id
        WHERE tm.bot_id = ? ORDER BY s.name ASC, s.key ASC`,
     )
-    .all(botId) as SecretRow[];
+    .all(botId) as RawSecretRow[];
+  return rows.map(toSecret);
 }
 
 export function secretEnvForBot(botId: string): Record<string, string> {
@@ -1403,7 +1554,7 @@ export function dueTriggers(now: number): TriggerRow[] {
   return db
     .prepare(
       `SELECT t.* FROM triggers t JOIN bots b ON b.id = t.bot_id
-       WHERE b.enabled = 1 AND t.enabled = 1 AND t.next_run_at IS NOT NULL AND t.next_run_at <= ?`,
+        WHERE b.enabled = 1 AND b.archived = 0 AND t.enabled = 1 AND t.next_run_at IS NOT NULL AND t.next_run_at <= ?`,
     )
     .all(now) as TriggerRow[];
 }
@@ -1448,6 +1599,7 @@ export function createNotification(input: {
   title: string;
   body: string;
   botId?: string | null;
+  runId?: string | null;
   dedupeKey?: string | null;
 }): void {
   const row: NotificationRow = {
@@ -1456,14 +1608,20 @@ export function createNotification(input: {
     title: input.title,
     body: input.body.slice(0, 1000),
     bot_id: input.botId ?? null,
+    run_id: input.runId ?? null,
+    target_path: notificationTargetPath({
+      kind: input.kind,
+      botId: input.botId ?? null,
+      runId: input.runId ?? null,
+    }),
     dedupe_key: input.dedupeKey ?? null,
     read: 0,
     created_at: Date.now(),
   };
   const result = db
     .prepare(
-      `INSERT INTO notifications (id, kind, title, body, bot_id, dedupe_key, "read", created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+      `INSERT INTO notifications (id, kind, title, body, bot_id, run_id, target_path, dedupe_key, "read", created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
        ON CONFLICT(dedupe_key) DO NOTHING`,
     )
     .run(
@@ -1472,6 +1630,8 @@ export function createNotification(input: {
       row.title,
       row.body,
       row.bot_id,
+      row.run_id,
+      row.target_path,
       row.dedupe_key,
       row.created_at,
     );
@@ -1568,6 +1728,7 @@ export function finishRun(
       body:
         error || output || `Run ${info?.trigger ?? "manual"} ended in error.`,
       botId: info?.bot_id,
+      runId: id,
       dedupeKey: `run-error:${id}`,
     });
   });
@@ -1618,6 +1779,7 @@ export function tripWatchdog(
     title: `${name}: watchdog tripped`,
     body: message,
     botId,
+    runId,
     dedupeKey: `watchdog:${runId}`,
   });
 }
@@ -1627,7 +1789,7 @@ export function evaluateWatchdogs(now = Date.now()): void {
   const due = db
     .prepare(
       `SELECT id, name, watchdog_hours FROM bots
-       WHERE enabled = 1 AND watchdog_hours IS NOT NULL AND watchdog_tripped = 0
+        WHERE enabled = 1 AND archived = 0 AND watchdog_hours IS NOT NULL AND watchdog_tripped = 0
          AND watchdog_run_started_at IS NOT NULL
          AND ? > watchdog_run_started_at + (watchdog_hours * 3600000)`,
     )
@@ -2068,7 +2230,11 @@ function toProvider(row: ProviderDbRow): ProviderRow {
   } catch {
     // fall through with empty list
   }
-  return { ...row, models };
+  return {
+    ...row,
+    api_key: decryptSecret(row.api_key, `provider "${row.name}"`),
+    models,
+  };
 }
 
 export function listProviders(): ProviderRow[] {
@@ -2092,7 +2258,7 @@ export function insertProvider(p: ProviderRow): void {
     p.id,
     p.name,
     p.base_url,
-    p.api_key,
+    encryptSecret(p.api_key),
     JSON.stringify(p.models),
     p.created_at,
   );
@@ -2104,11 +2270,21 @@ export function updateProvider(
 ): boolean {
   const sets: string[] = [];
   const vals: unknown[] = [];
-  for (const key of ["name", "base_url", "api_key", "models"] as const) {
-    if (fields[key] !== undefined) {
-      sets.push(`${key} = ?`);
-      vals.push(key === "models" ? JSON.stringify(fields.models) : fields[key]);
-    }
+  if (fields.name !== undefined) {
+    sets.push("name = ?");
+    vals.push(fields.name);
+  }
+  if (fields.base_url !== undefined) {
+    sets.push("base_url = ?");
+    vals.push(fields.base_url);
+  }
+  if (fields.api_key !== undefined) {
+    sets.push("api_key = ?");
+    vals.push(encryptSecret(fields.api_key));
+  }
+  if (fields.models !== undefined) {
+    sets.push("models = ?");
+    vals.push(JSON.stringify(fields.models));
   }
   if (sets.length === 0) return false;
   vals.push(id);
@@ -2120,6 +2296,20 @@ export function updateProvider(
 
 export function deleteProvider(id: string): boolean {
   return db.prepare("DELETE FROM providers WHERE id = ?").run(id).changes > 0;
+}
+
+export function listStoredProviderApiKeys(): {
+  id: string;
+  name: string;
+  api_key: string;
+}[] {
+  return db
+    .prepare("SELECT id, name, api_key FROM providers ORDER BY rowid")
+    .all() as { id: string; name: string; api_key: string }[];
+}
+
+export function setStoredProviderApiKey(id: string, stored: string): void {
+  db.prepare("UPDATE providers SET api_key = ? WHERE id = ?").run(stored, id);
 }
 
 export interface HookDestinationRow {

@@ -202,3 +202,42 @@ test("search caps groups and skips empty queries", () => {
   assert.equal(empty[0]?.total, 0);
   assert.deepEqual(empty[0]?.matches, []);
 });
+
+test("search separates active bots from archived bots", () => {
+  const result = buildSearchResults({
+    q: "split",
+    types: ["bots", "archived_bots"],
+    data: {
+      bots: [
+        {
+          id: "active-bot",
+          name: "split-active",
+          instructions: "",
+          role_id: null,
+          archived: 0,
+        },
+        {
+          id: "archived-bot",
+          name: "split-archived",
+          instructions: "",
+          role_id: null,
+          archived: 1,
+        },
+      ],
+      roles: [],
+      skills: [],
+      projects: [],
+      tags: [],
+      teams: [],
+      templates: [],
+    },
+  });
+
+  assert.deepEqual(
+    result.map((group) => [group.type, group.matches.map((m) => m.id)]),
+    [
+      ["bots", ["active-bot"]],
+      ["archived_bots", ["archived-bot"]],
+    ],
+  );
+});

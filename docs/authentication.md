@@ -1,26 +1,23 @@
 # Accounts & access
 
-The UI and API are login-protected. The sign-in screen asks `/api/auth/config` whether accounts exist and registration is enabled, then offers **Sign in** or **Create account**. Registration is disabled by default; start the server once with `ALLOW_REGISTRATION=true`, create your account, then remove it. Every signed-in user has equal access to all bots and settings — there is no admin tier.
+The UI and API are login-protected. The sign-in screen offers **Sign in**, plus **Create account** while registration is enabled — enable it through [runtime configuration](/operations#runtime-configuration) to create the first account. Every signed-in user has equal access to all bots and settings; there is no admin tier.
 
-Sessions use an HttpOnly cookie for seven days. Settings → **Account** shows the signed-in email, lets you change your password (minimum eight characters; other sessions are invalidated), or log out from this browser.
+A sign-in lasts seven days on that browser, then you sign in again — there is no "remember me" choice. Settings → **General** holds self-service password change: fill in **Current password** and **New password** (at least eight characters) and press **Change password**; every other session is logged out, this one stays signed in. Settings → **System** shows the signed-in account and offers **Logout**.
 
 ## API keys
 
-Settings → **API keys** manages credentials for headless access:
+Headless access — scripts, the CLI, Control MCP — uses API keys, managed under Settings → **System** in the **API keys** section:
 
-- Each key is `bots_` plus 40 hex characters and is shown exactly once after creation — store it immediately.
-- The server stores only a hash, so the list can show name, created-at and last-used time but cannot recover a lost value.
-- Send it as `Authorization: Bearer <api key>`. Revoking takes effect on the next request; malformed or revoked keys receive `401`.
+- Type a name and press **Add key**; the value (`bots_` plus 40 hex characters) appears once with "New key — shown once". Store it immediately.
+- A lost key can't be recovered — the server keeps only a hash, so you revoke (**Revoke**) and create a new one.
+- Send it as `Authorization: Bearer <api key>`; revoking takes effect on the next request.
 
-Use an API key for scripts, the CLI and Control MCP. Browser session cookies are not used by those clients. Raw routes are listed in the [API reference](/api).
+Raw routes, rate-limit budgets and error bodies are in the [API reference](/api).
 
-## Device login
+## Sign in from a terminal (device login)
 
-Device login lets a terminal obtain an API key without pasting a password:
+1. A terminal requests a short code and prints the `/device` verification URL plus an `XXXX-XXXX` code ([CLI basics](/cli#authentication)).
+2. Open the page, sign in if asked, review the client name and expiry — optionally rename the key (default `bots-cli <client> <date>`) — then press **Approve** or **Deny**.
+3. The terminal claims the new API key directly; the browser never displays it.
 
-1. The client requests a short code and prints the `/device` verification URL plus an `XXXX-XXXX` code.
-2. Open the URL and sign in to the web UI if prompted.
-3. Review the client name and expiry, optionally rename the issued key — the default is `bots-cli <client> <date>` — then approve or deny access.
-4. The terminal claims the one-time API key directly from the server; the browser never displays it.
-
-Codes expire after ten minutes, and pending approvals do not survive a server restart. If the code is unknown, expired or already used, the approval page says so before any key is issued. For raw OAuth device-flow endpoints, see the [API reference](/api).
+Codes expire after ten minutes, and an unapproved code does not survive a server restart. If the code is unknown, expired or already used, the approval page says so before any key is issued.

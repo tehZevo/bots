@@ -274,6 +274,27 @@ export function cleanupClone(dir: string): void {
   rmSync(dir, { recursive: true, force: true });
 }
 
+export type GitRefKind = "default" | "branch" | "tag" | "commit";
+
+function remoteOutputHasRef(output: string, namespace: string, ref: string) {
+  return output
+    .split(/\r?\n/)
+    .some((line) => line.split("\t")[1] === `${namespace}/${ref}`);
+}
+
+// specs/skills/updates.md — branches track their head; tags and commits are pinned.
+export async function classifyRemoteRef(
+  cloneUrl: string,
+  ref: string | null,
+): Promise<GitRefKind | null> {
+  if (!ref) return "default";
+  if (/^[0-9a-f]{40}$/i.test(ref)) return "commit";
+  const output = await runGit(["ls-remote", "--refs", cloneUrl]);
+  if (remoteOutputHasRef(output, "refs/heads", ref)) return "branch";
+  if (remoteOutputHasRef(output, "refs/tags", ref)) return "tag";
+  return null;
+}
+
 function walkFiles(root: string, rel = ""): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(join(root, rel), { withFileTypes: true })) {

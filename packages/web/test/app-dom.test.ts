@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { JSDOM } from "jsdom";
+import type { ScheduleMode } from "../src/schedule.tsx";
 
 const dom = new JSDOM(
   '<!doctype html><html><body><div id="root"></div></body></html>',
@@ -48,17 +49,23 @@ Object.defineProperty(window.navigator, "clipboard", {
 const React = await import("react");
 const { createRoot } = await import("react-dom/client");
 const {
+  applyOptimisticRunStates,
   App,
   BotCard,
   BotGeneral,
+  ConfigBackupSection,
   BotTags,
   findDuplicateEnvKey,
   mcpEnvMapFromRows,
   mcpEnvRowsFromRecord,
   McpServerModal,
+  optimisticRunUpdate,
   ProviderFormModal,
   Triggers,
 } = await import("../src/App.tsx");
+const { parseScheduleState, scheduleFromState, ScheduleEditor } = await import(
+  "../src/schedule.tsx"
+);
 const act = React.act;
 
 const now = Date.now();
@@ -73,6 +80,7 @@ const bot = {
   avatar_color: null,
   sound: null,
   enabled: 1,
+  archived: 0,
   created_at: now,
   run_state: "enabled",
   health: "blue",
@@ -159,7 +167,9 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       { role: "assistant", text: "all good" },
     ]);
   }
-  if (url === "/api/bots/b1/messages" && method === "POST") return json({});
+  if (url === "/api/bots/b1/messages" && method === "POST") {
+    return json({ runId: "chat-run", steered: false });
+  }
   if (url === "/api/bots/b1/context-usage") {
     return json({
       context_window: 32000,
@@ -234,6 +244,20 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   }
   if (url === "/api/bots/b1/triggers" && method === "POST") {
     return json({ ...trigger, id: "t2", secret: "s3cret" });
+  }
+  if (url === "/api/schedule/preview" && method === "POST") {
+    const schedule = String(
+      (JSON.parse(String(init?.body)) as { schedule?: unknown }).schedule ?? "",
+    );
+    if (!schedule || schedule.includes("invalid")) {
+      return json({ valid: false, next: [] });
+    }
+    return json({
+      valid: true,
+      next: Array.from({ length: 5 }, (_, index) =>
+        new Date(now + (index + 1) * 3_600_000).toISOString(),
+      ),
+    });
   }
   if (url === "/api/teams") {
     return json([
@@ -613,6 +637,7 @@ test("bot detail header carries enable/Stop and General pins its action row", as
         "Restart machine",
         "Clear memory",
         "Save as template…",
+        "Archive",
         "Delete",
         "Cancel",
       ],
@@ -627,6 +652,93 @@ test("bot detail header carries enable/Stop and General pins its action row", as
     await act(async () => {
       root.unmount();
     });
+  }
+});
+
+test("archived dashboard cards are muted, badged, and open details", async () => {
+  const previous = {
+    enabled: bot.enabled,
+    archived: bot.archived,
+    health: bot.health,
+    run_state: bot.run_state,
+  };
+  Object.assign(bot, {
+    enabled: 1,
+    archived: 1,
+    health: "gray",
+    run_state: "disabled",
+  });
+  const root = await mount(React.createElement(App));
+  try {
+    assert.match(window.document.body.textContent ?? "", /Include archived/);
+    assert.ok(window.document.querySelector(".cards .card.archived"));
+    assert.match(window.document.body.textContent ?? "", /Archived/);
+
+    await click(byLabel("Sable (null)"));
+    assert.ok(window.document.querySelector(".dialog.tabs"));
+    assert.ok(!window.document.querySelector(".sidepanel"));
+  } finally {
+    Object.assign(bot, previous);
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("General archive actions stop first and unarchive immediately", async () => {
+  const previous = {
+    enabled: bot.enabled,
+    archived: bot.archived,
+    run_state: bot.run_state,
+  };
+  try {
+    Object.assign(bot, { enabled: 1, archived: 0, run_state: "enabled" });
+    requests.length = 0;
+    let changed = 0;
+    const onChanged = () => {
+      changed++;
+    };
+    let root = await mount(React.createElement(BotGeneral, { bot, onChanged }));
+    try {
+      await click(button("Archive"));
+      assert.ok(requests.includes("POST /api/bots/b1/archive"));
+      assert.equal(changed, 1);
+    } finally {
+      await act(async () => root.unmount());
+    }
+
+    Object.assign(bot, { run_state: "running" });
+    requests.length = 0;
+    changed = 0;
+    root = await mount(React.createElement(BotGeneral, { bot, onChanged }));
+    try {
+      await click(button("Archive"));
+      assert.equal(requests.includes("POST /api/bots/b1/archive"), false);
+      const confirm = [
+        ...window.document.querySelectorAll(".confirm button"),
+      ].find((item) => item.textContent?.trim() === "Archive bot");
+      assert.ok(confirm, "expected archive confirmation");
+      await click(confirm);
+      assert.ok(requests.includes("POST /api/bots/b1/archive"));
+      assert.equal(changed, 1);
+    } finally {
+      await act(async () => root.unmount());
+    }
+
+    Object.assign(bot, { archived: 1, run_state: "disabled" });
+    requests.length = 0;
+    changed = 0;
+    root = await mount(React.createElement(BotGeneral, { bot, onChanged }));
+    try {
+      await click(button("Unarchive"));
+      assert.ok(requests.includes("POST /api/bots/b1/unarchive"));
+      assert.equal(changed, 1);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  } finally {
+    Object.assign(bot, previous);
+    requests.length = 0;
   }
 });
 
@@ -700,7 +812,7 @@ test("trigger editor creates and edits triggers", async () => {
   ];
   assert.deepEqual(
     draftFields.map((field) => field.firstChild?.textContent?.trim()),
-    ["Type", "Name (optional)", "Message"],
+    ["Type", "Name (optional)", "Message", "Schedule"],
   );
   await typeInto(
     window.document.querySelector(
@@ -731,6 +843,89 @@ test("trigger editor creates and edits triggers", async () => {
   await act(async () => {
     root.unmount();
   });
+});
+
+test("human schedule controls round-trip stored expressions", () => {
+  const cases: [string, ScheduleMode?][] = [
+    ["@every 30m"],
+    ["5 9 * * *", "daily"],
+    ["30 9 * * 1-5", "weekdays"],
+    ["30 9 * * 1,4,6", "weekly"],
+    ["0 8 15 * *", "monthly"],
+    ["*/7 * * * *", "custom"],
+    ["not a cron", "custom"],
+  ];
+  for (const [raw, mode] of cases) {
+    const state = parseScheduleState(raw);
+    if (mode) assert.equal(state.mode, mode, raw);
+    assert.equal(scheduleFromState(state), raw);
+  }
+});
+
+test("schedule editor shows its sentence and live next fires", async () => {
+  const root = await mount(
+    React.createElement(ScheduleEditor, {
+      value: "30 9 * * 1-5",
+      onChange: () => undefined,
+      debounceMs: 0,
+    }),
+  );
+
+  try {
+    assert.equal(
+      window.document.querySelector(".schedule-sentence")?.textContent,
+      "Runs on weekdays at 09:30",
+    );
+    assert.equal(
+      (byLabel("Schedule type") as HTMLSelectElement).value,
+      "weekdays",
+    );
+    let ready = false;
+    for (let attempt = 0; attempt < 25 && !ready; attempt++) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+      ready =
+        window.document.querySelectorAll(".schedule-preview li").length === 5;
+    }
+    assert.ok(ready, "expected five next fire times");
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("schedule editor replaces an invalid preview with one error line", async () => {
+  const root = await mount(
+    React.createElement(ScheduleEditor, {
+      value: "invalid schedule",
+      onChange: () => undefined,
+      debounceMs: 0,
+    }),
+  );
+
+  try {
+    let ready = false;
+    for (let attempt = 0; attempt < 25 && !ready; attempt++) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+      ready = Boolean(window.document.querySelector(".schedule-error"));
+    }
+    assert.equal(
+      window.document.querySelector(".schedule-error")?.textContent,
+      "Invalid schedule expression.",
+    );
+    assert.equal(
+      window.document.querySelectorAll(".schedule-preview li").length,
+      0,
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
 });
 
 test("bot cards show the assigned role under the name, hidden when unset", async () => {
@@ -1364,6 +1559,182 @@ test("provider API key rotation confirms before saving", async () => {
     await click(button("Save provider"));
     await click(window.document.querySelector(".confirm button.danger"));
     assert.ok(requests.includes("PUT /api/providers/p1"));
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("backup export toggle names its subject and updates state", async () => {
+  const root = await mount(React.createElement(ConfigBackupSection));
+  try {
+    assert.match(
+      window.document.body.textContent ?? "",
+      /Secret values in export/,
+    );
+    assert.match(window.document.body.textContent ?? "", /Names only/);
+
+    await click(
+      window.document.querySelector("#secret-values-export-label + input"),
+    );
+    assert.match(window.document.body.textContent ?? "", /Included/);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("optimistic run overrides are confirmed or corrected by polls", () => {
+  const at = Date.now();
+  const idle = {
+    ...bot,
+    run_state: "enabled" as const,
+    health: "blue" as const,
+  };
+  const running = {
+    ...idle,
+    run_state: "running" as const,
+    health: "green" as const,
+  };
+  const override = {
+    ...optimisticRunUpdate("running"),
+    authoritativeAt: at + 2_000,
+    expiresAt: at + 60_000,
+  };
+
+  let result = applyOptimisticRunStates([idle], { b1: override }, at);
+  assert.equal(result.rows[0].run_state, "running");
+  assert.ok(result.overrides.b1);
+
+  result = applyOptimisticRunStates([running], { b1: override }, at + 100);
+  assert.equal(result.overrides.b1, undefined);
+  assert.equal(result.rows[0].health, "green");
+
+  result = applyOptimisticRunStates([idle], { b1: override }, at + 2_100);
+  assert.equal(result.overrides.b1, undefined);
+  assert.equal(result.rows[0].run_state, "enabled");
+
+  const fresh = optimisticRunUpdate("running");
+  assert.ok(fresh.authoritativeAt > at);
+  assert.ok(fresh.expiresAt > fresh.authoritativeAt);
+});
+
+test("accepted chat send flips cues immediately", async () => {
+  requests.length = 0;
+  const previous = { ...bot };
+  bot.run_state = "enabled";
+  bot.health = "blue";
+  let root: ReturnType<typeof createRoot> | undefined;
+  try {
+    root = await mount(React.createElement(App));
+    assert.equal(byLabel("bot is working"), null);
+
+    await click(byLabel("Sable (null)"));
+    assert.ok(
+      !window.document.querySelector(
+        '[data-bot-card="b1"] + .quickhead .dot.green.pulse',
+      ),
+    );
+
+    const input = window.document.querySelector(
+      'input[placeholder="Message the bot…"]',
+    );
+    await typeInto(input, "check");
+    await click(button("Send"));
+
+    assert.ok(byLabel("bot is working"));
+    assert.ok(
+      window.document.querySelector(
+        '[data-bot-card="b1"] + .quickhead .dot.green.pulse',
+      ),
+    );
+  } finally {
+    Object.assign(bot, previous);
+    if (root) {
+      await act(async () => {
+        root?.unmount();
+      });
+    }
+  }
+});
+
+test("accepted stop flips the running cue immediately", async () => {
+  requests.length = 0;
+  const previous = { ...bot };
+  bot.run_state = "running";
+  bot.health = "green";
+  let root: ReturnType<typeof createRoot> | undefined;
+  try {
+    root = await mount(React.createElement(App));
+    await click(byLabel("Sable (null)"));
+    await click(byLabel("Sable settings"));
+
+    assert.ok(
+      window.document.querySelector(
+        ".detailhead-actions [aria-label='Stop while running']",
+      ),
+    );
+    await click(byLabel("Stop while running"));
+
+    assert.equal(
+      window.document.querySelector(
+        ".detailhead-actions [aria-label='Stop while running']",
+      ),
+      null,
+    );
+    assert.ok(requests.includes("POST /api/bots/b1/interrupt"));
+    assert.ok(
+      !window.document.querySelector(
+        '[data-bot-card="b1"] + .quickhead .dot.green.pulse',
+      ),
+    );
+  } finally {
+    Object.assign(bot, previous);
+    if (root) {
+      await act(async () => {
+        root?.unmount();
+      });
+    }
+  }
+});
+
+test("backtick opens search except from text fields", async () => {
+  const root = await mount(React.createElement(App));
+  try {
+    assert.equal(window.document.querySelector(".searchoverlay"), null);
+
+    const botSearch = window.document.querySelector(
+      '[placeholder="Search bots by name"]',
+    );
+    assert.ok(botSearch);
+    await act(async () => {
+      (botSearch as HTMLElement).focus();
+    });
+    await act(async () => {
+      botSearch.dispatchEvent(
+        new window.KeyboardEvent("keydown", {
+          key: "`",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    assert.equal(window.document.querySelector(".searchoverlay"), null);
+
+    (botSearch as HTMLElement).blur();
+    await act(async () => {
+      window.document.body.dispatchEvent(
+        new window.KeyboardEvent("keydown", {
+          key: "`",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await flush();
+    assert.ok(window.document.querySelector(".searchoverlay"));
   } finally {
     await act(async () => {
       root.unmount();

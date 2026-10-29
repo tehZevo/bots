@@ -9,7 +9,7 @@ process.env.DATABASE_PATH = join(
   "t.db",
 );
 
-const { nextRunAt } = await import("../src/scheduler.ts");
+const { nextRunAt, previewSchedule } = await import("../src/scheduler.ts");
 
 test("@every schedules add the parsed duration", () => {
   const from = new Date("2026-01-01T00:00:00Z").getTime();
@@ -30,4 +30,33 @@ test("cron expressions resolve to the next match", () => {
   const from = new Date("2026-01-01T10:15:30Z").getTime();
   const next = nextRunAt("0 * * * *", new Date(from));
   assert.equal(next, new Date("2026-01-01T11:00:00Z").getTime());
+});
+
+test("@every previews repeat the interval five times", () => {
+  const from = new Date("2026-01-01T10:00:00Z");
+  assert.deepEqual(previewSchedule("@every 30m", 5, from), {
+    valid: true,
+    next: [
+      "2026-01-01T10:30:00.000Z",
+      "2026-01-01T11:00:00.000Z",
+      "2026-01-01T11:30:00.000Z",
+      "2026-01-01T12:00:00.000Z",
+      "2026-01-01T12:30:00.000Z",
+    ],
+  });
+});
+
+test("cron previews return the next five matches and cap at five", () => {
+  const from = new Date("2026-01-01T10:15:30Z");
+  const preview = previewSchedule("0 * * * *", 9, from);
+  assert.equal(preview.valid, true);
+  assert.deepEqual(
+    preview.next.map((value) => new Date(value).getUTCHours()),
+    [11, 12, 13, 14, 15],
+  );
+});
+
+test("invalid previews report invalid without partial results", () => {
+  assert.deepEqual(previewSchedule("@every 7x"), { valid: false, next: [] });
+  assert.deepEqual(previewSchedule("not a cron"), { valid: false, next: [] });
 });

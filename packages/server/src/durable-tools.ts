@@ -5,6 +5,7 @@ import type {
   ToolRegistration,
 } from "@earendil-works/pi-durable";
 import type { SkillRow } from "./db.ts";
+import { fakeToolResultOverride } from "./fake-llm.ts";
 import { redactText } from "./redact.ts";
 import { buildTools } from "./tools.ts";
 
@@ -48,8 +49,16 @@ export function toolRedactionHooks(botId: string): HookRegistration[] {
     {
       task: TOOL_TASK_NAME,
       handlers: {
-        afterTool(_call: unknown, result: ToolExecutionResult) {
-          return redactedToolResult(botId, result);
+        afterTool(call: unknown, result: ToolExecutionResult) {
+          const overridden = fakeToolResultOverride(
+            botId,
+            call as { name?: unknown },
+            result,
+          );
+          return redactedToolResult(
+            botId,
+            (overridden ?? result) as ToolExecutionResult,
+          );
         },
       },
     },

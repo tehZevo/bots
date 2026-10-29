@@ -51,6 +51,13 @@ import {
   selectExtensions,
   uninstallExtension,
 } from "./durable-extensions.ts";
+import {
+  applyFakeDirective,
+  clearFakePlansForBot,
+  FAKE_PROVIDER_ID,
+  isFakeModel,
+  queueFakeInput,
+} from "./fake-llm.ts";
 import { type ResolvedLlm, resolveDefault } from "./llm.ts";
 import type { McpSession } from "./mcp.ts";
 import { BOTS_PROVIDER_ID } from "./pi-provider.ts";
@@ -318,7 +325,12 @@ async function prepareRuntime(
 
     await conversation.configure(
       {
-        model: { provider: BOTS_PROVIDER_ID, modelId: llm.model.id },
+        model: {
+          provider: isFakeModel(llm.model.id)
+            ? FAKE_PROVIDER_ID
+            : BOTS_PROVIDER_ID,
+          modelId: llm.model.id,
+        },
         extensions: selectExtensions(baseExtension, mcpExtension),
       },
       BACKGROUND_CONTEXT,
@@ -518,6 +530,7 @@ async function cleanupActiveRun(
     uninstallExtension(getDurableRegistry(), mcpExtensionName(bot.id));
     uninstallExtension(getDurableRegistry(), botExtensionName(bot.id));
   }
+  clearFakePlansForBot(bot.id);
 
   if (getCurrentRunForBot(bot.id) === runId) setCurrentRunForBot(bot.id, null);
   try {
@@ -588,6 +601,7 @@ function errorWithoutModel(
     title: `${bot.name}: run failed`,
     body: `Run ${kind} ended in error: ${error}.`,
     botId: bot.id,
+    runId,
     dedupeKey: `run-error:${runId}`,
   });
 }
@@ -603,7 +617,21 @@ export function injectMessage(
   }
 
   supersedeInterruptedRuns(bot.id);
-  const content = `[${kind} ${new Date().toISOString()}]\n${text}`;
+  const llm = resolveDefault(bot.model_id);
+  const fakeRun = isFakeModel(llm?.model.id ?? bot.model_id);
+  const applied = fakeRun
+    ? applyFakeDirective(text)
+    : { text, directive: null };
+  const content = `[${kind} ${new Date().toISOString()}]\n${applied.text}`;
+  if (applied.directive) {
+    queueFakeInput({
+      botId: bot.id,
+      botName: bot.name,
+      content,
+      directive: applied.directive,
+    });
+  }
+
   const live = activeRuns.get(bot.id);
   if (isLive(live)) {
     submitInput(live.conversation, content);
@@ -625,7 +653,6 @@ export function injectMessage(
     }
   }
 
-  const llm = resolveDefault(bot.model_id);
   if (!llm) {
     errorWithoutModel(bot, runId, kind, "no model configured");
     return { runId, steered: false };
@@ -645,6 +672,7 @@ export function injectMessage(
   void runDurableTurn(bot, runId, content, llm).catch((err) => {
     console.error(`durable run startup failed for ${runId}:`, err);
     finishRun(runId, "error", null, errorMessage(err));
+    clearFakePlansForBot(bot.id);
     if (getCurrentRunForBot(bot.id) === runId)
       setCurrentRunForBot(bot.id, null);
   });

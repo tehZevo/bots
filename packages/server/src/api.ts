@@ -20,9 +20,10 @@ import {
   stopAllLoops,
 } from "./agent.ts";
 import { exportConfigBackup, importConfigBackup } from "./backup.ts";
-import { repoRoot } from "./config.ts";
+import { devFakeLlm, repoRoot } from "./config.ts";
 import {
   approveDeviceGrant,
+  type BotRow,
   botSecretIds,
   botsUsingMachine,
   botUsageTotals,
@@ -162,10 +163,17 @@ import {
   upsertPushSubscription,
   verifyPassword,
 } from "./db.ts";
+import { FAKE_PROVIDER_ID, fakeProviderResponse } from "./fake-llm.ts";
 import { HOOK_EVENT_TYPES, sendHookTest } from "./hooks.ts";
 import { testMcpConnection } from "./mcp.ts";
 import { openApiDoc } from "./openapi.ts";
 import { vapidPublicKey } from "./push.ts";
+import {
+  consumeRate,
+  isRateLimitReached,
+  resetRate,
+  resolveClientIp,
+} from "./ratelimit.ts";
 import { getRetryWaits } from "./runwaits.ts";
 import {
   defaultImageRef,
@@ -175,7 +183,7 @@ import {
   repullDefaultImage,
   restartSandbox,
 } from "./sandbox.ts";
-import { nextRunAt } from "./scheduler.ts";
+import { nextRunAt, previewSchedule } from "./scheduler.ts";
 import { buildSearchResults, SEARCH_TYPES, type SearchType } from "./search.ts";
 import {
   type ClonedRepo,
@@ -192,6 +200,14 @@ import {
 } from "./skillimport.ts";
 import { HostNotAllowedError } from "./ssrf.ts";
 import {
+  checkSkillUpdate,
+  detachSkill,
+  enrichSkill,
+  listSkillPayloads,
+  refreshImportedModified,
+  updateImportedSkill,
+} from "./skillupdates.ts";
+import {
   listWorkspace,
   readWorkspaceFile,
   WorkspaceError,
@@ -205,6 +221,10 @@ function skillSourceFailure(err: unknown): { error: string } {
 }
 
 const DEFAULT_MANUAL_MESSAGE = "Continue with your current work.";
+
+function workDisabled(bot: BotRow): boolean {
+  return !bot.enabled || bot.archived === 1;
+}
 
 export const SESSION_COOKIE = "bots_session";
 const SESSION_TTL_S = 7 * 24 * 60 * 60;
@@ -461,8 +481,8 @@ function generateUserCode(): string {
   return `${out.slice(0, 4)}-${out.slice(4)}`;
 }
 
-// Fixed-window rate limiter per IP (and per device code for token polling);
-// device-login.md requires limits but not specific budgets.
+// Fixed-window limits required by device-login.md; rate-limits.md additionally
+// caps failed credential attempts and all public auth traffic per client IP.
 const DEVICE_RATE_LIMITS: { name: string; max: number; windowMs: number }[] = [
   { name: "code", max: 30, windowMs: 3_600_000 },
   { name: "pending", max: 300, windowMs: 60_000 },
@@ -470,22 +490,44 @@ const DEVICE_RATE_LIMITS: { name: string; max: number; windowMs: number }[] = [
   { name: "token", max: 600, windowMs: 60_000 },
   { name: "tokencode", max: 600, windowMs: 60_000 },
 ];
-const rateWindows = new Map<string, { start: number; count: number }>();
+
+const PUBLIC_AUTH_ROUTES = new Set([
+  "/api/auth/config",
+  "/api/auth/login",
+  "/api/auth/signup",
+  "/api/auth/device/code",
+  "/api/auth/device/token",
+]);
+const AUTH_FAILED_MAX = 10;
+const AUTH_FAILED_WINDOW_MS = 15 * 60_000;
+const AUTH_ROUTE_MAX = 300;
+const WEBHOOK_GLOBAL_MAX = 60;
+const WEBHOOK_TRIGGER_MAX = 30;
 
 function limited(
   kind: (typeof DEVICE_RATE_LIMITS)[number]["name"],
   key: string,
 ): boolean {
-  const rule = DEVICE_RATE_LIMITS.find((r) => r.name === kind)!;
-  const bucket = `${kind}:${key}`;
-  const now = Date.now();
-  const win = rateWindows.get(bucket);
-  if (!win || now - win.start > rule.windowMs) {
-    rateWindows.set(bucket, { start: now, count: 1 });
-    return false;
-  }
-  win.count += 1;
-  return win.count > rule.max;
+  const rule = DEVICE_RATE_LIMITS.find((r) => r.name === kind);
+  if (!rule) return false;
+  return consumeRate(kind, key, rule.max, rule.windowMs);
+}
+
+function failedAuthLimitReached(ip: string): boolean {
+  return isRateLimitReached(
+    "auth-failure",
+    ip,
+    AUTH_FAILED_MAX,
+    AUTH_FAILED_WINDOW_MS,
+  );
+}
+
+function recordFailedAuth(ip: string): void {
+  consumeRate("auth-failure", ip, AUTH_FAILED_MAX, AUTH_FAILED_WINDOW_MS);
+}
+
+function clearFailedAuth(ip: string): void {
+  resetRate("auth-failure", ip);
 }
 
 function hashToken(value: string): string {
@@ -493,8 +535,22 @@ function hashToken(value: string): string {
 }
 
 function clientIp(c: Context): string {
-  const fwd = c.req.header("x-forwarded-for");
-  return fwd?.split(",")[0]?.trim() || "local";
+  const incoming = (
+    c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined
+  )?.incoming;
+  return resolveClientIp(
+    c.req.header("x-forwarded-for"),
+    incoming?.socket?.remoteAddress,
+  );
+}
+
+function encryptionConfigError(c: Context, err: unknown): Response | null {
+  const message = err instanceof Error ? err.message : String(err);
+  if (!message.includes("SECRETS_KEY")) return null;
+  return c.json(
+    { error: "SECRETS_KEY is required to store encrypted secrets" },
+    503,
+  );
 }
 
 export function createApp() {
@@ -503,16 +559,14 @@ export function createApp() {
   const API_KEY_RE = /^bots_[0-9a-f]{40}$/;
   app.use("/api/*", async (c, next) => {
     const path = c.req.path;
-    if (
-      path === "/api/health" ||
-      path.startsWith("/api/webhooks/") ||
-      path === "/api/auth/config" ||
-      path === "/api/auth/login" ||
-      path === "/api/auth/signup" ||
-      path === "/api/auth/device/code" ||
-      path === "/api/auth/device/token"
-    )
+    if (path === "/api/health" || path.startsWith("/api/webhooks/"))
       return next();
+
+    if (PUBLIC_AUTH_ROUTES.has(path)) {
+      if (consumeRate("auth-route", clientIp(c), AUTH_ROUTE_MAX))
+        return c.json({ error: "rate_limited" }, 429);
+      return next();
+    }
 
     const header = c.req.header("authorization");
     if (header?.startsWith("Bearer ")) {
@@ -588,7 +642,7 @@ export function createApp() {
       q,
       types,
       data: {
-        bots: listBots(),
+        bots: listBots(true),
         roles: listRoles(),
         skills: listSkills(),
         projects: listProjects(),
@@ -630,13 +684,21 @@ export function createApp() {
   app.post("/api/auth/signup", async (c) => {
     if (!allowRegistration())
       return c.json({ error: "registration is disabled" }, 403);
+    const ip = clientIp(c);
+    if (failedAuthLimitReached(ip))
+      return c.json({ error: "rate_limited" }, 429);
+
     const creds = await readCreds(c);
     if (!creds || !EMAIL_RE.test(creds.email))
       return c.json({ error: "valid email is required" }, 400);
     if (creds.password.length < 8)
       return c.json({ error: "password must be at least 8 characters" }, 400);
-    if (getUserByEmail(creds.email))
+
+    if (getUserByEmail(creds.email)) {
+      recordFailedAuth(ip);
       return c.json({ error: "account already exists" }, 409);
+    }
+
     const id = randomUUID();
     insertUser({
       id,
@@ -646,16 +708,29 @@ export function createApp() {
     });
     const { token } = createSession(id, Date.now() + SESSION_TTL_S * 1000);
     setCookie(c, SESSION_COOKIE, token, cookieOpts);
+    clearFailedAuth(ip);
     return c.json({ email: creds.email }, 201);
   });
 
   app.post("/api/auth/login", async (c) => {
+    const ip = clientIp(c);
+    if (failedAuthLimitReached(ip))
+      return c.json({ error: "rate_limited" }, 429);
+
     const creds = await readCreds(c);
     const user = creds ? getUserByEmail(creds.email) : undefined;
-    if (!creds || !user || !verifyPassword(creds.password, user.password_hash))
+    if (
+      !creds ||
+      !user ||
+      !verifyPassword(creds.password, user.password_hash)
+    ) {
+      recordFailedAuth(ip);
       return c.json({ error: "invalid credentials" }, 401);
+    }
+
     const { token } = createSession(user.id, Date.now() + SESSION_TTL_S * 1000);
     setCookie(c, SESSION_COOKIE, token, cookieOpts);
+    clearFailedAuth(ip);
     return c.json({ email: user.email });
   });
 
@@ -944,8 +1019,8 @@ export function createApp() {
       const id = body.default_provider_id;
       if (typeof id !== "string")
         return c.json({ error: "default_provider_id must be a string" }, 400);
-      if (id && !getProvider(id))
-        return c.json({ error: "unknown provider" }, 400);
+      const known = id === FAKE_PROVIDER_ID ? devFakeLlm : !!getProvider(id);
+      if (id && !known) return c.json({ error: "unknown provider" }, 400);
       if (id) setSetting("default_provider_id", id);
       else deleteSetting("default_provider_id");
       out.default_provider_id = id || null;
@@ -959,6 +1034,16 @@ export function createApp() {
       out.default_model = id || null;
     }
     return c.json(out);
+  });
+
+  // specs/triggers/human-scheduling.md — server-local preview; invalid schedules still answer.
+  app.post("/api/schedule/preview", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      schedule?: unknown;
+    } | null;
+    if (!body || typeof body.schedule !== "string")
+      return c.json({ valid: false, next: [] });
+    return c.json(previewSchedule(body.schedule));
   });
 
   type TemplateInput = {
@@ -1284,11 +1369,15 @@ export function createApp() {
   });
 
   app.get("/api/api-keys", (c) => {
+    const denied = denyApiKey(c);
+    if (denied) return denied;
     const user = c.get("user") as { id: string; email: string };
     return c.json(listApiKeys(user.id));
   });
 
   app.post("/api/api-keys", async (c) => {
+    const denied = denyApiKey(c);
+    if (denied) return denied;
     const body = (await c.req.json().catch(() => null)) as {
       name?: unknown;
     } | null;
@@ -1308,6 +1397,8 @@ export function createApp() {
   });
 
   app.delete("/api/api-keys/:keyId", (c) => {
+    const denied = denyApiKey(c);
+    if (denied) return denied;
     const user = c.get("user") as { id: string; email: string };
     if (!deleteApiKey(c.req.param("keyId"), user.id))
       return c.json({ error: "not found" }, 404);
@@ -1541,14 +1632,14 @@ export function createApp() {
     return c.json({ ok: true });
   });
 
-  app.get("/api/providers", (c) =>
-    c.json(
-      listProviders().map(({ api_key, ...rest }) => ({
-        ...rest,
-        has_key: api_key.length > 0,
-      })),
-    ),
-  );
+  app.get("/api/providers", (c) => {
+    const providers = listProviders().map(({ api_key, ...rest }) => ({
+      ...rest,
+      has_key: api_key.length > 0,
+    }));
+    if (devFakeLlm) providers.push(fakeProviderResponse());
+    return c.json(providers);
+  });
 
   const providerBody = async (c: Context) => {
     const body = (await c.req.json().catch(() => null)) as {
@@ -1595,7 +1686,13 @@ export function createApp() {
       models: models ?? [],
       created_at: Date.now(),
     };
-    insertProvider(provider);
+    try {
+      insertProvider(provider);
+    } catch (err) {
+      const failed = encryptionConfigError(c, err);
+      if (failed) return failed;
+      throw err;
+    }
     if (!getSetting("default_provider_id")) {
       setSetting("default_provider_id", provider.id);
       if (provider.models[0]) setSetting("default_model", provider.models[0]);
@@ -1605,7 +1702,10 @@ export function createApp() {
   });
 
   app.put("/api/providers/:id", async (c) => {
-    const existing = getProvider(c.req.param("id"));
+    const id = c.req.param("id");
+    if (devFakeLlm && id === FAKE_PROVIDER_ID)
+      return c.json({ error: "built-in provider is read-only" }, 409);
+    const existing = getProvider(id);
     if (!existing) return c.json({ error: "not found" }, 404);
     const parsed = await providerBody(c);
     if (!parsed) return c.json({ error: "invalid body" }, 400);
@@ -1614,20 +1714,28 @@ export function createApp() {
     if (baseUrl === undefined || !baseUrl?.startsWith("http"))
       errors.push("base_url must be a URL");
     if (errors.length > 0) return c.json({ error: errors.join("; ") }, 400);
-    updateProvider(existing.id, {
-      name,
-      base_url: baseUrl,
-      api_key: apiKey ?? existing.api_key,
-      models,
-    });
+    try {
+      updateProvider(existing.id, {
+        name,
+        base_url: baseUrl,
+        ...(apiKey === undefined ? {} : { api_key: apiKey }),
+        models,
+      });
+    } catch (err) {
+      const failed = encryptionConfigError(c, err);
+      if (failed) return failed;
+      throw err;
+    }
     const updated = getProvider(existing.id) as ProviderRow;
     const { api_key, ...rest } = updated;
     return c.json({ ...rest, has_key: api_key.length > 0 });
   });
 
   app.delete("/api/providers/:id", (c) => {
-    if (!deleteProvider(c.req.param("id")))
-      return c.json({ error: "not found" }, 404);
+    const id = c.req.param("id");
+    if (devFakeLlm && id === FAKE_PROVIDER_ID)
+      return c.json({ error: "built-in provider is read-only" }, 409);
+    if (!deleteProvider(id)) return c.json({ error: "not found" }, 404);
     if (getSetting("default_provider_id") === c.req.param("id")) {
       const next = listProviders()[0];
       if (next) {
@@ -1678,6 +1786,7 @@ export function createApp() {
   app.get("/api/bots", (c) =>
     c.json(
       (() => {
+        const includeArchived = c.req.query("archived") === "1";
         const errored = latestErrorBotIds();
         const projMap = projectIdsByBot();
         const tagMap = tagIdsByBot();
@@ -1685,7 +1794,8 @@ export function createApp() {
         const hasDefault = Boolean(
           getSetting("default_provider_id") && getSetting("default_model"),
         );
-        return listBots().map((bot) => {
+        return listBots(includeArchived).map((bot) => {
+          const archived = bot.archived === 1;
           const noModel = !bot.model_id && !hasDefault;
           const agentRed =
             bot.status !== null && bot.status_level === "blocked";
@@ -1698,20 +1808,22 @@ export function createApp() {
             project_ids: projMap.get(bot.id) ?? [],
             tag_ids: tagMap.get(bot.id) ?? [],
             secret_ids: botSecretIds(bot.id),
-            health: !bot.enabled
-              ? ("gray" as const)
-              : red
-                ? ("red" as const)
-                : bot.status !== null && bot.status_level === "issue"
-                  ? ("yellow" as const)
-                  : isLoopActive(bot.id)
-                    ? ("green" as const)
-                    : ("blue" as const),
-            run_state: isLoopActive(bot.id)
-              ? "running"
-              : bot.enabled
-                ? "enabled"
-                : "disabled",
+            health:
+              archived || !bot.enabled
+                ? ("gray" as const)
+                : red
+                  ? ("red" as const)
+                  : bot.status !== null && bot.status_level === "issue"
+                    ? ("yellow" as const)
+                    : isLoopActive(bot.id)
+                      ? ("green" as const)
+                      : ("blue" as const),
+            run_state:
+              !archived && isLoopActive(bot.id)
+                ? "running"
+                : archived || !bot.enabled
+                  ? "disabled"
+                  : "enabled",
           };
         });
       })(),
@@ -1773,7 +1885,13 @@ export function createApp() {
       value: body.value,
       created_at: Date.now(),
     };
-    insertSecret(secret);
+    try {
+      insertSecret(secret);
+    } catch (err) {
+      const failed = encryptionConfigError(c, err);
+      if (failed) return failed;
+      throw err;
+    }
     return c.json(
       {
         id: secret.id,
@@ -1830,7 +1948,13 @@ export function createApp() {
         return c.json({ error: "value is required" }, 400);
       patch.value = body.value;
     }
-    updateSecret(found.id, patch);
+    try {
+      updateSecret(found.id, patch);
+    } catch (err) {
+      const failed = encryptionConfigError(c, err);
+      if (failed) return failed;
+      throw err;
+    }
     const updated = getSecret(found.id);
     if (!updated) return c.json({ error: "not found" }, 404);
     const { value: _value, ...rest } = updated;
@@ -1853,6 +1977,8 @@ export function createApp() {
       );
       return c.json(exportConfigBackup(includeValues));
     } catch (err) {
+      const failed = encryptionConfigError(c, err);
+      if (failed) return failed;
       return c.json(
         { error: err instanceof Error ? err.message : String(err) },
         500,
@@ -1870,6 +1996,8 @@ export function createApp() {
       const result = importConfigBackup(body, (c.get("user") as AuthUser).id);
       return "error" in result ? c.json(result, 400) : c.json(result);
     } catch (err) {
+      const failed = encryptionConfigError(c, err);
+      if (failed) return failed;
       return c.json(
         { error: err instanceof Error ? err.message : String(err) },
         500,
@@ -2296,9 +2424,29 @@ export function createApp() {
     return c.json({ ok: true });
   });
 
+  app.post("/api/bots/:id/archive", (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    interruptBot(bot.id);
+    updateBot(bot.id, { archived: 1 });
+    return c.json(getBot(bot.id));
+  });
+
+  app.post("/api/bots/:id/unarchive", (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    updateBot(bot.id, { archived: 0, enabled: 0 });
+    return c.json(getBot(bot.id));
+  });
+
   app.post("/api/bots/:id/run", async (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
+    if (workDisabled(bot))
+      return c.json(
+        { error: bot.archived ? "bot is archived" : "bot is disabled" },
+        409,
+      );
     if (isPaused()) return c.json({ error: "bots are paused" }, 409);
     const body: { message?: unknown } = await c.req
       .json<{ message?: unknown }>()
@@ -2435,7 +2583,11 @@ export function createApp() {
   app.post("/api/bots/:id/messages", async (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
-    if (!bot.enabled) return c.json({ error: "bot is disabled" }, 409);
+    if (workDisabled(bot))
+      return c.json(
+        { error: bot.archived ? "bot is archived" : "bot is disabled" },
+        409,
+      );
     const body = (await c.req.json().catch(() => null)) as {
       text?: unknown;
     } | null;
@@ -2675,7 +2827,21 @@ export function createApp() {
   });
 
   app.post("/api/webhooks/:triggerId", async (c) => {
-    const trigger = getTrigger(c.req.param("triggerId"));
+    const triggerId = c.req.param("triggerId");
+    const body = await c.req.text();
+    if (body.length > 64 * 1024)
+      return c.json({ error: "payload too large" }, 413);
+
+    const overGlobal = consumeRate("webhook-global", "all", WEBHOOK_GLOBAL_MAX);
+    const overTrigger = consumeRate(
+      "webhook-trigger",
+      triggerId,
+      WEBHOOK_TRIGGER_MAX,
+    );
+    if (overGlobal || overTrigger)
+      return c.json({ error: "rate_limited" }, 429);
+
+    const trigger = getTrigger(triggerId);
     if (trigger?.kind !== "webhook") return c.json({ error: "not found" }, 404);
     const auth = c.req.header("authorization") ?? "";
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
@@ -2689,11 +2855,12 @@ export function createApp() {
       return c.json({ error: "unauthorized" }, 401);
     if (!trigger.enabled) return c.json({ error: "trigger is disabled" }, 409);
     const bot = getBot(trigger.bot_id);
-    if (!bot?.enabled) return c.json({ error: "bot is disabled" }, 409);
+    if (!bot?.enabled || bot.archived)
+      return c.json(
+        { error: bot?.archived ? "bot is archived" : "bot is disabled" },
+        409,
+      );
     if (isPaused()) return c.json({ error: "bots are paused" }, 409);
-    const body = await c.req.text();
-    if (body.length > 64 * 1024)
-      return c.json({ error: "payload too large" }, 413);
     const text = body.trim()
       ? `${trigger.message}\n\nEvent payload:\n${body}`
       : trigger.message;
@@ -2701,7 +2868,7 @@ export function createApp() {
     return c.json({ ok: true, runId });
   });
 
-  app.get("/api/skills", (c) => c.json(listSkills()));
+  app.get("/api/skills", (c) => c.json(listSkillPayloads()));
 
   app.post("/api/skills", async (c) => {
     const body = await c.req.json<Record<string, unknown>>();
@@ -2722,14 +2889,16 @@ export function createApp() {
       import_info: null,
     };
     insertSkill(skill);
-    return c.json(skill, 201);
+    return c.json(enrichSkill(getSkill(skill.id) ?? skill), 201);
   });
 
   app.patch("/api/skills/:skillId", async (c) => {
     const id = c.req.param("skillId");
-    if (!getSkill(id)) return c.json({ error: "not found" }, 404);
+    const current = getSkill(id);
+    if (!current) return c.json({ error: "not found" }, 404);
     const body = await c.req.json<Record<string, unknown>>();
     const fields: Record<string, string> = {};
+    let changed = false;
     for (const key of ["name", "description", "instructions"] as const) {
       if (body[key] === undefined) continue;
       if (typeof body[key] !== "string")
@@ -2738,9 +2907,16 @@ export function createApp() {
       if ((key === "name" || key === "instructions") && !value)
         return c.json({ error: `${key} is required` }, 400);
       fields[key] = value;
+      if (current[key] !== value) changed = true;
     }
     updateSkill(id, fields);
-    return c.json(getSkill(id));
+    const updated = getSkill(id)!;
+    if (changed && current.import_info) {
+      return c.json(
+        (await refreshImportedModified(id)) ?? enrichSkill(updated),
+      );
+    }
+    return c.json(enrichSkill(updated));
   });
 
   app.delete("/api/skills/:skillId", (c) => {
@@ -2885,7 +3061,7 @@ export function createApp() {
           import_info: JSON.stringify(info),
         });
         storeBundle(id, cloned.dir, b.preview.folder);
-        created.push(getSkill(id));
+        created.push(enrichSkill(getSkill(id)!));
       }
       return c.json({ skills: created }, 201);
     } catch (err) {
@@ -2896,6 +3072,47 @@ export function createApp() {
     } finally {
       cleanupClone(cloned.dir);
     }
+  });
+
+  app.post("/api/skills/check", async (c) => {
+    const actions = [];
+    for (const skill of listSkillPayloads()) {
+      if (!skill.update_state) continue;
+      actions.push(await checkSkillUpdate(skill.id));
+    }
+    return c.json({
+      results: actions.map(({ id, name, status, error }) => ({
+        id,
+        name,
+        status,
+        error,
+      })),
+      skills: actions.flatMap((action) => (action.skill ? [action.skill] : [])),
+    });
+  });
+
+  app.post("/api/skills/:skillId/check", async (c) => {
+    const result = await checkSkillUpdate(c.req.param("skillId"));
+    if (result.status === "not_found")
+      return c.json({ error: "not found" }, 404);
+    if (result.status === "not_imported")
+      return c.json({ error: "skill is not imported" }, 400);
+    return c.json(result);
+  });
+
+  app.post("/api/skills/:skillId/update", async (c) => {
+    const result = await updateImportedSkill(c.req.param("skillId"));
+    if (result.status === "not_found")
+      return c.json({ error: "not found" }, 404);
+    if (result.status === "not_imported")
+      return c.json({ error: "skill is not imported" }, 400);
+    return c.json(result);
+  });
+
+  app.post("/api/skills/:skillId/detach", (c) => {
+    const skill = detachSkill(c.req.param("skillId"));
+    if (!skill) return c.json({ error: "not found" }, 404);
+    return c.json(skill);
   });
 
   app.get("/api/mcp-servers", (c) => c.json(listMcpServers()));
