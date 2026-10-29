@@ -47,6 +47,7 @@ function sampleBot(
     avatar_color: null,
     sound: null,
     enabled: 1,
+    archived: 0,
     created_at: now,
     run_state: runState,
     health: runState === "running" ? "green" : "blue",
@@ -142,6 +143,29 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     return json({ paused: pausedFlag });
   }
   if (url === "/api/stop-all" && method === "POST") return json({ stopped: 1 });
+  if (url.startsWith("/api/search?q=archived")) {
+    return json({
+      groups: [
+        {
+          type: "bots",
+          total: 0,
+          matches: [],
+        },
+        {
+          type: "archived_bots",
+          total: 1,
+          matches: [
+            {
+              type: "archived_bots",
+              id: "old",
+              name: "Old archived bot",
+              subtitle: "No role",
+            },
+          ],
+        },
+      ],
+    });
+  }
   return json([]);
 }) as typeof globalThis.fetch;
 
@@ -374,6 +398,29 @@ test("Escape leaves command mode before closing the overlay", async () => {
 
     await pressWindow("Escape");
     assert.equal(calls.closed, 1);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("archived search results are grouped separately", async () => {
+  resetState();
+  const root = await mountOverlay();
+  try {
+    await setQuery("archived");
+    await waitFor(
+      () => Boolean(row("Old archived bot")),
+      "archived search result",
+    );
+    assert.match(window.document.body.textContent ?? "", /Archived bots/);
+
+    await click(row("Old archived bot"));
+    assert.deepEqual(calls.openEntity[0], {
+      type: "archived_bots",
+      id: "old",
+      name: "Old archived bot",
+      subtitle: "No role",
+    });
   } finally {
     await act(async () => root.unmount());
   }

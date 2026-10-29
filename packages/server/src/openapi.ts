@@ -282,9 +282,25 @@ export function openApiDoc(): Json {
       },
     },
   );
-  add("/api/bots", "get", "List bots with health and run state", {
-    res: { type: "array", items: ref("Bot") },
-  });
+  paths["/api/bots"] = {
+    get: {
+      summary:
+        "List bots with health and run state; archived rows require ?archived=1",
+      parameters: [
+        { name: "archived", in: "query", required: false, schema: str },
+      ],
+      responses: {
+        "200": {
+          description: "ok",
+          content: {
+            "application/json": {
+              schema: { type: "array", items: ref("Bot") },
+            },
+          },
+        },
+      },
+    },
+  };
   add("/api/bots", "post", "Create a bot", {
     body: ref("BotInput"),
     res: ref("Bot"),
@@ -301,6 +317,19 @@ export function openApiDoc(): Json {
   add("/api/bots/{id}", "delete", "Delete a bot and its history", {
     params: ["id"],
   });
+  add("/api/bots/{id}/archive", "post", "Archive the bot, stopping any run", {
+    params: ["id"],
+    res: ref("Bot"),
+  });
+  add(
+    "/api/bots/{id}/unarchive",
+    "post",
+    "Restore an archived bot in disabled state",
+    {
+      params: ["id"],
+      res: ref("Bot"),
+    },
+  );
   add("/api/bots/{id}/run", "post", "Inject a manual run message", {
     params: ["id"],
     body: { type: "object" },
@@ -923,6 +952,7 @@ export function openApiDoc(): Json {
             machine_id: strOrNone,
             sound: strOrNone,
             enabled: { type: "integer" },
+            archived: { type: "integer" },
             token_budget: { type: ["integer", "null"] },
             watchdog_hours: { type: ["integer", "null"] },
             created_at: { type: "integer" },
