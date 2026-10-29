@@ -8,6 +8,8 @@ export const dataDir = resolve(
   process.env.DATA_DIR ?? resolve(repoRoot, "data"),
 );
 
+export const devFakeLlm = process.env.DEV_FAKE_LLM === "1";
+
 export const config = {
   port: Number(process.env.PORT ?? 8075),
   databasePath: process.env.DATABASE_PATH

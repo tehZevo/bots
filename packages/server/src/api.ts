@@ -20,9 +20,10 @@ import {
   stopAllLoops,
 } from "./agent.ts";
 import { exportConfigBackup, importConfigBackup } from "./backup.ts";
-import { repoRoot } from "./config.ts";
+import { devFakeLlm, repoRoot } from "./config.ts";
 import {
   approveDeviceGrant,
+  type BotRow,
   botSecretIds,
   botsUsingMachine,
   botUsageTotals,
@@ -162,6 +163,7 @@ import {
   upsertPushSubscription,
   verifyPassword,
 } from "./db.ts";
+import { FAKE_PROVIDER_ID, fakeProviderResponse } from "./fake-llm.ts";
 import { HOOK_EVENT_TYPES, sendHookTest } from "./hooks.ts";
 import { testMcpConnection } from "./mcp.ts";
 import { openApiDoc } from "./openapi.ts";
@@ -203,6 +205,10 @@ import {
 } from "./workspace.ts";
 
 const DEFAULT_MANUAL_MESSAGE = "Continue with your current work.";
+
+function workDisabled(bot: BotRow): boolean {
+  return !bot.enabled || bot.archived === 1;
+}
 
 export const SESSION_COOKIE = "bots_session";
 const SESSION_TTL_S = 7 * 24 * 60 * 60;
@@ -611,7 +617,7 @@ export function createApp() {
       q,
       types,
       data: {
-        bots: listBots(),
+        bots: listBots(true),
         roles: listRoles(),
         skills: listSkills(),
         projects: listProjects(),
@@ -988,8 +994,8 @@ export function createApp() {
       const id = body.default_provider_id;
       if (typeof id !== "string")
         return c.json({ error: "default_provider_id must be a string" }, 400);
-      if (id && !getProvider(id))
-        return c.json({ error: "unknown provider" }, 400);
+      const known = id === FAKE_PROVIDER_ID ? devFakeLlm : !!getProvider(id);
+      if (id && !known) return c.json({ error: "unknown provider" }, 400);
       if (id) setSetting("default_provider_id", id);
       else deleteSetting("default_provider_id");
       out.default_provider_id = id || null;
@@ -1328,11 +1334,15 @@ export function createApp() {
   });
 
   app.get("/api/api-keys", (c) => {
+    const denied = denyApiKey(c);
+    if (denied) return denied;
     const user = c.get("user") as { id: string; email: string };
     return c.json(listApiKeys(user.id));
   });
 
   app.post("/api/api-keys", async (c) => {
+    const denied = denyApiKey(c);
+    if (denied) return denied;
     const body = (await c.req.json().catch(() => null)) as {
       name?: unknown;
     } | null;
@@ -1352,6 +1362,8 @@ export function createApp() {
   });
 
   app.delete("/api/api-keys/:keyId", (c) => {
+    const denied = denyApiKey(c);
+    if (denied) return denied;
     const user = c.get("user") as { id: string; email: string };
     if (!deleteApiKey(c.req.param("keyId"), user.id))
       return c.json({ error: "not found" }, 404);
@@ -1585,14 +1597,14 @@ export function createApp() {
     return c.json({ ok: true });
   });
 
-  app.get("/api/providers", (c) =>
-    c.json(
-      listProviders().map(({ api_key, ...rest }) => ({
-        ...rest,
-        has_key: api_key.length > 0,
-      })),
-    ),
-  );
+  app.get("/api/providers", (c) => {
+    const providers = listProviders().map(({ api_key, ...rest }) => ({
+      ...rest,
+      has_key: api_key.length > 0,
+    }));
+    if (devFakeLlm) providers.push(fakeProviderResponse());
+    return c.json(providers);
+  });
 
   const providerBody = async (c: Context) => {
     const body = (await c.req.json().catch(() => null)) as {
@@ -1649,7 +1661,10 @@ export function createApp() {
   });
 
   app.put("/api/providers/:id", async (c) => {
-    const existing = getProvider(c.req.param("id"));
+    const id = c.req.param("id");
+    if (devFakeLlm && id === FAKE_PROVIDER_ID)
+      return c.json({ error: "built-in provider is read-only" }, 409);
+    const existing = getProvider(id);
     if (!existing) return c.json({ error: "not found" }, 404);
     const parsed = await providerBody(c);
     if (!parsed) return c.json({ error: "invalid body" }, 400);
@@ -1670,8 +1685,10 @@ export function createApp() {
   });
 
   app.delete("/api/providers/:id", (c) => {
-    if (!deleteProvider(c.req.param("id")))
-      return c.json({ error: "not found" }, 404);
+    const id = c.req.param("id");
+    if (devFakeLlm && id === FAKE_PROVIDER_ID)
+      return c.json({ error: "built-in provider is read-only" }, 409);
+    if (!deleteProvider(id)) return c.json({ error: "not found" }, 404);
     if (getSetting("default_provider_id") === c.req.param("id")) {
       const next = listProviders()[0];
       if (next) {
@@ -1722,6 +1739,7 @@ export function createApp() {
   app.get("/api/bots", (c) =>
     c.json(
       (() => {
+        const includeArchived = c.req.query("archived") === "1";
         const errored = latestErrorBotIds();
         const projMap = projectIdsByBot();
         const tagMap = tagIdsByBot();
@@ -1729,7 +1747,8 @@ export function createApp() {
         const hasDefault = Boolean(
           getSetting("default_provider_id") && getSetting("default_model"),
         );
-        return listBots().map((bot) => {
+        return listBots(includeArchived).map((bot) => {
+          const archived = bot.archived === 1;
           const noModel = !bot.model_id && !hasDefault;
           const agentRed =
             bot.status !== null && bot.status_level === "blocked";
@@ -1742,20 +1761,22 @@ export function createApp() {
             project_ids: projMap.get(bot.id) ?? [],
             tag_ids: tagMap.get(bot.id) ?? [],
             secret_ids: botSecretIds(bot.id),
-            health: !bot.enabled
-              ? ("gray" as const)
-              : red
-                ? ("red" as const)
-                : bot.status !== null && bot.status_level === "issue"
-                  ? ("yellow" as const)
-                  : isLoopActive(bot.id)
-                    ? ("green" as const)
-                    : ("blue" as const),
-            run_state: isLoopActive(bot.id)
-              ? "running"
-              : bot.enabled
-                ? "enabled"
-                : "disabled",
+            health:
+              archived || !bot.enabled
+                ? ("gray" as const)
+                : red
+                  ? ("red" as const)
+                  : bot.status !== null && bot.status_level === "issue"
+                    ? ("yellow" as const)
+                    : isLoopActive(bot.id)
+                      ? ("green" as const)
+                      : ("blue" as const),
+            run_state:
+              !archived && isLoopActive(bot.id)
+                ? "running"
+                : archived || !bot.enabled
+                  ? "disabled"
+                  : "enabled",
           };
         });
       })(),
@@ -2340,9 +2361,29 @@ export function createApp() {
     return c.json({ ok: true });
   });
 
+  app.post("/api/bots/:id/archive", (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    interruptBot(bot.id);
+    updateBot(bot.id, { archived: 1 });
+    return c.json(getBot(bot.id));
+  });
+
+  app.post("/api/bots/:id/unarchive", (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    updateBot(bot.id, { archived: 0, enabled: 0 });
+    return c.json(getBot(bot.id));
+  });
+
   app.post("/api/bots/:id/run", async (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
+    if (workDisabled(bot))
+      return c.json(
+        { error: bot.archived ? "bot is archived" : "bot is disabled" },
+        409,
+      );
     if (isPaused()) return c.json({ error: "bots are paused" }, 409);
     const body: { message?: unknown } = await c.req
       .json<{ message?: unknown }>()
@@ -2479,7 +2520,11 @@ export function createApp() {
   app.post("/api/bots/:id/messages", async (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
-    if (!bot.enabled) return c.json({ error: "bot is disabled" }, 409);
+    if (workDisabled(bot))
+      return c.json(
+        { error: bot.archived ? "bot is archived" : "bot is disabled" },
+        409,
+      );
     const body = (await c.req.json().catch(() => null)) as {
       text?: unknown;
     } | null;
@@ -2747,7 +2792,11 @@ export function createApp() {
       return c.json({ error: "unauthorized" }, 401);
     if (!trigger.enabled) return c.json({ error: "trigger is disabled" }, 409);
     const bot = getBot(trigger.bot_id);
-    if (!bot?.enabled) return c.json({ error: "bot is disabled" }, 409);
+    if (!bot?.enabled || bot.archived)
+      return c.json(
+        { error: bot?.archived ? "bot is archived" : "bot is disabled" },
+        409,
+      );
     if (isPaused()) return c.json({ error: "bots are paused" }, 409);
     const text = body.trim()
       ? `${trigger.message}\n\nEvent payload:\n${body}`

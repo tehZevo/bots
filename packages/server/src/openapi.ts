@@ -312,9 +312,25 @@ export function openApiDoc(): Json {
       },
     },
   );
-  add("/api/bots", "get", "List bots with health and run state", {
-    res: { type: "array", items: ref("Bot") },
-  });
+  paths["/api/bots"] = {
+    get: {
+      summary:
+        "List bots with health and run state; archived rows require ?archived=1",
+      parameters: [
+        { name: "archived", in: "query", required: false, schema: str },
+      ],
+      responses: {
+        "200": {
+          description: "ok",
+          content: {
+            "application/json": {
+              schema: { type: "array", items: ref("Bot") },
+            },
+          },
+        },
+      },
+    },
+  };
   add("/api/bots", "post", "Create a bot", {
     body: ref("BotInput"),
     res: ref("Bot"),
@@ -331,6 +347,19 @@ export function openApiDoc(): Json {
   add("/api/bots/{id}", "delete", "Delete a bot and its history", {
     params: ["id"],
   });
+  add("/api/bots/{id}/archive", "post", "Archive the bot, stopping any run", {
+    params: ["id"],
+    res: ref("Bot"),
+  });
+  add(
+    "/api/bots/{id}/unarchive",
+    "post",
+    "Restore an archived bot in disabled state",
+    {
+      params: ["id"],
+      res: ref("Bot"),
+    },
+  );
   add("/api/bots/{id}/run", "post", "Inject a manual run message", {
     params: ["id"],
     body: { type: "object" },
@@ -739,16 +768,41 @@ export function openApiDoc(): Json {
   add("/api/notifications/{id}/read", "post", "Mark one notification read", {
     params: ["id"],
   });
-  add("/api/api-keys", "get", "List API keys (values not stored)", {
-    res: { type: "array", items: ref("ApiKey") },
-  });
-  add("/api/api-keys", "post", "Create an API key; value shown once", {
-    body: { type: "object", required: ["name"], properties: { name: str } },
-    res: { allOf: [ref("ApiKey"), { properties: { value: str } }] },
-  });
-  add("/api/api-keys/{keyId}", "delete", "Revoke an API key", {
+  add(
+    "/api/api-keys",
+    "get",
+    "List API keys (values not stored; session only)",
+    {
+      res: { type: "array", items: ref("ApiKey") },
+    },
+  );
+  add(
+    "/api/api-keys",
+    "post",
+    "Create an API key; value shown once (session only)",
+    {
+      body: { type: "object", required: ["name"], properties: { name: str } },
+      res: { allOf: [ref("ApiKey"), { properties: { value: str } }] },
+    },
+  );
+  add("/api/api-keys/{keyId}", "delete", "Revoke an API key (session only)", {
     params: ["keyId"],
   });
+
+  const markSessionOnly = (path: string, method: string): void => {
+    const operation = (paths[path] as Record<string, Json> | undefined)?.[
+      method
+    ] as Record<string, unknown> | undefined;
+    if (!operation) return;
+    operation.security = [{ sessionCookie: [] }];
+    const responses = operation.responses as Record<string, Json> | undefined;
+    if (!responses) return;
+    responses["403"] = error4xx("session authentication required");
+  };
+
+  markSessionOnly("/api/api-keys", "get");
+  markSessionOnly("/api/api-keys", "post");
+  markSessionOnly("/api/api-keys/{keyId}", "delete");
   add("/api/push/key", "get", "VAPID public key for browser push", {
     res: { type: "object", properties: { key: str } },
   });
@@ -958,6 +1012,7 @@ export function openApiDoc(): Json {
             machine_id: strOrNone,
             sound: strOrNone,
             enabled: { type: "integer" },
+            archived: { type: "integer" },
             token_budget: { type: ["integer", "null"] },
             watchdog_hours: { type: ["integer", "null"] },
             created_at: { type: "integer" },

@@ -48,14 +48,17 @@ Object.defineProperty(window.navigator, "clipboard", {
 const React = await import("react");
 const { createRoot } = await import("react-dom/client");
 const {
+  applyOptimisticRunStates,
   App,
   BotCard,
   BotGeneral,
+  ConfigBackupSection,
   BotTags,
   findDuplicateEnvKey,
   mcpEnvMapFromRows,
   mcpEnvRowsFromRecord,
   McpServerModal,
+  optimisticRunUpdate,
   ProviderFormModal,
   Triggers,
 } = await import("../src/App.tsx");
@@ -73,6 +76,7 @@ const bot = {
   avatar_color: null,
   sound: null,
   enabled: 1,
+  archived: 0,
   created_at: now,
   run_state: "enabled",
   health: "blue",
@@ -159,7 +163,9 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       { role: "assistant", text: "all good" },
     ]);
   }
-  if (url === "/api/bots/b1/messages" && method === "POST") return json({});
+  if (url === "/api/bots/b1/messages" && method === "POST") {
+    return json({ runId: "chat-run", steered: false });
+  }
   if (url === "/api/bots/b1/context-usage") {
     return json({
       context_window: 32000,
@@ -613,6 +619,7 @@ test("bot detail header carries enable/Stop and General pins its action row", as
         "Restart machine",
         "Clear memory",
         "Save as template…",
+        "Archive",
         "Delete",
         "Cancel",
       ],
@@ -627,6 +634,93 @@ test("bot detail header carries enable/Stop and General pins its action row", as
     await act(async () => {
       root.unmount();
     });
+  }
+});
+
+test("archived dashboard cards are muted, badged, and open details", async () => {
+  const previous = {
+    enabled: bot.enabled,
+    archived: bot.archived,
+    health: bot.health,
+    run_state: bot.run_state,
+  };
+  Object.assign(bot, {
+    enabled: 1,
+    archived: 1,
+    health: "gray",
+    run_state: "disabled",
+  });
+  const root = await mount(React.createElement(App));
+  try {
+    assert.match(window.document.body.textContent ?? "", /Include archived/);
+    assert.ok(window.document.querySelector(".cards .card.archived"));
+    assert.match(window.document.body.textContent ?? "", /Archived/);
+
+    await click(byLabel("Sable (null)"));
+    assert.ok(window.document.querySelector(".dialog.tabs"));
+    assert.ok(!window.document.querySelector(".sidepanel"));
+  } finally {
+    Object.assign(bot, previous);
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("General archive actions stop first and unarchive immediately", async () => {
+  const previous = {
+    enabled: bot.enabled,
+    archived: bot.archived,
+    run_state: bot.run_state,
+  };
+  try {
+    Object.assign(bot, { enabled: 1, archived: 0, run_state: "enabled" });
+    requests.length = 0;
+    let changed = 0;
+    const onChanged = () => {
+      changed++;
+    };
+    let root = await mount(React.createElement(BotGeneral, { bot, onChanged }));
+    try {
+      await click(button("Archive"));
+      assert.ok(requests.includes("POST /api/bots/b1/archive"));
+      assert.equal(changed, 1);
+    } finally {
+      await act(async () => root.unmount());
+    }
+
+    Object.assign(bot, { run_state: "running" });
+    requests.length = 0;
+    changed = 0;
+    root = await mount(React.createElement(BotGeneral, { bot, onChanged }));
+    try {
+      await click(button("Archive"));
+      assert.equal(requests.includes("POST /api/bots/b1/archive"), false);
+      const confirm = [
+        ...window.document.querySelectorAll(".confirm button"),
+      ].find((item) => item.textContent?.trim() === "Archive bot");
+      assert.ok(confirm, "expected archive confirmation");
+      await click(confirm);
+      assert.ok(requests.includes("POST /api/bots/b1/archive"));
+      assert.equal(changed, 1);
+    } finally {
+      await act(async () => root.unmount());
+    }
+
+    Object.assign(bot, { archived: 1, run_state: "disabled" });
+    requests.length = 0;
+    changed = 0;
+    root = await mount(React.createElement(BotGeneral, { bot, onChanged }));
+    try {
+      await click(button("Unarchive"));
+      assert.ok(requests.includes("POST /api/bots/b1/unarchive"));
+      assert.equal(changed, 1);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  } finally {
+    Object.assign(bot, previous);
+    requests.length = 0;
   }
 });
 
@@ -1368,5 +1462,139 @@ test("provider API key rotation confirms before saving", async () => {
     await act(async () => {
       root.unmount();
     });
+  }
+});
+
+test("backup export toggle names its subject and updates state", async () => {
+  const root = await mount(React.createElement(ConfigBackupSection));
+  try {
+    assert.match(
+      window.document.body.textContent ?? "",
+      /Secret values in export/,
+    );
+    assert.match(window.document.body.textContent ?? "", /Names only/);
+
+    await click(
+      window.document.querySelector("#secret-values-export-label + input"),
+    );
+    assert.match(window.document.body.textContent ?? "", /Included/);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test("optimistic run overrides are confirmed or corrected by polls", () => {
+  const at = Date.now();
+  const idle = {
+    ...bot,
+    run_state: "enabled" as const,
+    health: "blue" as const,
+  };
+  const running = {
+    ...idle,
+    run_state: "running" as const,
+    health: "green" as const,
+  };
+  const override = {
+    ...optimisticRunUpdate("running"),
+    authoritativeAt: at + 2_000,
+    expiresAt: at + 60_000,
+  };
+
+  let result = applyOptimisticRunStates([idle], { b1: override }, at);
+  assert.equal(result.rows[0].run_state, "running");
+  assert.ok(result.overrides.b1);
+
+  result = applyOptimisticRunStates([running], { b1: override }, at + 100);
+  assert.equal(result.overrides.b1, undefined);
+  assert.equal(result.rows[0].health, "green");
+
+  result = applyOptimisticRunStates([idle], { b1: override }, at + 2_100);
+  assert.equal(result.overrides.b1, undefined);
+  assert.equal(result.rows[0].run_state, "enabled");
+
+  const fresh = optimisticRunUpdate("running");
+  assert.ok(fresh.authoritativeAt > at);
+  assert.ok(fresh.expiresAt > fresh.authoritativeAt);
+});
+
+test("accepted chat send flips cues immediately", async () => {
+  requests.length = 0;
+  const previous = { ...bot };
+  bot.run_state = "enabled";
+  bot.health = "blue";
+  let root: ReturnType<typeof createRoot> | undefined;
+  try {
+    root = await mount(React.createElement(App));
+    assert.equal(byLabel("bot is working"), null);
+
+    await click(byLabel("Sable (null)"));
+    assert.ok(
+      !window.document.querySelector(
+        '[data-bot-card="b1"] + .quickhead .dot.green.pulse',
+      ),
+    );
+
+    const input = window.document.querySelector(
+      'input[placeholder="Message the bot…"]',
+    );
+    await typeInto(input, "check");
+    await click(button("Send"));
+
+    assert.ok(byLabel("bot is working"));
+    assert.ok(
+      window.document.querySelector(
+        '[data-bot-card="b1"] + .quickhead .dot.green.pulse',
+      ),
+    );
+  } finally {
+    Object.assign(bot, previous);
+    if (root) {
+      await act(async () => {
+        root?.unmount();
+      });
+    }
+  }
+});
+
+test("accepted stop flips the running cue immediately", async () => {
+  requests.length = 0;
+  const previous = { ...bot };
+  bot.run_state = "running";
+  bot.health = "green";
+  let root: ReturnType<typeof createRoot> | undefined;
+  try {
+    root = await mount(React.createElement(App));
+    await click(byLabel("Sable (null)"));
+    await click(byLabel("Sable settings"));
+
+    assert.ok(
+      window.document.querySelector(
+        ".detailhead-actions [aria-label='Stop while running']",
+      ),
+    );
+    await click(byLabel("Stop while running"));
+
+    assert.equal(
+      window.document.querySelector(
+        ".detailhead-actions [aria-label='Stop while running']",
+      ),
+      null,
+    );
+    assert.ok(requests.includes("POST /api/bots/b1/interrupt"));
+    assert.ok(
+      !window.document.querySelector(
+        '[data-bot-card="b1"] + .quickhead .dot.green.pulse',
+      ),
+    );
+  } finally {
+    Object.assign(bot, previous);
+    if (root) {
+      await act(async () => {
+        root?.unmount();
+      });
+    }
   }
 });

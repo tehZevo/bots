@@ -1,6 +1,12 @@
 import type { Model } from "@earendil-works/pi-ai";
+import { devFakeLlm } from "./config.ts";
 import type { ProviderRow } from "./db.ts";
 import { getProvider, getSetting } from "./db.ts";
+import {
+  FAKE_MODEL_ID,
+  FAKE_PROVIDER_ID,
+  fakeOpenAiModel,
+} from "./fake-llm.ts";
 
 export interface ResolvedLlm {
   model: Model<"openai-completions">;
@@ -12,6 +18,11 @@ export function resolveDefault(
 ): ResolvedLlm | null {
   const providerId = getSetting("default_provider_id");
   if (!providerId) return null;
+  if (devFakeLlm && providerId === FAKE_PROVIDER_ID) {
+    const modelId =
+      modelOverride ?? getSetting("default_model") ?? FAKE_MODEL_ID;
+    return { model: fakeOpenAiModel(modelId), apiKey: "" };
+  }
   const provider = getProvider(providerId);
   if (!provider) return null;
   const modelId = modelOverride ?? getSetting("default_model");
