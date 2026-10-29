@@ -528,6 +528,15 @@ function clientIp(c: Context): string {
   );
 }
 
+function encryptionConfigError(c: Context, err: unknown): Response | null {
+  const message = err instanceof Error ? err.message : String(err);
+  if (!message.includes("SECRETS_KEY")) return null;
+  return c.json(
+    { error: "SECRETS_KEY is required to store encrypted secrets" },
+    503,
+  );
+}
+
 export function createApp() {
   const app = new Hono<{ Variables: { user: AuthUser } }>();
 
@@ -1651,7 +1660,13 @@ export function createApp() {
       models: models ?? [],
       created_at: Date.now(),
     };
-    insertProvider(provider);
+    try {
+      insertProvider(provider);
+    } catch (err) {
+      const failed = encryptionConfigError(c, err);
+      if (failed) return failed;
+      throw err;
+    }
     if (!getSetting("default_provider_id")) {
       setSetting("default_provider_id", provider.id);
       if (provider.models[0]) setSetting("default_model", provider.models[0]);
@@ -1673,12 +1688,18 @@ export function createApp() {
     if (baseUrl === undefined || !baseUrl?.startsWith("http"))
       errors.push("base_url must be a URL");
     if (errors.length > 0) return c.json({ error: errors.join("; ") }, 400);
-    updateProvider(existing.id, {
-      name,
-      base_url: baseUrl,
-      api_key: apiKey ?? existing.api_key,
-      models,
-    });
+    try {
+      updateProvider(existing.id, {
+        name,
+        base_url: baseUrl,
+        ...(apiKey === undefined ? {} : { api_key: apiKey }),
+        models,
+      });
+    } catch (err) {
+      const failed = encryptionConfigError(c, err);
+      if (failed) return failed;
+      throw err;
+    }
     const updated = getProvider(existing.id) as ProviderRow;
     const { api_key, ...rest } = updated;
     return c.json({ ...rest, has_key: api_key.length > 0 });
@@ -1838,7 +1859,13 @@ export function createApp() {
       value: body.value,
       created_at: Date.now(),
     };
-    insertSecret(secret);
+    try {
+      insertSecret(secret);
+    } catch (err) {
+      const failed = encryptionConfigError(c, err);
+      if (failed) return failed;
+      throw err;
+    }
     return c.json(
       {
         id: secret.id,
@@ -1895,7 +1922,13 @@ export function createApp() {
         return c.json({ error: "value is required" }, 400);
       patch.value = body.value;
     }
-    updateSecret(found.id, patch);
+    try {
+      updateSecret(found.id, patch);
+    } catch (err) {
+      const failed = encryptionConfigError(c, err);
+      if (failed) return failed;
+      throw err;
+    }
     const updated = getSecret(found.id);
     if (!updated) return c.json({ error: "not found" }, 404);
     const { value: _value, ...rest } = updated;
@@ -1918,6 +1951,8 @@ export function createApp() {
       );
       return c.json(exportConfigBackup(includeValues));
     } catch (err) {
+      const failed = encryptionConfigError(c, err);
+      if (failed) return failed;
       return c.json(
         { error: err instanceof Error ? err.message : String(err) },
         500,
@@ -1935,6 +1970,8 @@ export function createApp() {
       const result = importConfigBackup(body, (c.get("user") as AuthUser).id);
       return "error" in result ? c.json(result, 400) : c.json(result);
     } catch (err) {
+      const failed = encryptionConfigError(c, err);
+      if (failed) return failed;
       return c.json(
         { error: err instanceof Error ? err.message : String(err) },
         500,
