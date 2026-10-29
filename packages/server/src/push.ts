@@ -3,10 +3,27 @@ import { join } from "node:path";
 import { dataDir } from "./config.ts";
 import {
   listPushSubscriptions,
+  type NotificationRow,
   type PushSubscriptionRow,
   removePushSubscription,
   setOnNewNotification,
 } from "./db.ts";
+
+interface PushPayload {
+  id: string;
+  title: string;
+  body: string;
+  target: string | null;
+}
+
+function pushPayload(notification: NotificationRow): PushPayload {
+  return {
+    id: notification.id,
+    title: notification.title,
+    body: notification.body.slice(0, 200),
+    target: notification.target_path,
+  };
+}
 
 let transport: typeof fetch | null = null;
 
@@ -178,14 +195,19 @@ async function vapidAuthHeader(endpoint: string): Promise<string> {
   return `vapid t=${header}.${payload}.${b64url(derToRaw(new Uint8Array(sig)))}, k=${k.publicKey}`;
 }
 
-async function sendPush(sub: PushSubscriptionRow): Promise<void> {
+async function sendPush(
+  sub: PushSubscriptionRow,
+  notification: NotificationRow,
+): Promise<void> {
   try {
     const doFetch = transport ?? fetch;
     const res = await doFetch(sub.endpoint, {
       method: "POST",
+      body: JSON.stringify(pushPayload(notification)),
       signal: AbortSignal.timeout(5_000),
       headers: {
         authorization: await vapidAuthHeader(sub.endpoint),
+        "content-type": "application/json",
         ttl: "86400",
       },
     });
@@ -196,12 +218,16 @@ async function sendPush(sub: PushSubscriptionRow): Promise<void> {
   }
 }
 
-export async function dispatchNewNotification(): Promise<void> {
-  await Promise.all(listPushSubscriptions().map((s) => sendPush(s)));
+export async function dispatchNewNotification(
+  notification: NotificationRow,
+): Promise<void> {
+  await Promise.all(
+    listPushSubscriptions().map((s) => sendPush(s, notification)),
+  );
 }
 
 export function attachPushNotifications(): void {
-  setOnNewNotification(() => {
-    void dispatchNewNotification();
+  setOnNewNotification((notification) => {
+    void dispatchNewNotification(notification);
   });
 }

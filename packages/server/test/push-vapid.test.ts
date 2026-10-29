@@ -74,7 +74,10 @@ test("corrupt VAPID state regenerates one valid pair", async () => {
     p256dh: "BNzip",
     auth: "bXlhdA",
   });
-  await dispatchNewNotification();
+  db.createNotification({ kind: "test", title: "t", body: "b" });
+  const notification = db.listNotifications()[0];
+  assert.ok(notification);
+  await dispatchNewNotification(notification);
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "https://push.example.com/s/vapid");

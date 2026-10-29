@@ -52,29 +52,66 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
+function pushPayload(event) {
+  try {
+    return event.data?.json() ?? {};
+  } catch {
+    return {};
+  }
+}
+
+async function markNotificationRead(id) {
+  if (!id || typeof id !== "string") return;
+  try {
+    await fetch(`/api/notifications/${encodeURIComponent(id)}/read`, {
+      method: "POST",
+      credentials: "include",
+    });
+  } catch {
+    /* read state retries on the next app load */
+  }
+}
+
+function notificationHref(target) {
+  const path =
+    typeof target === "string" && target.startsWith("/") ? target : "/";
+  return new URL(path, self.location.origin).href;
+}
+
 self.addEventListener("push", (event) => {
+  const data = pushPayload(event);
   event.waitUntil(
-    fetch("/api/notifications?limit=1")
-      .then((r) => (r.ok ? r.json() : {}))
-      .catch(() => ({}))
-      .then((data) => {
-        const items = Array.isArray(data) ? data : (data.items ?? []);
-        const n = items[0];
-        return self.registration.showNotification(n?.title ?? "bots", {
-          body: n?.body ?? "",
-          tag: `bots-${n?.id ?? Date.now()}`,
-          silent: true,
-        });
-      }),
+    self.registration.showNotification(data.title ?? "bots", {
+      body: data.body ?? "",
+      tag: `bots-${data.id ?? Date.now()}`,
+      data: { id: data.id, target: data.target },
+      silent: true,
+    }),
   );
 });
 
 self.addEventListener("notificationclick", (event) => {
+  const notification = event.notification;
+  const payload = notification.data ?? {};
   event.notification.close();
   event.waitUntil(
-    self.clients.matchAll({ type: "window" }).then((list) => {
-      for (const client of list) if ("focus" in client) return client.focus();
-      return self.clients.openWindow("/");
+    markNotificationRead(payload.id).then(async () => {
+      const href = notificationHref(payload.target);
+      const clients = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      if (clients.length > 0) {
+        for (const client of clients) {
+          client.postMessage({
+            type: "bots:navigate",
+            path: new URL(href).pathname + new URL(href).search,
+          });
+        }
+        const first = clients.find((client) => "focus" in client);
+        if (first) return first.focus();
+      }
+      return self.clients.openWindow(href);
     }),
   );
 });

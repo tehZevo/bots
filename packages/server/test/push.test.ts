@@ -135,6 +135,12 @@ test("new notifications push; gone subscriptions are pruned", async () => {
     /^vapid t=[\w-]+\.[\w-]+\.[\w-]+, k=[\w-]+$/,
   );
   assert.equal(headers.ttl, "86400");
+  assert.equal(headers["content-type"], "application/json");
+  const payload = JSON.parse(String(calls[0].init?.body)) as Record<
+    string,
+    unknown
+  >;
+  assert.equal(payload.target, "/bots?bot=bot-p&run=run-p");
 
   nextStatus = 410;
   db.createNotification({ kind: "test", title: "t", body: "b" });

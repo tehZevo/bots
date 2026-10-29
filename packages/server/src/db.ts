@@ -9,6 +9,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import { config } from "./config.ts";
+import { notificationTargetPath } from "./notification-targets.ts";
 
 export interface BotRow {
   id: string;
@@ -79,6 +80,8 @@ export interface NotificationRow {
   title: string;
   body: string;
   bot_id: string | null;
+  run_id: string | null;
+  target_path: string | null;
   dedupe_key: string | null;
   read: number;
   created_at: number;
@@ -296,6 +299,8 @@ db.exec(`
     title TEXT NOT NULL,
     body TEXT NOT NULL,
     bot_id TEXT REFERENCES bots(id) ON DELETE CASCADE,
+    run_id TEXT,
+    target_path TEXT,
     dedupe_key TEXT UNIQUE,
     "read" INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
@@ -539,6 +544,42 @@ if (!triggerColumns.has("secret"))
   db.prepare("ALTER TABLE triggers ADD COLUMN secret TEXT").run();
 if (!triggerColumns.has("name"))
   db.prepare("ALTER TABLE triggers ADD COLUMN name TEXT").run();
+
+const notificationColumns = new Set(
+  (
+    db.prepare("PRAGMA table_info(notifications)").all() as { name: string }[]
+  ).map((column) => column.name),
+);
+if (!notificationColumns.has("run_id"))
+  db.prepare("ALTER TABLE notifications ADD COLUMN run_id TEXT").run();
+if (!notificationColumns.has("target_path"))
+  db.prepare("ALTER TABLE notifications ADD COLUMN target_path TEXT").run();
+
+for (const row of db
+  .prepare(
+    "SELECT id, kind, bot_id, run_id, dedupe_key FROM notifications WHERE target_path IS NULL",
+  )
+  .all() as {
+  id: string;
+  kind: string;
+  bot_id: string | null;
+  run_id: string | null;
+  dedupe_key: string | null;
+}[]) {
+  const legacyRunId =
+    row.run_id ??
+    /^(?:run-error|watchdog):(.+)$/.exec(row.dedupe_key ?? "")?.[1];
+  const path = notificationTargetPath({
+    kind: row.kind,
+    botId: row.bot_id,
+    runId: legacyRunId ?? null,
+  });
+  if (legacyRunId || path) {
+    db.prepare(
+      "UPDATE notifications SET run_id = ?, target_path = ? WHERE id = ?",
+    ).run(legacyRunId ?? null, path, row.id);
+  }
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS machines (
@@ -1460,6 +1501,7 @@ export function createNotification(input: {
   title: string;
   body: string;
   botId?: string | null;
+  runId?: string | null;
   dedupeKey?: string | null;
 }): void {
   const row: NotificationRow = {
@@ -1468,14 +1510,20 @@ export function createNotification(input: {
     title: input.title,
     body: input.body.slice(0, 1000),
     bot_id: input.botId ?? null,
+    run_id: input.runId ?? null,
+    target_path: notificationTargetPath({
+      kind: input.kind,
+      botId: input.botId ?? null,
+      runId: input.runId ?? null,
+    }),
     dedupe_key: input.dedupeKey ?? null,
     read: 0,
     created_at: Date.now(),
   };
   const result = db
     .prepare(
-      `INSERT INTO notifications (id, kind, title, body, bot_id, dedupe_key, "read", created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+      `INSERT INTO notifications (id, kind, title, body, bot_id, run_id, target_path, dedupe_key, "read", created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
        ON CONFLICT(dedupe_key) DO NOTHING`,
     )
     .run(
@@ -1484,6 +1532,8 @@ export function createNotification(input: {
       row.title,
       row.body,
       row.bot_id,
+      row.run_id,
+      row.target_path,
       row.dedupe_key,
       row.created_at,
     );
@@ -1580,6 +1630,7 @@ export function finishRun(
       body:
         error || output || `Run ${info?.trigger ?? "manual"} ended in error.`,
       botId: info?.bot_id,
+      runId: id,
       dedupeKey: `run-error:${id}`,
     });
   });
@@ -1630,6 +1681,7 @@ export function tripWatchdog(
     title: `${name}: watchdog tripped`,
     body: message,
     botId,
+    runId,
     dedupeKey: `watchdog:${runId}`,
   });
 }
