@@ -277,9 +277,15 @@ button.primary:hover:not(:disabled),
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
+  border-radius: 0;
   color: var(--muted);
   padding: 0.45rem 0.7rem;
   cursor: pointer;
+}
+
+.mtabs button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
 }
 
 .mtabs button:hover {
