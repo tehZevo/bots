@@ -6,3 +6,5 @@ export { PlugIcon } from "./PlugIcon.tsx";
 export { RoleIcon } from "./RoleIcon.tsx";
 export { TeamIcon } from "./TeamIcon.tsx";
 export { TemplateIcon } from "./TemplateIcon.tsx";
+export { CloseIcon } from "./CloseIcon.tsx";
+export { BellIcon } from "./BellIcon.tsx";

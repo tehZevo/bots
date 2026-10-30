@@ -1,10 +1,8 @@
 import {
   type CSSProperties,
-  createContext,
   type FormEvent,
   type ReactElement,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -15,6 +13,7 @@ import { PasswordSettings, SessionSettings } from "./auth.tsx";
 import {
   BookIcon,
   BotIcon,
+  CloseIcon,
   GearIcon,
   MachineIcon,
   PlugIcon,
@@ -25,29 +24,87 @@ import {
 import { ConfirmDialog } from "./components/ui/ConfirmDialog.tsx";
 import { Modal, ModalForm } from "./components/ui/Modal.tsx";
 import { SwitchToggle } from "./components/ui/SwitchToggle.tsx";
-import type { TabNavTab } from "./components/ui/TabNav.tsx";
 import { TabNav } from "./components/ui/TabNav.tsx";
 import { useEscape } from "./components/ui/useEscape.ts";
 
 export * from "./components/icons/index.ts";
 
-import { api } from "./lib/api.ts";
+import { Avatar, StatusDot } from "./components/Avatar.tsx";
+import { AvatarPicker } from "./components/AvatarPicker.tsx";
+
+export { Avatar, ShapePreview, StatusDot } from "./components/Avatar.tsx";
+
 import {
-  AVATAR_COLORS,
-  avatarColor,
-  SHAPE_PRESETS,
-  shapeRadii,
-  smoothClosedPath,
-} from "./lib/avatar.ts";
+  anyDirtyLabel,
+  clearAllDirty,
+  NavGuardContext,
+  UnsavedNote,
+  useDirtyGuard,
+  useDiscardGuard,
+  useNavGuard,
+} from "./components/ui/discard.tsx";
+
+export * from "./components/ui/discard.tsx";
+
+import { Multiselect } from "./components/Multiselect.tsx";
+
+export { NotificationPanel } from "./components/NotificationPanel.tsx";
+
+import { NotificationPanel } from "./components/NotificationPanel.tsx";
+
+export { Multiselect } from "./components/Multiselect.tsx";
+
+import { useNotifications } from "./hooks/useNotifications.ts";
+import { usePolling } from "./hooks/usePolling.ts";
+import { TAB_PATHS, tabFromPath, useTabRoute } from "./hooks/useTabRoute.ts";
+
+export * from "./lib/mcpEnv.ts";
+
+import { TeamsPanel } from "./panels/TeamsPanel.tsx";
+
+export {
+  TeamConfigModal,
+  TeamCreateModal,
+  TeamsPanel,
+} from "./panels/TeamsPanel.tsx";
+
+import { RolesPanel } from "./panels/RolesPanel.tsx";
+
+export { RoleFormModal, RolesPanel } from "./panels/RolesPanel.tsx";
+
+import { IntegrationsPanel } from "./panels/IntegrationsPanel.tsx";
+
+export {
+  IntegrationsPanel,
+  McpServerModal,
+} from "./panels/IntegrationsPanel.tsx";
+
+import { MachinesPanel } from "./panels/MachinesPanel.tsx";
+
+export { MachineModal, MachinesPanel } from "./panels/MachinesPanel.tsx";
+
+import {
+  TemplateEditorModal,
+  TemplatesPanel,
+} from "./panels/TemplatesPanel.tsx";
+
+export {
+  TemplateEditorModal,
+  TemplatesPanel,
+} from "./panels/TemplatesPanel.tsx";
+
+import { SkillsPanel } from "./panels/SkillsPanel.tsx";
+
+export {
+  AddSkillModal,
+  SkillModal,
+  SkillsPanel,
+} from "./panels/SkillsPanel.tsx";
+
+import { api } from "./lib/api.ts";
 import { BOT_NAMES, pickBotName } from "./lib/botNames.ts";
 import { fmt, fmtMs, fmtTokens, relTime, titleCase } from "./lib/format.ts";
-import { fnv, mulberry32 } from "./lib/hash.ts";
-import {
-  HEALTH_LABEL,
-  HEALTH_ORDER,
-  STATUS_CHIPS,
-  teamHealth,
-} from "./lib/health.ts";
+import { HEALTH_LABEL, HEALTH_ORDER, STATUS_CHIPS } from "./lib/health.ts";
 import { playSound, SOUND_LIBRARY } from "./lib/sound.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { ensurePushSubscription, PushSection } from "./push.tsx";
@@ -61,14 +118,9 @@ import type {
   Breaker,
   ChatTurn,
   ContextBreakdownData,
-  GrantOption,
   HookDestination,
   HookTestResult,
   Machine,
-  McpEnvRow,
-  McpEnvValue,
-  McpSecretRef,
-  McpServer,
   NotificationItem,
   NotificationsResponse,
   OptimisticChatMessage,
@@ -83,19 +135,13 @@ import type {
   Run,
   SearchEntityType,
   SearchGroupResponse,
-  SearchHit,
   SearchMatch,
   SecretMeta,
   SettingsTab,
-  Skill,
-  SkillPreviewRow,
-  SkillUpdateStatus,
   Tab,
   Tag,
   Team,
-  TeamMember,
   Template,
-  TemplateTrigger,
   TranscriptStep,
   Trigger,
   UsageTotals,
@@ -316,168 +362,6 @@ function ReplayPanel({
         ))
       )}
     </div>
-  );
-}
-
-export function StatusDot({
-  id,
-  health,
-  label,
-  active,
-}: {
-  id: string;
-  health: Bot["health"];
-  label?: string;
-  active: boolean;
-}) {
-  const delay = -(fnv(id) % 1200) / 1000;
-  return (
-    <span
-      className={`dot ${health}${active ? " pulse" : ""}`}
-      style={{ "--dot-delay": `${delay}s` } as CSSProperties}
-      {...(label ? { title: label } : {})}
-    />
-  );
-}
-
-export function Avatar({
-  id,
-  shape = null,
-  color = null,
-  health = null,
-}: {
-  name: string;
-  id: string;
-  shape?: number | null;
-  color?: number | null;
-  health?: Bot["health"] | null;
-}) {
-  const rand = mulberry32(fnv(id));
-  const radii = shapeRadii(rand, shape);
-  const maxR = Math.max(...radii);
-  const base = 46 / maxR;
-  const eyeGap = 7 + rand() * 5;
-  const eyeRx = 2.6 + rand() * 1.4;
-  const eyeRy = eyeRx * (1.8 + rand() * 0.5);
-  const gaze = (rand() - 0.5) * 3;
-  const droop = rand() < 0.3;
-  const baseCol = color == null ? avatarColor(id) : AVATAR_COLORS[color];
-  const col = health === "gray" ? "#6b7280" : baseCol;
-  const glow =
-    health === "red" || health === "gray" ? "transparent" : `${baseCol}59`;
-  const blinkPeriod = 3 + rand() * 5;
-  const animClass = health === null ? "" : ` anim-${health}`;
-  return (
-    <span
-      className={`avatar${animClass}`}
-      style={{
-        color: col,
-        ["--avatar-glow" as string]: glow,
-        ["--avatar-glow-strong" as string]: `${baseCol}a6`,
-        ["--blink-period" as string]: `${blinkPeriod.toFixed(2)}s`,
-        ["--blink-delay" as string]: `${(-rand() * blinkPeriod).toFixed(2)}s`,
-      }}
-      aria-hidden
-    >
-      <svg
-        className="avatar-svg"
-        viewBox="0 0 100 100"
-        width="100%"
-        height="100%"
-      >
-        <path d={smoothClosedPath(radii, 50, base)} fill="currentColor" />
-        {[-1, 1].map((side) => (
-          <ellipse
-            key={side}
-            className="eye"
-            cx={(50 + side * eyeGap + gaze).toFixed(2)}
-            cy={45 - (rand() - 0.5) * 3}
-            rx={eyeRx.toFixed(2)}
-            ry={droop ? (eyeRy * 0.45).toFixed(2) : eyeRy.toFixed(2)}
-          />
-        ))}
-      </svg>
-    </span>
-  );
-}
-
-function ShapePreview({ preset }: { preset: number }) {
-  const radii = shapeRadii(mulberry32(1000 + preset * 7919), preset);
-  const base = 46 / Math.max(...radii);
-  return (
-    <svg viewBox="0 0 100 100" width="100%" height="100%" aria-hidden>
-      <path d={smoothClosedPath(radii, 50, base)} fill="currentColor" />
-    </svg>
-  );
-}
-
-function AvatarPicker({
-  bot,
-  onPick,
-  onClose,
-}: {
-  bot: Bot;
-  onPick: (body: Record<string, unknown>) => Promise<unknown>;
-  onClose: () => void;
-}) {
-  useEscape(onClose);
-  const pick = (body: Record<string, unknown>) => {
-    void onPick(body).catch((e) => alert((e as Error).message));
-  };
-  return (
-    <>
-      <button
-        type="button"
-        className="pickscrim"
-        aria-label="Close avatar picker"
-        onClick={onClose}
-      />
-      <div className="avatarmenu" role="dialog" aria-label="Avatar picker">
-        <div className="shapes">
-          {SHAPE_PRESETS.map((p, i) => (
-            <button
-              key={p.name}
-              type="button"
-              className={`shapeprev${bot.avatar_shape === i ? " sel" : ""}`}
-              aria-label={`Shape ${p.name}`}
-              style={{
-                color:
-                  bot.avatar_color == null
-                    ? avatarColor(bot.id)
-                    : AVATAR_COLORS[bot.avatar_color],
-              }}
-              onClick={() => pick({ avatar_shape: i })}
-            >
-              <ShapePreview preset={i} />
-            </button>
-          ))}
-        </div>
-        <div className="swatches">
-          {AVATAR_COLORS.map((c, i) => (
-            <button
-              key={c}
-              type="button"
-              className={`swatch${bot.avatar_color === i ? " sel" : ""}`}
-              style={{ background: c, color: c }}
-              aria-label={`Color ${i + 1}`}
-              onClick={() => pick({ avatar_color: i })}
-            />
-          ))}
-        </div>
-        <button
-          type="button"
-          className="resetauto"
-          disabled={bot.avatar_shape === null && bot.avatar_color === null}
-          onClick={() => {
-            void onPick({ avatar_shape: null, avatar_color: null })
-              .then(onClose)
-              .catch((e) => alert((e as Error).message));
-          }}
-        >
-          Reset to auto
-        </button>
-      </div>
-    </>
   );
 }
 
@@ -794,7 +678,7 @@ function routeFromLocation(): RouteSnapshot {
   return routeFromUrl(new URL(location.href));
 }
 
-function routeHref(route: RouteSnapshot): string {
+function _routeHref(route: RouteSnapshot): string {
   if (route.tab === "settings" && typeof location !== "undefined") {
     return `${location.pathname}${location.search}`;
   }
@@ -832,9 +716,7 @@ function notificationTargetPathFor(item: NotificationItem): string | null {
 
 export function App() {
   const [bots, setBots] = useState<Bot[]>([]);
-  const [tab, setTabRaw] = useState<Tab>(() =>
-    typeof location === "undefined" ? "bots" : tabFromPath(location.pathname),
-  );
+  const [tab, , setTabRaw] = useTabRoute({ syncLocation: false });
   const [pendingDiscard, setPendingDiscard] = useState<null | {
     label: string;
     fn: () => void;
@@ -926,8 +808,7 @@ export function App() {
     message: string,
   ): Promise<void> => {
     const target = bots.find((b) => b.id === botId);
-    if (!target || !target.enabled || paused || target.run_state === "running")
-      return;
+    if (!target?.enabled || paused || target.run_state === "running") return;
     try {
       const result = await api<{ runId: string | null }>(
         `/api/bots/${botId}/run`,
@@ -959,14 +840,11 @@ export function App() {
   const [includeArchived, setIncludeArchived] = useState(false);
   const [runs, setRuns] = useState<Run[]>([]);
   const [replayRun, setReplayRun] = useState<string | null>(null);
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [pendingEdit, setPendingEdit] = useState<PendingEntityEdit | null>(
     null,
   );
-  const seenNotifIds = useRef<Set<string> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(false);
   const botsRef = useRef(bots);
@@ -983,42 +861,36 @@ export function App() {
   replayRunRef.current = replayRun;
   const suppressPopEvent = useRef(false);
 
+  const {
+    notifications,
+    unreadCount: unreadNotifications,
+    markOne: markOneNotification,
+    markAll: markAllRead,
+  } = useNotifications({
+    getSound: (botId) =>
+      botsRef.current.find((b) => b.id === botId)?.sound ?? "default",
+    onError: (err) =>
+      setError(err instanceof Error ? err.message : String(err)),
+  });
+
   const load = useCallback(async () => {
     try {
-      const [
-        botData,
-        notificationData,
-        roleData,
-        tagData,
-        pauseData,
-        breakerData,
-      ] = await Promise.all([
-        api<Bot[]>(`/api/bots${includeArchived ? "?archived=1" : ""}`),
-        api<NotificationsResponse>("/api/notifications"),
-        api<Role[]>("/api/roles"),
-        api<Tag[]>("/api/tags").catch(() => []),
-        api<{ paused: boolean; reason?: string | null }>("/api/pause").catch(
-          () => ({ paused: false, reason: null }),
-        ),
-        api<Breaker>("/api/breaker").catch(() => null),
-      ]);
+      const [botData, roleData, tagData, pauseData, breakerData] =
+        await Promise.all([
+          api<Bot[]>(`/api/bots${includeArchived ? "?archived=1" : ""}`),
+          api<Role[]>("/api/roles"),
+          api<Tag[]>("/api/tags").catch(() => []),
+          api<{ paused: boolean; reason?: string | null }>("/api/pause").catch(
+            () => ({ paused: false, reason: null }),
+          ),
+          api<Breaker>("/api/breaker").catch(() => null),
+        ]);
       const applied = applyOptimisticRunStates(botData, optimisticRuns.current);
       optimisticRuns.current = applied.overrides;
       setBots(applied.rows);
       setPausedState(pauseData.paused);
       setPauseReason(pauseData.reason ?? null);
       setBreaker(breakerData);
-      const prevSeen = seenNotifIds.current;
-      if (localStorage.getItem("bots-sounds") === "on" && prevSeen) {
-        const fresh = notificationData.items.filter((n) => !prevSeen.has(n.id));
-        if (fresh.length > 0) {
-          const owner = botData.find((b) => b.id === fresh[0].bot_id);
-          playSound(owner?.sound ?? "default");
-        }
-      }
-      seenNotifIds.current = new Set(notificationData.items.map((n) => n.id));
-      setNotifications(notificationData.items);
-      setUnreadNotifications(notificationData.unread_count);
       setRoles(roleData);
       setTags(tagData);
       setError(null);
@@ -1028,28 +900,26 @@ export function App() {
   }, [includeArchived]);
 
   useEffect(() => {
-    void load();
     void ensurePushSubscription().catch(() => undefined);
-    const t = setInterval(load, 5000);
-    return () => clearInterval(t);
-  }, [load]);
+  }, []);
+  usePolling(load, 5000);
 
   useEffect(() => {
     if (!detailOpen) setAvatarMenu(false);
   }, [detailOpen]);
+
+  const loadRuns = useCallback(async () => {
+    if (!openBot) return;
+    setRuns(await api<Run[]>(`/api/bots/${openBot}/runs`));
+  }, [openBot]);
 
   useEffect(() => {
     const nextModalTab = modalTabOverride.current ?? "general";
     modalTabOverride.current = null;
     setModalTab(nextModalTab);
     setRuns([]);
-    if (!openBot) return;
-    const loadRuns = async () =>
-      setRuns(await api<Run[]>(`/api/bots/${openBot}/runs`));
-    void loadRuns();
-    const t = setInterval(loadRuns, 3000);
-    return () => clearInterval(t);
-  }, [openBot]);
+  }, []);
+  usePolling(loadRuns, 3000, { enabled: openBot != null });
 
   useEffect(() => {
     if (openBot && !bots.some((b) => b.id === openBot)) {
@@ -1302,28 +1172,6 @@ export function App() {
     });
   };
 
-  async function markOneNotification(id: string): Promise<void> {
-    try {
-      await api(`/api/notifications/${id}/read`, { method: "POST" });
-      setNotifications((items) =>
-        items.map((item) => (item.id === id ? { ...item, read: 1 } : item)),
-      );
-      setUnreadNotifications((count) => Math.max(0, count - 1));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  async function markAllRead(): Promise<void> {
-    try {
-      await api("/api/notifications/read-all", { method: "POST" });
-      setNotifications((items) => items.map((item) => ({ ...item, read: 1 })));
-      setUnreadNotifications(0);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
   function openNotification(notification: NotificationItem): void {
     const target = notificationTargetPathFor(notification);
     if (!target) {
@@ -1451,109 +1299,20 @@ export function App() {
             >
               <SearchIcon size={15} />
               <span className="actionlabel">Search</span>
-              <kbd className="searchshortcut" aria-hidden="true">
-                `
-              </kbd>
+              <kbd className="searchshortcut">`</kbd>
             </button>
           </div>
-          <div className="notifwrap">
-            <button
-              type="button"
-              className="notiftoggle"
-              aria-label={`Notifications${unreadNotifications > 0 ? `, ${unreadNotifications} unread` : ""}`}
-              title={
-                unreadNotifications > 0
-                  ? `${unreadNotifications} unread notifications`
-                  : "Notifications"
-              }
-              aria-expanded={notificationPanelOpen}
-              onClick={() => setNotificationPanelOpen((open) => !open)}
-            >
-              <BellIcon size={18} />
-              {unreadNotifications > 0 && (
-                <span className="notifbadge">
-                  {unreadNotifications > 99 ? "99+" : unreadNotifications}
-                </span>
-              )}
-            </button>
-            {notificationPanelOpen && (
-              <>
-                <button
-                  type="button"
-                  className="notifscrim"
-                  aria-label="Close notifications"
-                  onClick={() => setNotificationPanelOpen(false)}
-                />
-                <section className="notifpanel" aria-label="Notifications">
-                  <div className="notifhdr">
-                    <strong>Notifications</strong>
-                    <div>
-                      <button
-                        type="button"
-                        disabled={unreadNotifications === 0}
-                        onClick={() => void markAllRead()}
-                      >
-                        Mark all read
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="Close notifications"
-                        title="Close notifications"
-                        onClick={() => setNotificationPanelOpen(false)}
-                      >
-                        <CloseIcon size={16} />
-                      </button>
-                    </div>
-                  </div>
-                  {notifications.length === 0 ? (
-                    <p className="notifempty">No notifications.</p>
-                  ) : (
-                    <ul className="notiflist">
-                      {notifications.map((notification) => {
-                        const target = notificationTargetPathFor(notification);
-                        return (
-                          <li
-                            key={notification.id}
-                            className={notification.read ? "" : "unread"}
-                          >
-                            <button
-                              type="button"
-                              className="notifbody"
-                              disabled={!target && notification.read !== 0}
-                              title={target ? "Open source" : "Mark as read"}
-                              onClick={() => openNotification(notification)}
-                            >
-                              <strong>{notification.title}</strong>
-                              <time
-                                dateTime={new Date(
-                                  notification.created_at,
-                                ).toISOString()}
-                              >
-                                {fmt(notification.created_at)}
-                              </time>
-                              <p>{notification.body}</p>
-                            </button>
-                            {!notification.read && (
-                              <div className="notifactions">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    void markOneNotification(notification.id)
-                                  }
-                                >
-                                  Mark read
-                                </button>
-                              </div>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </section>
-              </>
-            )}
-          </div>
+          <NotificationPanel
+            items={notifications}
+            unreadCount={unreadNotifications}
+            open={notificationPanelOpen}
+            onToggle={() => setNotificationPanelOpen((open) => !open)}
+            onClose={() => setNotificationPanelOpen(false)}
+            onMarkOne={(id) => void markOneNotification(id)}
+            onMarkAll={() => void markAllRead()}
+            onOpenItem={openNotification}
+            targetFor={notificationTargetPathFor}
+          />
         </header>
         <div className="layout">
           <aside className={rail ? "rail" : ""}>
@@ -2226,7 +1985,6 @@ export function AddBotModal({
       )}
       <div className="namerow">
         <input
-          autoFocus
           placeholder="name"
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -2329,25 +2087,6 @@ export function KebabIcon({ size = 14 }: { size?: number }) {
   );
 }
 
-export function BellIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M7.5 10a4.5 4.5 0 0 1 9 0c0 3.2.7 4.6 1.8 5.8H5.7C6.8 14.6 7.5 13.2 7.5 10Z" />
-      <path d="M9.8 18.8a2.4 2.4 0 0 0 4.4 0" />
-    </svg>
-  );
-}
-
 export function MenuIcon({ size = 20 }: { size?: number }) {
   return (
     <svg
@@ -2361,23 +2100,6 @@ export function MenuIcon({ size = 20 }: { size?: number }) {
       aria-hidden="true"
     >
       <path d="M4 7h16M4 12h16M4 17h16" />
-    </svg>
-  );
-}
-
-export function CloseIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.9"
-      strokeLinecap="round"
-      aria-hidden="true"
-    >
-      <path d="m6.5 6.5 11 11M17.5 6.5l-11 11" />
     </svg>
   );
 }
@@ -2497,29 +2219,6 @@ export function RefreshIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-const TAB_PATHS: Record<Tab, string> = {
-  bots: "/bots",
-  teams: "/teams",
-  roles: "/roles",
-  machines: "/machines",
-  integrations: "/integrations",
-  skills: "/skills",
-  templates: "/templates",
-  projects: "/projects",
-  tags: "/tags",
-  secrets: "/secrets",
-  settings: "/settings",
-};
-
-function tabFromPath(path: string): Tab {
-  const hit = (Object.keys(TAB_PATHS) as Tab[]).find(
-    (t) =>
-      TAB_PATHS[t] === path.replace(/\/+$/, "") ||
-      (path === "/" && t === "bots"),
-  );
-  return hit ?? "bots";
-}
-
 function ProjectIcon({ size = 18 }: { size?: number }) {
   return (
     <svg
@@ -2632,17 +2331,6 @@ function Nav({
 
 const THEMES = ["light", "dark", "system"] as const;
 type Theme = (typeof THEMES)[number];
-
-const ROLE_FORM_TABS: readonly TabNavTab[] = [
-  { id: "general", label: "General" },
-  { id: "mcp", label: "MCP" },
-  { id: "skills", label: "Skills" },
-];
-
-const SKILL_MODAL_TABS: readonly TabNavTab[] = [
-  { id: "create", label: "Create" },
-  { id: "import", label: "Import" },
-];
 
 const SETTINGS_TABS: readonly { id: SettingsTab; label: string }[] = [
   { id: "general", label: "General" },
@@ -3940,544 +3628,6 @@ export function ProviderFormModal({
   );
 }
 
-export function Multiselect({
-  label,
-  options,
-  selected,
-  onChange,
-  busy,
-  placeholder,
-}: {
-  label: string;
-  options: { id: string; name: string }[];
-  selected: string[];
-  onChange: (next: string[]) => void;
-  busy?: boolean;
-  placeholder?: string;
-}) {
-  const [query, setQuery] = useState("");
-  const sel = new Set(selected);
-  const q = query.trim().toLowerCase();
-  return (
-    <div className="multiselect">
-      <input
-        aria-label={label}
-        placeholder={placeholder ?? "Search…"}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
-      {selected.length > 0 && (
-        <span className="mschosen">{`${selected.length} selected`}</span>
-      )}
-      <ul className="msopts">
-        {options
-          .filter((o) => !q || o.name.toLowerCase().includes(q))
-          .map((o) => (
-            <li key={o.id}>
-              <label>
-                <input
-                  type="checkbox"
-                  disabled={busy}
-                  checked={sel.has(o.id)}
-                  onChange={() =>
-                    onChange(
-                      sel.has(o.id)
-                        ? selected.filter((x) => x !== o.id)
-                        : [...selected, o.id],
-                    )
-                  }
-                />
-                {o.name}
-              </label>
-            </li>
-          ))}
-      </ul>
-    </div>
-  );
-}
-
-function GrantDualList({
-  label,
-  options,
-  selected,
-  onChange,
-  emptyText,
-}: {
-  label: string;
-  options: GrantOption[];
-  selected: string[];
-  onChange: (ids: string[]) => void;
-  emptyText: string;
-}) {
-  const [query, setQuery] = useState("");
-  const chosen = new Set(selected);
-  const q = query.trim().toLowerCase();
-  const available = options.filter(
-    (option) =>
-      !chosen.has(option.id) &&
-      (!q ||
-        `${option.name} ${option.description ?? ""}`.toLowerCase().includes(q)),
-  );
-  const granted = selected
-    .map((id) => options.find((option) => option.id === id))
-    .filter((option): option is GrantOption => Boolean(option));
-
-  return (
-    <div className="grantpicker">
-      <section
-        className="grantpane grantavailable"
-        aria-label={`Available ${label}`}
-      >
-        <h3>Available</h3>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={`Search ${label.toLowerCase()}…`}
-          aria-label={`Search ${label}`}
-        />
-        <ul className="grantlist">
-          {available.map((option) => (
-            <li key={option.id}>
-              <button
-                type="button"
-                className="grantentry grantadd"
-                aria-label={`Add ${option.name}`}
-                onClick={() => onChange([...selected, option.id])}
-              >
-                <span className="grantname">{option.name}</span>
-                {option.description && (
-                  <span className="grantdesc">{option.description}</span>
-                )}
-              </button>
-            </li>
-          ))}
-        </ul>
-        {options.length === 0 && (
-          <p className="grantempty muted">{emptyText}</p>
-        )}
-        {options.length > 0 && available.length === 0 && (
-          <p className="grantempty muted">
-            {q
-              ? `No matches for “${query.trim()}”.`
-              : `All ${label.toLowerCase()} are granted.`}
-          </p>
-        )}
-      </section>
-
-      <section
-        className="grantpane grantselected"
-        aria-label={`Granted ${label}`}
-      >
-        <h3>Granted</h3>
-        <ul className="grantlist">
-          {granted.map((option) => (
-            <li key={option.id} className="grantentry grantselrow">
-              <span className="grantinfo">
-                <strong>{option.name}</strong>
-                {option.description && (
-                  <small className="grantdesc">{option.description}</small>
-                )}
-              </span>
-              <button
-                type="button"
-                className="grantremove"
-                aria-label={`Remove ${option.name}`}
-                onClick={() =>
-                  onChange(selected.filter((id) => id !== option.id))
-                }
-              >
-                ×
-              </button>
-            </li>
-          ))}
-        </ul>
-        {granted.length === 0 && (
-          <p className="grantempty muted">Nothing granted yet.</p>
-        )}
-      </section>
-    </div>
-  );
-}
-
-export function TeamCreateModal({
-  bots,
-  busy,
-  onClose,
-  mutate,
-}: {
-  bots: Bot[];
-  busy: boolean;
-  onClose: () => void;
-  mutate: (fn: () => Promise<unknown>) => void;
-}) {
-  const [name, setName] = useState("");
-  const [memberSel, setMemberSel] = useState<string[]>([]);
-  const [leaderSel, setLeaderSel] = useState<string[]>([]);
-  const dirty = name !== "" || memberSel.length > 0 || leaderSel.length > 0;
-  const attemptClose = useDiscardGuard("this new team", dirty, onClose);
-  useEscape(attemptClose);
-
-  function submitTeam(e: FormEvent) {
-    e.preventDefault();
-    mutate(async () => {
-      const created = await api<Team>("/api/teams", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: name.trim() }),
-      });
-      for (const id of new Set([...memberSel, ...leaderSel]))
-        await api(`/api/teams/${created.id}/members`, {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            bot_id: id,
-            leader: leaderSel.includes(id),
-          }),
-        });
-      onClose();
-    });
-  }
-
-  return (
-    <ModalForm
-      scrimOnCancel={attemptClose}
-      className="dialog narrow"
-      role="dialog"
-      aria-label="Create team"
-      onSubmit={submitTeam}
-    >
-      <label className="field">
-        Name
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-        />
-      </label>
-      <div className="field">
-        Members
-        <Multiselect
-          label={`Members of new team`}
-          options={bots.map((b) => ({ id: b.id, name: b.name }))}
-          selected={memberSel}
-          onChange={setMemberSel}
-          busy={busy}
-          placeholder="Add teammates…"
-        />
-      </div>
-      <div className="field">
-        Leaders (also added as members)
-        <Multiselect
-          label={`Leaders of new team`}
-          options={bots.map((b) => ({ id: b.id, name: b.name }))}
-          selected={leaderSel}
-          onChange={setLeaderSel}
-          busy={busy}
-          placeholder="Pick leaders…"
-        />
-      </div>
-      <div className="actions">
-        <button type="submit" disabled={busy || !name.trim()}>
-          Create team
-        </button>
-        <UnsavedNote dirty={dirty} />
-        <button type="button" onClick={attemptClose}>
-          Cancel
-        </button>
-      </div>
-    </ModalForm>
-  );
-}
-
-export function TeamsPanel({
-  openId,
-  onOpened,
-}: {
-  openId?: string | null;
-  onOpened?: () => void;
-} = {}) {
-  const [teams, setTeams] = useState<Team[]>([]);
-  const [bots, setBots] = useState<Bot[]>([]);
-  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
-  const [creating, setCreating] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [nameQ, setNameQ] = useState("");
-  const [botSel, setBotSel] = useState<string[]>([]);
-  const [selTeamId, setSelTeamId] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    const [ts, bs, ps] = await Promise.all([
-      api<Team[]>("/api/teams").catch(() => [] as Team[]),
-      api<Bot[]>("/api/bots").catch(() => [] as Bot[]),
-      api<Project[]>("/api/projects").catch(() => [] as Project[]),
-    ]);
-    setTeams(ts);
-    setBots(bs);
-    setProjects(ps.map((p) => ({ id: p.id, name: p.name })));
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const mutate = (fn: () => Promise<unknown>) => {
-    setBusy(true);
-    fn()
-      .then(load)
-      .catch((e) => alert(e instanceof Error ? e.message : String(e)))
-      .finally(() => setBusy(false));
-  };
-
-  const nq = nameQ.trim().toLowerCase();
-  const visible = teams.filter(
-    (t) =>
-      (!nq || t.name.toLowerCase().includes(nq)) &&
-      (botSel.length === 0 || t.members.some((m) => botSel.includes(m.bot_id))),
-  );
-  const selTeam = teams.find((t) => t.id === selTeamId);
-
-  useEffect(() => {
-    if (!openId) return;
-    const team = teams.find((candidate) => candidate.id === openId);
-    if (!team) return;
-    setSelTeamId(team.id);
-    setCreating(false);
-    onOpened?.();
-  }, [onOpened, openId, teams]);
-
-  return (
-    <section>
-      <div className="viewhead">
-        <h2>Teams</h2>
-        <button type="button" onClick={() => setCreating(true)}>
-          Create team
-        </button>
-      </div>
-      <div className="filterrow">
-        <input
-          aria-label="Filter teams by name"
-          placeholder="Search teams by name"
-          value={nameQ}
-          onChange={(e) => setNameQ(e.target.value)}
-        />
-        <Multiselect
-          label="Filter teams by bots"
-          options={bots.map((b) => ({ id: b.id, name: b.name }))}
-          selected={botSel}
-          onChange={setBotSel}
-          placeholder="Filter by bots…"
-        />
-      </div>
-      {teams.length === 0 && (
-        <p className="muted">
-          No teams yet — teammates DM each other in a team.
-        </p>
-      )}
-      <div className="cards">
-        {visible.map((team) => {
-          const health = teamHealth(team.members, bots);
-          return (
-            <button
-              type="button"
-              key={team.id}
-              className="card teamcard"
-              aria-label={`Configure ${team.name}`}
-              onClick={() => setSelTeamId(team.id)}
-            >
-              <StatusDot
-                id={team.id}
-                health={health}
-                active={health === "green"}
-              />
-              <strong>{team.name}</strong>
-              <em className="muted">
-                {team.members.length}{" "}
-                {team.members.length === 1 ? "bot" : "bots"}
-              </em>
-            </button>
-          );
-        })}
-      </div>
-      {creating && (
-        <TeamCreateModal
-          bots={bots}
-          busy={busy}
-          onClose={() => setCreating(false)}
-          mutate={mutate}
-        />
-      )}
-      {selTeam && (
-        <TeamConfigModal
-          team={selTeam}
-          bots={bots}
-          projects={projects}
-          busy={busy}
-          onClose={() => setSelTeamId(null)}
-          mutate={mutate}
-        />
-      )}
-    </section>
-  );
-}
-
-export function TeamConfigModal({
-  team,
-  bots,
-  projects,
-  busy,
-  onClose,
-  mutate,
-}: {
-  team: Team;
-  bots: Bot[];
-  projects: { id: string; name: string }[];
-  busy: boolean;
-  onClose: () => void;
-  mutate: (fn: () => Promise<unknown>) => void;
-}) {
-  const [name, setName] = useState(team.name);
-  const [memberSel, setMemberSel] = useState<string[]>(
-    team.members.map((m) => m.bot_id),
-  );
-  const [leaderSel, setLeaderSel] = useState<string[]>(
-    team.members.filter((m) => m.leader).map((m) => m.bot_id),
-  );
-  const [attached, setAttached] = useState<string[]>(team.project_ids ?? []);
-  const [confirmDel, setConfirmDel] = useState(false);
-
-  const memberIds = Array.from(new Set([...memberSel, ...leaderSel]));
-  const curLeaderIds = team.members
-    .filter((m) => m.leader)
-    .map((m) => m.bot_id);
-  const dirty =
-    name.trim() !== team.name ||
-    attached.join(",") !== (team.project_ids ?? []).join(",") ||
-    [...memberIds].sort().join(",") !==
-      team.members
-        .map((m) => m.bot_id)
-        .sort()
-        .join(",") ||
-    leaderSel
-      .filter((id) => memberIds.includes(id))
-      .sort()
-      .join(",") !== [...curLeaderIds].sort().join(",");
-
-  const save = () => {
-    const cur = new Map(team.members.map((m) => [m.bot_id, m.leader]));
-    mutate(async () => {
-      await api(`/api/teams/${team.id}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), project_ids: attached }),
-      });
-      for (const id of memberIds) {
-        const leader = leaderSel.includes(id);
-        if (!cur.has(id) || cur.get(id) !== leader)
-          await api(`/api/teams/${team.id}/members`, {
-            method: "PUT",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ bot_id: id, leader }),
-          });
-      }
-      for (const m of team.members)
-        if (!memberIds.includes(m.bot_id))
-          await api(`/api/teams/${team.id}/members/${m.bot_id}`, {
-            method: "DELETE",
-          });
-      onClose();
-    });
-  };
-  const attemptClose = useDiscardGuard(`team ${team.name}`, dirty, onClose);
-
-  function submitTeamEdit(e: FormEvent) {
-    e.preventDefault();
-    save();
-  }
-
-  return (
-    <>
-      <ModalForm
-        scrimOnCancel={attemptClose}
-        className="dialog narrow"
-        role="dialog"
-        aria-label={`Configure team ${team.name}`}
-        onSubmit={submitTeamEdit}
-      >
-        <label className="field">
-          Name
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-        </label>
-        <div className="field">
-          Members
-          <Multiselect
-            label={`Members of ${team.name}`}
-            options={bots.map((b) => ({ id: b.id, name: b.name }))}
-            selected={memberSel}
-            onChange={setMemberSel}
-            busy={busy}
-            placeholder="Add teammates…"
-          />
-        </div>
-        <div className="field">
-          Leaders (also added as members)
-          <Multiselect
-            label={`Leaders of ${team.name}`}
-            options={bots.map((b) => ({ id: b.id, name: b.name }))}
-            selected={leaderSel}
-            onChange={setLeaderSel}
-            busy={busy}
-            placeholder="Pick leaders…"
-          />
-        </div>
-        <div className="field">
-          Projects (inherited by all members)
-          <Multiselect
-            label={`Projects for ${team.name}`}
-            options={projects}
-            selected={attached}
-            onChange={setAttached}
-            busy={busy}
-            placeholder="Attach projects…"
-          />
-        </div>
-        <div className="actions">
-          <button type="submit" disabled={busy || !name.trim() || !dirty}>
-            Save
-          </button>
-          <UnsavedNote dirty={dirty} />
-          <button
-            type="button"
-            className="danger"
-            disabled={busy}
-            onClick={() => setConfirmDel(true)}
-          >
-            Delete
-          </button>
-          <button type="button" onClick={attemptClose}>
-            Cancel
-          </button>
-        </div>
-      </ModalForm>
-      {confirmDel && (
-        <ConfirmDialog
-          text={`Delete team ${team.name}? The bots stay.`}
-          confirmLabel="Delete team"
-          onCancel={() => setConfirmDel(false)}
-          onConfirm={() => {
-            mutate(() =>
-              api(`/api/teams/${team.id}`, { method: "DELETE" }).then(onClose),
-            );
-          }}
-        />
-      )}
-    </>
-  );
-}
-
 export function BotTeams({ botId }: { botId: string }) {
   const [teams, setTeams] = useState<Team[]>([]);
   const [busy, setBusy] = useState(false);
@@ -4767,302 +3917,6 @@ export function BotProjects({ botId }: { botId: string }) {
   );
 }
 
-export function RolesPanel({
-  openId,
-  onOpened,
-}: {
-  openId?: string | null;
-  onOpened?: () => void;
-} = {}) {
-  const [roles, setRoles] = useState<Role[]>([]);
-  const navGuard = useNavGuard();
-  const [query, setQuery] = useState("");
-  const [formRole, setFormRole] = useState<Role | null>(null);
-  const [creating, setCreating] = useState(false);
-
-  const loadRoles = useCallback(async () => {
-    setRoles(await api<Role[]>("/api/roles").catch(() => []));
-  }, []);
-
-  useEffect(() => {
-    void loadRoles();
-  }, [loadRoles]);
-
-  useEffect(() => {
-    if (!openId) return;
-    const role = roles.find((candidate) => candidate.id === openId);
-    if (!role) return;
-    setFormRole(role);
-    setCreating(false);
-    onOpened?.();
-  }, [onOpened, openId, roles]);
-
-  const q = query.trim().toLowerCase();
-  const visible = roles.filter(
-    (role) =>
-      !q ||
-      role.name.toLowerCase().includes(q) ||
-      role.instructions.toLowerCase().includes(q),
-  );
-
-  return (
-    <section>
-      <div className="viewhead">
-        <h2>Roles</h2>
-        <button type="button" onClick={() => setCreating(true)}>
-          Create role
-        </button>
-      </div>
-      <input
-        placeholder="Search roles"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
-      {roles.length === 0 && (
-        <p className="muted">No roles yet — press "Create role".</p>
-      )}
-      {roles.length > 0 && visible.length === 0 && (
-        <p className="muted">No roles match "{query}".</p>
-      )}
-      <div className="cards">
-        {visible.map((role) => (
-          <button
-            type="button"
-            key={role.id}
-            className="card"
-            onClick={() => navGuard(() => setFormRole(role))}
-          >
-            <strong>{role.name}</strong>
-            <span className="preview">{role.instructions}</span>
-          </button>
-        ))}
-      </div>
-      {(creating || formRole) && (
-        <RoleFormModal
-          role={formRole}
-          onClose={() => {
-            setCreating(false);
-            setFormRole(null);
-          }}
-          onSaved={() => {
-            setCreating(false);
-            setFormRole(null);
-            void loadRoles();
-          }}
-        />
-      )}
-    </section>
-  );
-}
-
-export function RoleFormModal({
-  role,
-  onClose,
-  onSaved,
-}: {
-  role: Role | null;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [name, setName] = useState(role?.name ?? "");
-  const [instructions, setInstructions] = useState(role?.instructions ?? "");
-  const [busy, setBusy] = useState(false);
-  const [confirmDel, setConfirmDel] = useState(false);
-  const [roleTab, setRoleTab] = useState<"general" | "mcp" | "skills">(
-    "general",
-  );
-  const [mcpOptions, setMcpOptions] = useState<GrantOption[]>([]);
-  const [skillOptions, setSkillOptions] = useState<GrantOption[]>([]);
-  const [mcpIds, setMcpIds] = useState<string[]>(role?.mcp_server_ids ?? []);
-  const [skillIds, setSkillIds] = useState<string[]>(role?.skill_ids ?? []);
-  const dirty =
-    name !== (role?.name ?? "") ||
-    instructions !== (role?.instructions ?? "") ||
-    mcpIds.join(",") !== (role?.mcp_server_ids ?? []).join(",") ||
-    skillIds.join(",") !== (role?.skill_ids ?? []).join(",");
-  const attemptClose = useDiscardGuard(
-    role ? `role ${role.name}` : "this new role",
-    dirty,
-    onClose,
-  );
-
-  useEffect(() => {
-    void api<{ id: string; name: string; command?: unknown }[]>(
-      "/api/mcp-servers",
-    )
-      .then((servers) =>
-        setMcpOptions(
-          servers.map((server) => ({
-            id: server.id,
-            name: server.name,
-            description:
-              typeof server.command === "string" ? server.command : undefined,
-          })),
-        ),
-      )
-      .catch(() => setMcpOptions([]));
-    void api<{ id: string; name: string; description?: unknown }[]>(
-      "/api/skills",
-    )
-      .then((skills) =>
-        setSkillOptions(
-          skills.map((skill) => ({
-            id: skill.id,
-            name: skill.name,
-            description:
-              typeof skill.description === "string"
-                ? skill.description
-                : undefined,
-          })),
-        ),
-      )
-      .catch(() => setSkillOptions([]));
-  }, []);
-
-  const nameRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    nameRef.current?.focus();
-  }, []);
-
-  useEscape(() => {
-    if (!confirmDel) attemptClose();
-  }, true);
-
-  async function submitRole(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      const body = JSON.stringify({
-        name,
-        instructions,
-        mcp_server_ids: mcpIds,
-        skill_ids: skillIds,
-      });
-      if (role)
-        await api(`/api/roles/${role.id}`, {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body,
-        });
-      else
-        await api("/api/roles", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body,
-        });
-      onSaved();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
-      setBusy(false);
-    }
-  }
-
-  return (
-    <>
-      <ModalForm
-        scrimOnCancel={attemptClose}
-        className="dialog"
-        role="dialog"
-        aria-label={role ? "Edit role" : "Create role"}
-        onSubmit={submitRole}
-      >
-        <div className="viewhead">
-          <h2>{role ? "Edit role" : "Create role"}</h2>
-          <button
-            type="button"
-            className="close"
-            aria-label="Cancel"
-            onClick={attemptClose}
-          >
-            <CloseIcon size={18} />
-          </button>
-        </div>
-        <TabNav
-          tabs={ROLE_FORM_TABS}
-          selected={roleTab}
-          onSelect={(id) => setRoleTab(id as "general" | "mcp" | "skills")}
-        />
-        {roleTab === "general" && (
-          <>
-            <input
-              ref={nameRef}
-              placeholder="role name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-            />
-            <textarea
-              placeholder="instructions added to assigned bots' prompts"
-              rows={5}
-              value={instructions}
-              onChange={(e) => setInstructions(e.target.value)}
-              required
-            />
-          </>
-        )}
-        {roleTab === "mcp" && (
-          <GrantDualList
-            label="MCP servers"
-            options={mcpOptions}
-            selected={mcpIds}
-            onChange={setMcpIds}
-            emptyText="No MCP servers — add one in Integrations."
-          />
-        )}
-        {roleTab === "skills" && (
-          <GrantDualList
-            label="Skills"
-            options={skillOptions}
-            selected={skillIds}
-            onChange={setSkillIds}
-            emptyText="No skills — add one in Skills."
-          />
-        )}
-        <div className="actions">
-          <button type="submit" disabled={busy}>
-            {role ? "Save role" : "Create role"}
-          </button>
-          <UnsavedNote dirty={dirty} />
-          {role && (
-            <button
-              type="button"
-              className="danger"
-              disabled={busy}
-              onClick={() => setConfirmDel(true)}
-            >
-              Delete role
-            </button>
-          )}
-          <button type="button" onClick={attemptClose}>
-            Cancel
-          </button>
-        </div>
-      </ModalForm>
-      {role && confirmDel && (
-        <ConfirmDialog
-          text={`Delete role ${role.name}? Bots using it fall back to their own prompts.`}
-          confirmLabel="Delete role"
-          onCancel={() => setConfirmDel(false)}
-          onConfirm={() => {
-            setConfirmDel(false);
-            void (async () => {
-              setBusy(true);
-              try {
-                await api(`/api/roles/${role.id}`, { method: "DELETE" });
-                onSaved();
-              } catch (err) {
-                alert(err instanceof Error ? err.message : String(err));
-                setBusy(false);
-              }
-            })();
-          }}
-        />
-      )}
-    </>
-  );
-}
-
 function pctOf(tokens: number, window: number): number {
   if (!window || window <= 0) return 0;
   return Math.min(100, Math.round((tokens / window) * 100));
@@ -5095,7 +3949,7 @@ export function BotFiles({ botId }: { botId: string }) {
     path: string;
     entries: WorkspaceEntry[];
   } | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [_refreshKey, setRefreshKey] = useState(0);
   const [selected, setSelected] = useState<WorkspaceEntry | null>(null);
   const [fileText, setFileText] = useState<string | null>(null);
   const [binary, setBinary] = useState(false);
@@ -5112,7 +3966,7 @@ export function BotFiles({ botId }: { botId: string }) {
     return () => {
       active = false;
     };
-  }, [botId, path, refreshKey]);
+  }, [botId, path]);
 
   const fileUrl = (p: string) =>
     `/api/bots/${botId}/workspace/file?path=${encodeURIComponent(p)}`;
@@ -5276,15 +4130,14 @@ export function BotStats({
     };
   }, [botId]);
 
-  useEffect(() => {
-    if (!running) return undefined;
-    const timer = setInterval(() => {
-      api<ContextBreakdownData>(`/api/bots/${botId}/context-usage`)
-        .then(setCtx)
-        .catch(() => undefined);
-    }, 3000);
-    return () => clearInterval(timer);
-  }, [botId, running]);
+  const loadCtx = useCallback(
+    () =>
+      api<ContextBreakdownData>(`/api/bots/${botId}/context-usage`).then(
+        setCtx,
+      ),
+    [botId],
+  );
+  usePolling(loadCtx, 3000, { enabled: running, immediate: false });
 
   const saveBudget = async () => {
     const trimmed = budgetText.trim();
@@ -5808,71 +4661,6 @@ export function BotGeneral({
   );
 }
 
-const dirtyEditors = new Map<string, string>();
-const dirtyListeners = new Set<() => void>();
-
-function bumpDirty(): void {
-  for (const l of dirtyListeners) l();
-}
-
-export function anyDirtyLabel(): string | null {
-  for (const label of dirtyEditors.values()) return label;
-  return null;
-}
-
-export function clearAllDirty(): void {
-  dirtyEditors.clear();
-  bumpDirty();
-}
-
-export function formDirty(
-  snapshot: Record<string, unknown>,
-  current: Record<string, unknown>,
-): boolean {
-  for (const key of Object.keys(snapshot))
-    if (snapshot[key] !== current[key]) return true;
-  return false;
-}
-
-export const NavGuardContext = createContext<(fn: () => void) => void>((fn) =>
-  fn(),
-);
-
-export function useNavGuard(): (fn: () => void) => void {
-  return useContext(NavGuardContext);
-}
-
-export function UnsavedNote({ dirty }: { dirty: boolean }) {
-  if (!dirty) return null;
-  return (
-    <span className="unsavednote" role="status">
-      Unsaved changes
-    </span>
-  );
-}
-
-export function useDirtyGuard(label: string, dirty: boolean): void {
-  useEffect(() => {
-    if (dirty) dirtyEditors.set(label, label);
-    else dirtyEditors.delete(label);
-    bumpDirty();
-    return () => {
-      dirtyEditors.delete(label);
-      bumpDirty();
-    };
-  }, [label, dirty]);
-}
-
-export function useDiscardGuard(
-  label: string,
-  dirty: boolean,
-  close: () => void,
-): () => void {
-  const guard = useNavGuard();
-  useDirtyGuard(label, dirty);
-  return () => guard(close);
-}
-
 const SEARCH_LABELS: Record<SearchEntityType, string> = {
   bots: "Bots",
   archived_bots: "Archived bots",
@@ -6003,7 +4791,7 @@ export function SearchOverlay({
     setSelected(0);
     setInlineError(null);
     if (commandMode) setSearchGroups([]);
-  }, [commandMode, rawQuery]);
+  }, [commandMode]);
 
   const commandActions = useMemo<SearchCommand[]>(() => {
     const sortedBots = [...bots].sort((a, b) => a.name.localeCompare(b.name));
@@ -7002,19 +5790,14 @@ export function Chat({
     };
   }, [applyIncomingTurns, botId]);
 
-  useEffect(() => {
-    if (streamActive) return;
-    void loadChat();
-    const t = setInterval(loadChat, botIsWorking ? 800 : 5000);
-    return () => clearInterval(t);
-  }, [loadChat, streamActive, botIsWorking]);
+  usePolling(loadChat, botIsWorking ? 800 : 5000, { enabled: !streamActive });
 
   const turns = useMemo(
     () => mergeOptimisticChatTurns(history, pendingMessages),
     [history, pendingMessages],
   );
   const bottomRef = useRef<HTMLDivElement | null>(null);
-  const scrollRevision = turns.reduce((total, turn) => {
+  const _scrollRevision = turns.reduce((total, turn) => {
     let sum =
       total + turns.length + turn.text.length + (turn.thinking?.length ?? 0);
     for (const call of turn.tool_calls ?? []) {
@@ -7024,7 +5807,7 @@ export function Chat({
   }, 0);
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [scrollRevision]);
+  }, []);
 
   const send = async () => {
     const text = draft.trim();
@@ -7095,1410 +5878,6 @@ export function Chat({
           <span className="sr-only">{sending ? "Sending…" : "Send"}</span>
         </button>
       </form>
-    </section>
-  );
-}
-
-function isMcpSecretRef(value: unknown): value is McpSecretRef {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    typeof (value as { secret?: unknown }).secret === "string"
-  );
-}
-
-export function mcpEnvRowsFromRecord(
-  env: Record<string, McpEnvValue>,
-): McpEnvRow[] {
-  return Object.entries(env).map(([key, value]) =>
-    isMcpSecretRef(value)
-      ? { key, mode: "secret", value: value.secret }
-      : { key, mode: "literal", value },
-  );
-}
-
-export function mcpEnvMapFromRows(
-  rows: McpEnvRow[],
-): Record<string, McpEnvValue> {
-  const env: Record<string, McpEnvValue> = {};
-  for (const row of rows) {
-    const key = row.key.trim();
-    if (!key) continue;
-    env[key] = row.mode === "secret" ? { secret: row.value } : row.value;
-  }
-  return env;
-}
-
-export function IntegrationsPanel() {
-  const [servers, setServers] = useState<McpServer[]>([]);
-  const [form, setForm] = useState<McpServer | "new" | null>(null);
-  const [removing, setRemoving] = useState<McpServer | null>(null);
-  const [results, setResults] = useState<
-    Record<string, { tools?: number; error?: string; busy?: boolean }>
-  >({});
-
-  const reload = useCallback(
-    () =>
-      api<McpServer[]>("/api/mcp-servers")
-        .then(setServers)
-        .catch(() => setServers([])),
-    [],
-  );
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
-
-  const test = (server: McpServer) => {
-    setResults((r) => ({ ...r, [server.id]: { busy: true } }));
-    api<{ tools: number }>(`/api/mcp-servers/${server.id}/test`, {
-      method: "POST",
-    })
-      .then((res) =>
-        setResults((r) => ({ ...r, [server.id]: { tools: res.tools } })),
-      )
-      .catch((e: Error) =>
-        setResults((r) => ({ ...r, [server.id]: { error: e.message } })),
-      );
-  };
-
-  return (
-    <section>
-      <div className="viewhead">
-        <h2>Integrations</h2>
-        <button type="button" onClick={() => setForm("new")}>
-          Add MCP server
-        </button>
-      </div>
-      <h3>MCP Servers</h3>
-      <div className="mcpsection">
-        {servers.length === 0 && (
-          <p className="muted">No MCP servers yet — add one above.</p>
-        )}
-        {servers.map((s) => {
-          const r = results[s.id];
-          return (
-            <div className="mcpsrv" key={s.id}>
-              <header>
-                <strong>{s.name}</strong>
-                {!s.enabled && <span className="muted">(disabled)</span>}
-                <button
-                  type="button"
-                  onClick={() => test(s)}
-                  disabled={r?.busy}
-                >
-                  {r?.busy ? "Testing…" : "Test connection"}
-                </button>
-                <button type="button" onClick={() => setForm(s)}>
-                  Edit
-                </button>
-                <button
-                  type="button"
-                  className="danger"
-                  onClick={() => setRemoving(s)}
-                >
-                  Delete
-                </button>
-              </header>
-              <code>{[s.command, ...s.args].join(" ")}</code>
-              {Object.entries(s.env).length > 0 && (
-                <p className="muted envline">
-                  {Object.entries(s.env).map(([key, value]) => {
-                    const secret = isMcpSecretRef(value) ? value.secret : null;
-                    return (
-                      <span key={key} className="envchip">
-                        {`${key}=••••`}
-                        {secret && <span className="srcbadge">{secret}</span>}
-                      </span>
-                    );
-                  })}
-                </p>
-              )}
-              {r?.tools !== undefined && (
-                <p className="ok line">Connected — {r.tools} tools</p>
-              )}
-              {r?.error && <p className="error line">{r.error}</p>}
-            </div>
-          );
-        })}
-      </div>
-      {removing && (
-        <ConfirmDialog
-          text={`Delete MCP server ${removing.name}? Bots granted this server will lose its tools.`}
-          confirmLabel="Delete server"
-          onCancel={() => setRemoving(null)}
-          onConfirm={() => {
-            setRemoving(null);
-            api(`/api/mcp-servers/${removing.id}`, { method: "DELETE" })
-              .then(reload)
-              .catch((e) => alert(e.message));
-          }}
-        />
-      )}
-      {form && (
-        <McpServerModal
-          server={form === "new" ? null : form}
-          onClose={() => setForm(null)}
-          onSaved={() => {
-            setForm(null);
-            void reload();
-          }}
-        />
-      )}
-    </section>
-  );
-}
-
-export function SkillsPanel({
-  openId,
-  onOpened,
-}: {
-  openId?: string | null;
-  onOpened?: () => void;
-} = {}) {
-  const [skills, setSkills] = useState<Skill[]>([]);
-  const [addOpen, setAddOpen] = useState(false);
-  const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
-  const [removingSkill, setRemovingSkill] = useState<Skill | null>(null);
-  const [detachingSkill, setDetachingSkill] = useState<Skill | null>(null);
-  const [updatingSkill, setUpdatingSkill] = useState<Skill | null>(null);
-  const [busySkill, setBusySkill] = useState<string | null>(null);
-  const [checkingAll, setCheckingAll] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const reloadSkills = useCallback(
-    () =>
-      api<Skill[]>("/api/skills")
-        .then(setSkills)
-        .catch(() => setSkills([])),
-    [],
-  );
-
-  useEffect(() => {
-    void reloadSkills();
-  }, [reloadSkills]);
-
-  useEffect(() => {
-    if (!openId) return;
-    const skill = skills.find((candidate) => candidate.id === openId);
-    if (!skill) return;
-    setEditingSkill(skill);
-    setAddOpen(false);
-    onOpened?.();
-  }, [onOpened, openId, skills]);
-
-  const actionBusy = busySkill !== null || checkingAll;
-
-  async function runSkillAction(
-    skill: Skill,
-    path: string,
-    method = "POST",
-  ): Promise<void> {
-    setBusySkill(skill.id);
-    setError(null);
-    try {
-      const result = await api<{ status?: string; error?: string | null }>(
-        path,
-        {
-          method,
-        },
-      );
-      if (result.status === "source_unavailable") {
-        setError(
-          result.error ?? `Could not reach the source for ${skill.name}.`,
-        );
-      }
-      await reloadSkills();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusySkill(null);
-    }
-  }
-
-  async function checkAll(): Promise<void> {
-    if (actionBusy) return;
-    setCheckingAll(true);
-    setError(null);
-    try {
-      const result = await api<{
-        results?: Array<{ status: string; error?: string | null }>;
-      }>("/api/skills/check", { method: "POST" });
-      const failed = (result.results ?? []).filter(
-        (item) => item.status === "source_unavailable",
-      );
-      if (failed.length > 0) {
-        setError(
-          `${failed.length} skill update check could not reach its source.`,
-        );
-      }
-      await reloadSkills();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setCheckingAll(false);
-    }
-  }
-
-  return (
-    <section>
-      <div className="viewhead">
-        <h2>Skills</h2>
-        <button
-          type="button"
-          disabled={checkingAll}
-          onClick={() => void checkAll()}
-        >
-          {checkingAll ? "Checking…" : "Check all"}
-        </button>
-        <button type="button" onClick={() => setAddOpen(true)}>
-          + Add skill
-        </button>
-      </div>
-      {error && <p className="error">{error}</p>}
-      <div className="mcpsection">
-        {skills.length === 0 && (
-          <p className="muted">No skills yet — add one above.</p>
-        )}
-        {skills.map((sk) => {
-          const state = sk.update_state ?? null;
-          const isImported = Boolean(sk.import_info);
-          return (
-            <div className="mcpsrv" key={sk.id}>
-              <header>
-                <strong>{sk.name}</strong>
-                {isImported && (
-                  <span className="srcbadge">
-                    {`${safeImportOrigin(sk.import_info ?? "") ?? "git"} skill`}
-                  </span>
-                )}
-                <button type="button" onClick={() => setEditingSkill(sk)}>
-                  Edit
-                </button>
-                <button
-                  type="button"
-                  className="danger"
-                  onClick={() => setRemovingSkill(sk)}
-                >
-                  Delete
-                </button>
-              </header>
-              {sk.description && <p className="muted">{sk.description}</p>}
-              {isImported && (
-                <>
-                  <div className="skillstatus">
-                    <span className="muted">
-                      {state?.status
-                        ? `${updateStatusLabel(state.status)} · ${fmt(state.checked_at)}`
-                        : "Not checked yet"}
-                    </span>
-                    {state?.pinned && <span className="srcbadge">pinned</span>}
-                    {state?.modified && (
-                      <span className="srcbadge">local changes</span>
-                    )}
-                  </div>
-                  <div className="skillactions">
-                    <button
-                      type="button"
-                      disabled={actionBusy}
-                      onClick={() =>
-                        void runSkillAction(sk, `/api/skills/${sk.id}/check`)
-                      }
-                    >
-                      {busySkill === sk.id ? "Working…" : "Check"}
-                    </button>
-                    {state?.status === "update_available" && (
-                      <button
-                        type="button"
-                        disabled={actionBusy}
-                        onClick={() => setUpdatingSkill(sk)}
-                      >
-                        Update
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      disabled={actionBusy}
-                      onClick={() => setDetachingSkill(sk)}
-                    >
-                      Detach
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          );
-        })}
-      </div>
-      {removingSkill && (
-        <ConfirmDialog
-          text={`Delete skill ${removingSkill.name}? Grants referencing it will drop on next run.`}
-          confirmLabel="Delete skill"
-          onCancel={() => setRemovingSkill(null)}
-          onConfirm={() => {
-            const target = removingSkill;
-            setRemovingSkill(null);
-            void runSkillAction(target, `/api/skills/${target.id}`, "DELETE");
-          }}
-        />
-      )}
-      {detachingSkill && (
-        <ConfirmDialog
-          text={`Stop tracking updates for ${detachingSkill.name}? Its current content stays available as a hand-written skill.`}
-          confirmLabel="Detach skill"
-          onCancel={() => setDetachingSkill(null)}
-          onConfirm={() => {
-            const target = detachingSkill;
-            setDetachingSkill(null);
-            void runSkillAction(target, `/api/skills/${target.id}/detach`);
-          }}
-        />
-      )}
-      {updatingSkill && (
-        <ConfirmDialog
-          text={
-            updatingSkill.update_state?.modified
-              ? `Replace local changes to ${updatingSkill.name} with the upstream bundle?`
-              : `Update ${updatingSkill.name} from its source?`
-          }
-          confirmLabel="Update skill"
-          onCancel={() => setUpdatingSkill(null)}
-          onConfirm={() => {
-            const target = updatingSkill;
-            setUpdatingSkill(null);
-            void runSkillAction(target, `/api/skills/${target.id}/update`);
-          }}
-        />
-      )}
-      {addOpen && (
-        <AddSkillModal
-          onClose={() => setAddOpen(false)}
-          onSaved={() => {
-            setAddOpen(false);
-            void reloadSkills();
-          }}
-        />
-      )}
-      {editingSkill && (
-        <SkillModal
-          skill={editingSkill}
-          onClose={() => setEditingSkill(null)}
-          onSaved={() => {
-            setEditingSkill(null);
-            void reloadSkills();
-          }}
-        />
-      )}
-    </section>
-  );
-}
-
-function updateStatusLabel(status: SkillUpdateStatus): string {
-  if (status === "up_to_date") return "Up to date";
-  if (status === "update_available") return "Update available";
-  return "Source unavailable";
-}
-
-export function SkillModal({
-  skill,
-  onClose,
-  onSaved,
-}: {
-  skill: Skill;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [name, setName] = useState(skill.name);
-  const [description, setDescription] = useState(skill.description);
-  const [instructions, setInstructions] = useState(skill.instructions);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const dirty =
-    name !== skill.name ||
-    description !== skill.description ||
-    instructions !== skill.instructions;
-  const attemptClose = useDiscardGuard(`skill ${skill.name}`, dirty, onClose);
-
-  return (
-    <Modal
-      scrimOnCancel={attemptClose}
-      scrimLabel="Close"
-      className="dialog"
-      role="dialog"
-      aria-label="Skill"
-    >
-      <h2>Edit skill</h2>
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setBusy(true);
-          setError(null);
-          try {
-            await api(`/api/skills/${skill.id}`, {
-              method: "PATCH",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ name, description, instructions }),
-            });
-            onSaved();
-          } catch (err) {
-            setError(err instanceof Error ? err.message : String(err));
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <label>
-          Name
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-        </label>
-        <label>
-          Description (optional)
-          <input
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </label>
-        <label>
-          Instructions (markdown)
-          <textarea
-            className="fixed"
-            rows={12}
-            value={instructions}
-            onChange={(e) => setInstructions(e.target.value)}
-            required
-          />
-        </label>
-        {error && <p className="error">{error}</p>}
-        <div className="actions">
-          <button type="submit" disabled={busy}>
-            {busy ? "Saving…" : "Save"}
-          </button>
-          <UnsavedNote dirty={dirty} />
-          <button type="button" onClick={attemptClose}>
-            Cancel
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-function CreateSkillForm({
-  onSaved,
-  onDirtyChange,
-}: {
-  onSaved: () => void;
-  onDirtyChange: (dirty: boolean) => void;
-}) {
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [instructions, setInstructions] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const dirty = name !== "" || description !== "" || instructions !== "";
-
-  useEffect(() => {
-    onDirtyChange(dirty);
-  }, [dirty, onDirtyChange]);
-
-  return (
-    <form
-      onSubmit={async (e) => {
-        e.preventDefault();
-        setBusy(true);
-        setError(null);
-        try {
-          await api("/api/skills", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ name, description, instructions }),
-          });
-          onSaved();
-        } catch (err) {
-          setError(err instanceof Error ? err.message : String(err));
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
-      <label>
-        Name
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-        />
-      </label>
-      <label>
-        Description (optional)
-        <input
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
-      </label>
-      <label>
-        Instructions (markdown)
-        <textarea
-          className="fixed"
-          rows={12}
-          value={instructions}
-          onChange={(e) => setInstructions(e.target.value)}
-          required
-        />
-      </label>
-      {error && <p className="error">{error}</p>}
-      <div className="actions">
-        <button type="submit" disabled={busy}>
-          {busy ? "Creating…" : "Create"}
-        </button>
-        <UnsavedNote dirty={dirty} />
-      </div>
-    </form>
-  );
-}
-
-export function AddSkillModal({
-  onClose,
-  onSaved,
-}: {
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [tab, setTab] = useState<"create" | "import">("create");
-  const [formKey, setFormKey] = useState(0);
-  const [createDirty, setCreateDirty] = useState(false);
-  const attemptClose = useDiscardGuard("this new skill", createDirty, onClose);
-  const guard = useNavGuard();
-
-  function switchTab(next: "create" | "import") {
-    if (next === tab) return;
-    guard(() => {
-      setCreateDirty(false);
-      if (tab === "create") setFormKey((key) => key + 1);
-      setTab(next);
-    });
-  }
-
-  return (
-    <Modal
-      scrimOnCancel={attemptClose}
-      scrimLabel="Close"
-      className="dialog tabs"
-      role="dialog"
-      aria-label="Add skill"
-    >
-      <div className="viewhead">
-        <h2>Add skill</h2>
-        <button
-          type="button"
-          className="close"
-          aria-label="Cancel"
-          onClick={attemptClose}
-        >
-          <CloseIcon size={18} />
-        </button>
-      </div>
-      <TabNav
-        tabs={SKILL_MODAL_TABS}
-        selected={tab}
-        onSelect={(id) => switchTab(id as "create" | "import")}
-      />
-      <div className="tabbody">
-        {tab === "create" && (
-          <CreateSkillForm
-            key={formKey}
-            onSaved={onSaved}
-            onDirtyChange={setCreateDirty}
-          />
-        )}
-        {tab === "import" && <ImportSkillsPane onImported={onSaved} />}
-      </div>
-    </Modal>
-  );
-}
-
-export function findDuplicateEnvKey(rows: { key: string }[]): string | null {
-  const seen = new Set<string>();
-  for (const row of rows) {
-    const trimmed = row.key.trim();
-    if (!trimmed) continue;
-    if (seen.has(trimmed)) return trimmed;
-    seen.add(trimmed);
-  }
-  return null;
-}
-
-export function McpServerModal({
-  server,
-  onClose,
-  onSaved,
-}: {
-  server: McpServer | null;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [name, setName] = useState(server?.name ?? "");
-  const [command, setCommand] = useState(server?.command ?? "");
-  const [args, setArgs] = useState((server?.args ?? []).join("\n"));
-  const [envRows, setEnvRows] = useState<McpEnvRow[]>(() => {
-    const rows = mcpEnvRowsFromRecord(server?.env ?? {});
-    return rows.length > 0 ? rows : [{ key: "", mode: "literal", value: "" }];
-  });
-  const [secrets, setSecrets] = useState<SecretMeta[]>([]);
-  const [enabled, setEnabled] = useState(server ? server.enabled === 1 : true);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    let live = true;
-    void api<SecretMeta[]>("/api/secrets")
-      .then((items) => {
-        if (live) setSecrets(items);
-      })
-      .catch(() => {
-        if (live) setSecrets([]);
-      });
-    return () => {
-      live = false;
-    };
-  }, []);
-  const snap = useRef({
-    name: server?.name ?? "",
-    command: server?.command ?? "",
-    args: (server?.args ?? []).join("\n"),
-    env: JSON.stringify(envRows),
-    enabled: server ? server.enabled === 1 : true,
-  }).current;
-  const dirty =
-    name !== snap.name ||
-    command !== snap.command ||
-    args !== snap.args ||
-    JSON.stringify(envRows) !== snap.env ||
-    enabled !== snap.enabled;
-  const attemptClose = useDiscardGuard(
-    server ? `MCP server ${server.name}` : "this new MCP server",
-    dirty,
-    onClose,
-  );
-
-  return (
-    <Modal
-      scrimOnCancel={attemptClose}
-      scrimLabel="Close"
-      className="dialog"
-      role="dialog"
-      aria-label="MCP server"
-    >
-      <h2>{server ? "Edit MCP server" : "Add MCP server"}</h2>
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          const duplicateKey = findDuplicateEnvKey(envRows);
-          if (duplicateKey !== null) {
-            setError(`duplicate environment variable key ${duplicateKey}`);
-            return;
-          }
-          setBusy(true);
-          setError(null);
-          const body = {
-            name,
-            command,
-            args: args
-              .split("\n")
-              .map((a) => a.trim())
-              .filter(Boolean),
-            env: mcpEnvMapFromRows(envRows),
-            enabled,
-          };
-          try {
-            await api(
-              server ? `/api/mcp-servers/${server.id}` : "/api/mcp-servers",
-              {
-                method: server ? "PATCH" : "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify(body),
-              },
-            );
-            onSaved();
-          } catch (err) {
-            setError(err instanceof Error ? err.message : String(err));
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <label>
-          Name
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-        </label>
-        <label>
-          Command
-          <input
-            value={command}
-            placeholder="npx"
-            onChange={(e) => setCommand(e.target.value)}
-            required
-          />
-        </label>
-        <label>
-          Args (one per line)
-          <textarea
-            rows={3}
-            value={args}
-            placeholder={"-y\n@example/mcp-server"}
-            onChange={(e) => setArgs(e.target.value)}
-          />
-        </label>
-        <fieldset className="envrows">
-          <legend>Env vars</legend>
-          {envRows.map((row, i) => (
-            <div className="envrow" key={i}>
-              <input
-                placeholder="KEY"
-                value={row.key}
-                onChange={(e) =>
-                  setEnvRows(
-                    envRows.map((r, j) =>
-                      j === i ? { ...r, key: e.target.value } : r,
-                    ),
-                  )
-                }
-              />
-              <div className="envvalue">
-                <div className="themegroup envmode">
-                  <button
-                    type="button"
-                    aria-label={`Use a literal value for env var ${i + 1}`}
-                    className={row.mode === "literal" ? "sel" : ""}
-                    onClick={() =>
-                      setEnvRows(
-                        envRows.map((r, j) =>
-                          j === i ? { ...r, mode: "literal" } : r,
-                        ),
-                      )
-                    }
-                  >
-                    Literal
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Use a secret reference for env var ${i + 1}`}
-                    className={row.mode === "secret" ? "sel" : ""}
-                    onClick={() =>
-                      setEnvRows(
-                        envRows.map((r, j) => {
-                          if (j !== i) return r;
-                          const known = secrets.some((s) => s.name === r.value);
-                          return {
-                            ...r,
-                            mode: "secret",
-                            value: known ? r.value : "",
-                          };
-                        }),
-                      )
-                    }
-                  >
-                    Secret
-                  </button>
-                </div>
-                {row.mode === "literal" ? (
-                  <input
-                    placeholder="value"
-                    value={row.value}
-                    onChange={(e) =>
-                      setEnvRows(
-                        envRows.map((r, j) =>
-                          j === i ? { ...r, value: e.target.value } : r,
-                        ),
-                      )
-                    }
-                  />
-                ) : (
-                  <select
-                    aria-label={`Env var ${i + 1} secret`}
-                    value={row.value}
-                    onChange={(e) =>
-                      setEnvRows(
-                        envRows.map((r, j) =>
-                          j === i ? { ...r, value: e.target.value } : r,
-                        ),
-                      )
-                    }
-                  >
-                    <option value="">Select a secret…</option>
-                    {row.value &&
-                      !secrets.some((s) => s.name === row.value) && (
-                        <option
-                          value={row.value}
-                        >{`${row.value} (missing)`}</option>
-                      )}
-                    {secrets.map((secret) => (
-                      <option key={secret.id} value={secret.name}>
-                        {secret.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-              <button
-                type="button"
-                className="danger ghost"
-                aria-label={`Remove env var ${i + 1}`}
-                onClick={() => setEnvRows(envRows.filter((_, j) => j !== i))}
-              >
-                <CloseIcon size={18} />
-              </button>
-            </div>
-          ))}
-          <button
-            type="button"
-            className="linklike"
-            onClick={() =>
-              setEnvRows([...envRows, { key: "", mode: "literal", value: "" }])
-            }
-          >
-            + Add variable
-          </button>
-        </fieldset>
-        <label className="checkrow">
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={(e) => setEnabled(e.target.checked)}
-          />
-          Enabled
-        </label>
-        {error && <p className="error">{error}</p>}
-        <div className="actions">
-          <button type="button" onClick={attemptClose}>
-            Cancel
-          </button>
-          <button type="submit" disabled={busy}>
-            {busy ? "Saving…" : "Save"}
-          </button>
-          <UnsavedNote dirty={dirty} />
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-export function MachinesPanel() {
-  const [machines, setMachines] = useState<Machine[]>([]);
-  const [form, setForm] = useState<Machine | "new" | null>(null);
-  const [removing, setRemoving] = useState<Machine | null>(null);
-  const [refreshing, setRefreshing] = useState<string | null>(null);
-
-  const reload = useCallback(
-    () =>
-      api<Machine[]>("/api/machines")
-        .then(setMachines)
-        .catch(() => setMachines([])),
-    [],
-  );
-
-  const refresh = (m: Machine) => {
-    setRefreshing(m.id);
-    api(
-      m.builtin
-        ? "/api/machines/default/repull"
-        : `/api/machines/${m.id}/rebuild`,
-      { method: "POST" },
-    )
-      .then(reload)
-      .catch((e) => alert(e.message))
-      .finally(() => setRefreshing(null));
-  };
-
-  useEffect(() => {
-    void reload();
-    const t = setInterval(reload, 4000);
-    return () => clearInterval(t);
-  }, [reload]);
-
-  return (
-    <section>
-      <div className="viewhead">
-        <h2>Machines</h2>
-        <button type="button" onClick={() => setForm("new")}>
-          Add machine
-        </button>
-      </div>
-      <div className="mcpsection">
-        {machines.map((m) => (
-          <div className="mcpsrv" key={m.id}>
-            <header>
-              <strong>{m.name}</strong>
-              {refreshing === m.id ? (
-                <span className="muted">
-                  {m.builtin ? "Pulling…" : "Building…"}
-                </span>
-              ) : (
-                <button type="button" onClick={() => refresh(m)}>
-                  {m.builtin ? "Repull" : "Rebuild"}
-                </button>
-              )}
-              {!m.builtin && (
-                <>
-                  <button type="button" onClick={() => setForm(m)}>
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    onClick={() => setRemoving(m)}
-                  >
-                    Delete
-                  </button>
-                </>
-              )}
-              {m.builtin && <span className="muted">built-in</span>}
-            </header>
-            {m.description && <p className="line muted">{m.description}</p>}
-            {m.image && <code>{m.image}</code>}
-            {!m.builtin && !m.image && !m.build_error && (
-              <p className="line muted">Built on first use by a bot.</p>
-            )}
-            {m.build_error && <pre className="error">{m.build_error}</pre>}
-          </div>
-        ))}
-      </div>
-      {removing && (
-        <ConfirmDialog
-          text={`Delete machine ${removing.name}? Bots still using it must switch machines first.`}
-          confirmLabel="Delete machine"
-          onCancel={() => setRemoving(null)}
-          onConfirm={() => {
-            const target = removing;
-            setRemoving(null);
-            api(`/api/machines/${target.id}`, { method: "DELETE" })
-              .then(reload)
-              .catch((e) => alert(e.message));
-          }}
-        />
-      )}
-      {form && (
-        <MachineModal
-          machine={form === "new" ? null : form}
-          onClose={() => setForm(null)}
-          onSaved={() => {
-            setForm(null);
-            void reload();
-          }}
-        />
-      )}
-    </section>
-  );
-}
-
-export function MachineModal({
-  machine,
-  onClose,
-  onSaved,
-}: {
-  machine: Machine | null;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [name, setName] = useState(machine?.name ?? "");
-  const [description, setDescription] = useState(machine?.description ?? "");
-  const [dockerfile, setDockerfile] = useState(machine?.dockerfile ?? "");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const dirty =
-    name !== (machine?.name ?? "") ||
-    description !== (machine?.description ?? "") ||
-    dockerfile !== (machine?.dockerfile ?? "");
-  const attemptClose = useDiscardGuard(
-    machine ? `machine ${machine.name}` : "this new machine",
-    dirty,
-    onClose,
-  );
-
-  return (
-    <Modal
-      scrimOnCancel={attemptClose}
-      scrimLabel="Close"
-      className="dialog"
-      role="dialog"
-      aria-label="Machine"
-    >
-      <h2>{machine ? "Edit machine" : "Add machine"}</h2>
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setBusy(true);
-          setError(null);
-          try {
-            await api(
-              machine ? `/api/machines/${machine.id}` : "/api/machines",
-              {
-                method: machine ? "PATCH" : "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ name, description, dockerfile }),
-              },
-            );
-            onSaved();
-          } catch (err) {
-            setError(err instanceof Error ? err.message : String(err));
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <label>
-          Name
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-        </label>
-        <label>
-          Description (optional)
-          <input
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </label>
-        <label>
-          Dockerfile
-          <textarea
-            className="code"
-            rows={14}
-            spellCheck={false}
-            placeholder={
-              "FROM ghcr.io/tehzevo/bots-sandbox:latest\nRUN apt-get update && apt-get install -y ripgrep"
-            }
-            value={dockerfile}
-            onChange={(e) => setDockerfile(e.target.value)}
-            required
-          />
-        </label>
-        {error && <p className="error">{error}</p>}
-        <div className="actions">
-          <button type="submit" disabled={busy}>
-            {busy ? "Saving…" : machine ? "Save" : "Create"}
-          </button>
-          <UnsavedNote dirty={dirty} />
-          <button type="button" onClick={attemptClose}>
-            Cancel
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-export function TemplateEditorModal({
-  initial,
-  onClose,
-  onSaved,
-}: {
-  initial: Omit<Template, "id" | "created_at"> & { id?: string };
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [name, setName] = useState(initial.name);
-  const [description, setDescription] = useState(initial.description);
-  const [instructions, setInstructions] = useState(initial.instructions);
-  const [machineId, setMachineId] = useState(initial.machine_id ?? "");
-  const [roleId, setRoleId] = useState(initial.role_id ?? "");
-  const [triggers, setTriggers] = useState<TemplateTrigger[]>(initial.triggers);
-  const [machines, setMachines] = useState<Machine[]>([]);
-  const [roles, setRoles] = useState<Role[]>([]);
-  const [busy, setBusy] = useState(false);
-  const snap = useRef({
-    name: initial.name,
-    description: initial.description,
-    instructions: initial.instructions,
-    machine_id: initial.machine_id ?? "",
-    role_id: initial.role_id ?? "",
-    triggers: JSON.stringify(initial.triggers),
-  }).current;
-  const dirty =
-    name !== snap.name ||
-    description !== snap.description ||
-    instructions !== snap.instructions ||
-    machineId !== snap.machine_id ||
-    roleId !== snap.role_id ||
-    JSON.stringify(triggers) !== snap.triggers;
-  const attemptClose = useDiscardGuard(
-    initial.id ? `template ${initial.name}` : "this new template",
-    dirty,
-    onClose,
-  );
-
-  useEffect(() => {
-    void api<Role[]>("/api/roles").then(setRoles, () => setRoles([]));
-    void api<Machine[]>("/api/machines")
-      .then((ms) => setMachines(ms.filter((m) => !m.builtin)))
-      .catch(() => setMachines([]));
-  }, []);
-
-  const missing = [
-    machineId && !machines.some((m) => m.id === machineId) ? "machine" : null,
-    roleId && !roles.some((r) => r.id === roleId) ? "role" : null,
-  ].filter(Boolean);
-
-  async function submitTemplate(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      const body = JSON.stringify({
-        name,
-        description,
-        instructions,
-        machine_id: machineId || null,
-        role_id: roleId || null,
-        triggers,
-      });
-      await api(
-        initial.id ? `/api/templates/${initial.id}` : "/api/templates",
-        {
-          method: initial.id ? "PATCH" : "POST",
-          headers: { "content-type": "application/json" },
-          body,
-        },
-      );
-      onSaved();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
-      setBusy(false);
-    }
-  }
-
-  return (
-    <ModalForm
-      scrimOnCancel={attemptClose}
-      className="dialog narrow"
-      role="dialog"
-      aria-label="Template"
-      onSubmit={submitTemplate}
-    >
-      <div className="viewhead">
-        <h2>{initial.id ? "Edit template" : "New template"}</h2>
-        <button
-          type="button"
-          className="close"
-          aria-label="Cancel"
-          onClick={attemptClose}
-        >
-          <CloseIcon size={18} />
-        </button>
-      </div>
-      <input
-        placeholder="template name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        required
-      />
-      <input
-        placeholder="description (optional)"
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-      />
-      <textarea
-        placeholder="instructions (optional)"
-        rows={3}
-        value={instructions}
-        onChange={(e) => setInstructions(e.target.value)}
-      />
-      {missing.length > 0 && (
-        <p className="warnline">⚠ referenced {missing.join(" and ")} deleted</p>
-      )}
-      <p className="rolepick">
-        Role{" "}
-        <select value={roleId} onChange={(e) => setRoleId(e.target.value)}>
-          <option value="">None</option>
-          {roles.map((role) => (
-            <option key={role.id} value={role.id}>
-              {role.name}
-            </option>
-          ))}
-        </select>
-      </p>
-      <p className="rolepick">
-        Machine{" "}
-        <select
-          value={machineId}
-          onChange={(e) => setMachineId(e.target.value)}
-        >
-          <option value="">Default</option>
-          {machines.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name}
-            </option>
-          ))}
-        </select>
-      </p>
-      <p className="muted">Starter triggers</p>
-      {triggers.map((t, i) => (
-        <div className="keyrow" key={i}>
-          <input
-            placeholder="message"
-            value={t.message}
-            onChange={(e) =>
-              setTriggers((ts) =>
-                ts.map((x, j) =>
-                  j === i ? { ...x, message: e.target.value } : x,
-                ),
-              )
-            }
-          />
-          <input
-            className="sched"
-            placeholder="@every 1h"
-            value={t.schedule}
-            onChange={(e) =>
-              setTriggers((ts) =>
-                ts.map((x, j) =>
-                  j === i ? { ...x, schedule: e.target.value } : x,
-                ),
-              )
-            }
-          />
-          <button
-            type="button"
-            aria-label={`Remove trigger ${i + 1}`}
-            onClick={() => setTriggers((ts) => ts.filter((_, j) => j !== i))}
-          >
-            <CloseIcon size={18} />
-          </button>
-        </div>
-      ))}
-      <button
-        type="button"
-        onClick={() =>
-          setTriggers((ts) => [...ts, { message: "", schedule: "@every 1h" }])
-        }
-      >
-        Add trigger
-      </button>
-      <div className="actions">
-        <button type="submit" disabled={busy}>
-          Save
-        </button>
-        <UnsavedNote dirty={dirty} />
-        <button type="button" onClick={attemptClose}>
-          Cancel
-        </button>
-      </div>
-    </ModalForm>
-  );
-}
-
-export function TemplatesPanel({
-  openId,
-  onOpened,
-}: {
-  openId?: string | null;
-  onOpened?: () => void;
-} = {}) {
-  const [templates, setTemplates] = useState<Template[]>([]);
-  const [editing, setEditing] = useState<
-    (Omit<Template, "id" | "created_at"> & { id?: string }) | null
-  >(null);
-  const [removing, setRemoving] = useState<Template | null>(null);
-
-  const reload = useCallback(
-    () =>
-      api<Template[]>("/api/templates")
-        .then(setTemplates)
-        .catch(() => setTemplates([])),
-    [],
-  );
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
-
-  useEffect(() => {
-    if (!openId) return;
-    const template = templates.find((candidate) => candidate.id === openId);
-    if (!template) return;
-    setEditing(template);
-    onOpened?.();
-  }, [onOpened, openId, templates]);
-
-  return (
-    <section>
-      <div className="viewhead">
-        <h2>Templates</h2>
-        <button
-          type="button"
-          onClick={() =>
-            setEditing({
-              name: "",
-              description: "",
-              instructions: "",
-              machine_id: null,
-              role_id: null,
-              triggers: [],
-            })
-          }
-        >
-          Add template
-        </button>
-      </div>
-      <div className="mcpsection">
-        {templates.length === 0 && (
-          <p className="muted">No templates yet — add one above.</p>
-        )}
-        {templates.map((t) => (
-          <div className="mcpsrv" key={t.id}>
-            <header>
-              <strong>{t.name}</strong>
-              <button type="button" onClick={() => setEditing(t)}>
-                Edit
-              </button>
-              <button
-                type="button"
-                className="danger"
-                onClick={() => setRemoving(t)}
-              >
-                Delete
-              </button>
-            </header>
-            {t.description && <p className="muted">{t.description}</p>}
-            <p className="muted">
-              {t.triggers.length} starter trigger
-              {t.triggers.length === 1 ? "" : "s"}
-            </p>
-          </div>
-        ))}
-      </div>
-      {removing && (
-        <ConfirmDialog
-          text={`Delete template ${removing.name}? Bots created from it are untouched.`}
-          confirmLabel="Delete template"
-          onCancel={() => setRemoving(null)}
-          onConfirm={() =>
-            void api(`/api/templates/${removing.id}`, { method: "DELETE" })
-              .then(reload)
-              .catch((e) => alert(e.message))
-              .finally(() => setRemoving(null))
-          }
-        />
-      )}
-      {editing && (
-        <TemplateEditorModal
-          initial={editing}
-          onClose={() => setEditing(null)}
-          onSaved={() => {
-            setEditing(null);
-            void reload();
-          }}
-        />
-      )}
     </section>
   );
 }
@@ -8875,7 +6254,7 @@ export function SecretModal({
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-  const dirty =
+  const _dirty =
     name.trim() !== (secret?.name ?? "") ||
     key !== (secret?.key ?? "") ||
     value !== "";
@@ -9061,184 +6440,5 @@ export function BotSecrets({ botId }: { botId: string }) {
         </label>
       ))}
     </div>
-  );
-}
-
-function safeImportOrigin(raw: string): string | null {
-  try {
-    const info = JSON.parse(raw) as { origin?: string };
-    return typeof info.origin === "string" ? info.origin : null;
-  } catch {
-    return null;
-  }
-}
-
-function ImportSkillsPane({ onImported }: { onImported: () => void }) {
-  const [query, setQuery] = useState("");
-  const [hits, setHits] = useState<SearchHit[] | null>(null);
-  const [source, setSource] = useState("");
-  const [previews, setPreviews] = useState<SkillPreviewRow[]>([]);
-  const [picked, setPicked] = useState<Set<string>>(new Set());
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const search = async () => {
-    if (!query.trim() || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const r = await api<{ results: SearchHit[] }>(
-        `/api/skills/search?q=${encodeURIComponent(query.trim())}`,
-      );
-      setHits(r.results);
-    } catch (e) {
-      setHits([]);
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const preview = async () => {
-    if (!source.trim() || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const r = await api<{ skills: SkillPreviewRow[] }>(
-        "/api/skills/preview",
-        { method: "POST", body: JSON.stringify({ source: source.trim() }) },
-      );
-      setPreviews(r.skills);
-      setPicked(new Set());
-    } catch (e) {
-      setPreviews([]);
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const doImport = async () => {
-    if (!picked.size || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await api("/api/skills/import", {
-        method: "POST",
-        body: JSON.stringify({ source: source.trim(), folders: [...picked] }),
-      });
-      onImported();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <>
-      <label className="field">
-        Search skills.sh
-        <input
-          value={query}
-          placeholder="pdf, testing, ..."
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              void search();
-            }
-          }}
-        />
-      </label>
-      <div className="actions">
-        <button
-          type="button"
-          disabled={busy || !query.trim()}
-          onClick={() => void search()}
-        >
-          Search
-        </button>
-      </div>
-      {hits && (
-        <ul className="srclist">
-          {hits.length === 0 && <li className="muted">No matches.</li>}
-          {hits.map((h) => (
-            <li key={h.id}>
-              <span>
-                {h.name}{" "}
-                <em className="muted">
-                  ({h.source}
-                  {h.installs !== null ? ` · ${h.installs} installs` : ""})
-                </em>
-              </span>
-              <button
-                type="button"
-                onClick={() => setSource(`${h.source}@${h.skill_id}`)}
-              >
-                Use
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <label className="field">
-        Git source
-        <input
-          value={source}
-          placeholder="owner/repo, https://…/tree/main/skills/pdf@pdf#v1.2"
-          onChange={(e) => setSource(e.target.value)}
-        />
-      </label>
-      <div className="actions">
-        <button
-          type="button"
-          disabled={busy || !source.trim()}
-          onClick={() => void preview()}
-        >
-          Preview
-        </button>
-      </div>
-      {previews.length > 0 && (
-        <ul className="srclist">
-          {previews.map((p) => (
-            <li key={p.folder}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={picked.has(p.folder)}
-                  onChange={() =>
-                    setPicked((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(p.folder)) next.delete(p.folder);
-                      else next.add(p.folder);
-                      return next;
-                    })
-                  }
-                />{" "}
-                <strong>{p.name}</strong>{" "}
-                <em className="muted">
-                  {p.folder} · {p.file_count} files ·{" "}
-                  {(p.total_size / 1024).toFixed(0)} KB
-                </em>
-              </label>
-            </li>
-          ))}
-        </ul>
-      )}
-      {error && <p className="error">{error}</p>}
-      <div className="actions">
-        <button
-          type="button"
-          disabled={busy || picked.size === 0}
-          onClick={() => void doImport()}
-        >
-          Import{" "}
-          {picked.size > 0
-            ? `${picked.size} skill${picked.size > 1 ? "s" : ""}`
-            : ""}
-        </button>
-      </div>
-    </>
   );
 }
