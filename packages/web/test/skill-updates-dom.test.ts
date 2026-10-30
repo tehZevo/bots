@@ -201,7 +201,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 
 const React = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { SkillsPanel } = await import("../src/App.tsx");
+const { SkillsPanel } = await import("../src/panels/SkillsPanel.tsx");
 const act = React.act;
 
 async function flush(): Promise<void> {

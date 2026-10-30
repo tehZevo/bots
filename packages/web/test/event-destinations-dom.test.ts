@@ -131,7 +131,9 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 
 const React = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { EventDestinationsSection } = await import("../src/App.tsx");
+const { EventDestinationsSection } = await import(
+  "../src/panels/settings/EventDestinationsSection.tsx"
+);
 const act = React.act;
 
 async function flush(): Promise<void> {

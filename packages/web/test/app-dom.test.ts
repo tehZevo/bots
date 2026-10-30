@@ -48,21 +48,26 @@ Object.defineProperty(window.navigator, "clipboard", {
 
 const React = await import("react");
 const { createRoot } = await import("react-dom/client");
+const { App } = await import("../src/App.tsx");
+const { applyOptimisticRunStates, optimisticRunUpdate } = await import(
+  "../src/lib/runStates.ts"
+);
+const { BotCard } = await import("../src/components/BotCard.tsx");
+const { BotGeneral } = await import("../src/components/botTabs/BotGeneral.tsx");
+const { ConfigBackupSection } = await import(
+  "../src/panels/settings/ConfigBackupSection.tsx"
+);
+const { BotTags } = await import("../src/components/botTabs/BotTags.tsx");
 const {
-  applyOptimisticRunStates,
-  App,
-  BotCard,
-  BotGeneral,
-  ConfigBackupSection,
-  BotTags,
   findDuplicateEnvKey,
   mcpEnvMapFromRows,
   mcpEnvRowsFromRecord,
-  McpServerModal,
-  optimisticRunUpdate,
-  ProviderFormModal,
-  Triggers,
-} = await import("../src/App.tsx");
+} = await import("../src/lib/mcpEnv.ts");
+const { McpServerModal } = await import("../src/panels/IntegrationsPanel.tsx");
+const { ProviderFormModal } = await import(
+  "../src/panels/settings/ProvidersSection.tsx"
+);
+const { Triggers } = await import("../src/components/Triggers.tsx");
 const { parseScheduleState, scheduleFromState, ScheduleEditor } = await import(
   "../src/schedule.tsx"
 );
@@ -1413,7 +1418,7 @@ test("a failed tag create keeps the typed text", async () => {
 });
 
 test("tags panel lists tags with bot counts", async () => {
-  const { TagsPanel } = await import("../src/App.tsx");
+  const { TagsPanel } = await import("../src/panels/TagsPanel.tsx");
   const root = await mount(React.createElement(TagsPanel));
   await flush();
   const cards = [...window.document.querySelectorAll(".cards .card")];

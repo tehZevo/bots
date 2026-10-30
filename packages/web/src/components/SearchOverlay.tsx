@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { SearchCommand, SearchRenderRow } from "../App.tsx";
+import type { SearchCommand, SearchRenderRow } from "../lib/search.ts";
 
 const SEARCH_LABELS: Record<SearchEntityType, string> = {
   bots: "Bots",
