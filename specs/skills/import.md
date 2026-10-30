@@ -4,6 +4,7 @@
 - A skill can be written by hand (`manage.md`) or imported from a source; an imported skill stores the whole bundle — `SKILL.md` plus references, scripts and assets — not only its instruction text.
 - Sources: a skills.sh lookup by name or keyword, or a Git source given as `owner/repo`, a repository URL, an optional `/tree/<ref>/<path>` subpath, an optional `@<skill>` name filter, and an optional `#<ref>` branch, tag or commit. An omitted ref means the repository's default branch.
 - Git sources are network-guarded like `web_fetch` (`../tools/web-fetch.md`): only http(s) clone URLs (the `file:` scheme is rejected), and hosts resolving to loopback, private or link-local ranges are refused with "source host not allowed"; refs and paths are passed to git after `--` so they can never act as flags.
+- Setting `BOTS_ALLOW_PRIVATE_NETWORK=1` also re-allows `file:` clone URLs.
 - Import runs in two steps: resolve the source into a preview, then confirm. Resolving lists every discoverable `SKILL.md` with its frontmatter name and description without writing anything; the user selects one, several or all.
 - The preview shows, per skill: name, description, source, requested ref, resolved commit, file count, total size, the declared license when present, and the bundle's content hash.
 - Confirming stores each selected bundle under the server data directory keyed by a new immutable skill id, resolves name and description from frontmatter, and uses the body as the skill's instructions. Files are stored byte-for-byte.

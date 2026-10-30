@@ -207,6 +207,7 @@ import {
   searchSkillsSh,
   storeBundle,
 } from "./skillimport.ts";
+import { HostNotAllowedError } from "./ssrf.ts";
 import {
   checkSkillUpdate,
   detachSkill,
@@ -220,6 +221,13 @@ import {
   readWorkspaceFile,
   WorkspaceError,
 } from "./workspace.ts";
+
+function skillSourceFailure(err: unknown): { error: string } {
+  if (err instanceof HostNotAllowedError) return { error: err.message };
+  return {
+    error: `source unavailable: ${err instanceof Error ? err.message : String(err)}`,
+  };
+}
 
 const DEFAULT_MANUAL_MESSAGE = "Continue with your current work.";
 const LLM_CHAT_ROLES = new Set(["user", "assistant", "toolResult"]);
@@ -3061,12 +3069,7 @@ export function createApp() {
     try {
       cloned = await cloneRepo(git);
     } catch (err) {
-      return c.json(
-        {
-          error: `source unavailable: ${err instanceof Error ? err.message : String(err)}`,
-        },
-        502,
-      );
+      return c.json(skillSourceFailure(err), 502);
     }
     try {
       const previews = previewSkills((cloned as ClonedRepo).dir, git);
@@ -3119,12 +3122,7 @@ export function createApp() {
     try {
       cloned = await cloneRepo(git);
     } catch (err) {
-      return c.json(
-        {
-          error: `source unavailable: ${err instanceof Error ? err.message : String(err)}`,
-        },
-        502,
-      );
+      return c.json(skillSourceFailure(err), 502);
     }
     try {
       const all = previewSkills((cloned as ClonedRepo).dir, git);

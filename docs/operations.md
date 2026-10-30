@@ -16,6 +16,7 @@ The orchestrator runs as one container bundling the API server and built web UI.
 | `DEV_FAKE_LLM` | Set to `"1"` at boot to expose the built-in read-only Fake provider for local development |
 | `DEV_SEED_AUTH` | Set to `"1"` for local development only — idempotently seeds `dev@example.com` / `devpassword` plus an API key named `dev`; the full generated value is logged once when created, and existing users or keys are preserved |
 | `TRUST_PROXY` | Set `"true"` behind a trusted reverse proxy so rate limits use the first `X-Forwarded-For` hop; otherwise client IP comes from the socket address |
+| `BOTS_ALLOW_PRIVATE_NETWORK` | Trusted single-host escape hatch — set `"1"` to disable the SSRF guard, allowing all address ranges and `file:` skill-import clone URLs; unset by default |
 | `LLM_CONTEXT_WINDOW` | Context window assumed for models, default `64000` tokens |
 | `LLM_MAX_TOKENS` | Per-request output cap, default `4096` tokens |
 | `COMPACTION_TOKEN_THRESHOLD` | Fixed token count that triggers context compaction; unset means compact automatically at `COMPACTION_RATIO` of the model's context window |

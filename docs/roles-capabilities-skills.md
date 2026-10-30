@@ -18,7 +18,7 @@ On the **Import** tab, search [skills.sh](https://skills.sh) by name/keyword and
 2. Select one, several or all and press **Import**; closing the modal or switching to **Create** before this confirmation writes nothing.
 3. Each confirmed bundle (`SKILL.md` plus references, scripts and assets) is stored byte-for-byte, its frontmatter body becomes the skill's instructions, and immutable provenance (origin, source, ref, commit, path, hash, timestamps) is recorded. Imported bundles are marked as such; hand-written ones are not.
 
-Imports save nothing — rejecting with an error — when the source is unreachable or private, a bundle exceeds 200 files or 5 MB, or a `SKILL.md` lacks a valid frontmatter name/description.
+Imports save nothing — rejecting with an error — when the source is unreachable, authenticated-only or resolves to a private/internal address (`source host not allowed`), a bundle exceeds 200 files or 5 MB, or a `SKILL.md` lacks a valid frontmatter name/description.
 
 ### Keeping imported skills current
 
@@ -28,4 +28,4 @@ When an update is available, **Update** replaces the skill's metadata, instructi
 
 ## Capabilities (MCP servers)
 
-Anything beyond the baseline tools comes from [MCP integrations](/integrations-mcp). Granted servers' tools appear to the agent namespaced as `<server>_<tool>`; if one server is unreachable at loop start it's skipped without breaking the run, and failing tool calls return an error string instead of killing the loop.
+Anything beyond the baseline tools comes from [MCP integrations](/integrations-mcp). Granted servers' tools appear to the agent namespaced as `<server>_<tool>`; if one server is unreachable at loop start it's skipped without breaking the run, and failing tool calls return an error string instead of killing the loop. `web_fetch` accepts only absolute http(s) URLs and refuses hosts that resolve to loopback, private or link-local ranges (including cloud metadata); every redirect hop is revalidated under the same guard, up to five hops.

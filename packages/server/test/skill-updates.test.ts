@@ -16,6 +16,7 @@ const dataDir = mkdtempSync(join(tmpdir(), "bots-skill-updates-"));
 process.env.DATA_DIR = dataDir;
 process.env.DATABASE_PATH = join(dataDir, "t.db");
 process.env.ALLOW_REGISTRATION = "true";
+process.env.BOTS_ALLOW_PRIVATE_NETWORK = "1";
 delete process.env.DEV_SEED_AUTH;
 
 const { createApp } = await import("../src/api.ts");
