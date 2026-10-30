@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { BOT_NAMES, pickBotName } from "../src/lib/botNames.ts";
+import { fmt, relTime } from "../src/lib/format.ts";
 
 const store = new Map<string, string>();
 globalThis.localStorage = {
@@ -23,11 +25,7 @@ const {
   smoothClosedPath,
   avatarColor,
   AVATAR_COLORS,
-  BOT_NAMES,
-  relTime,
-  fmt,
   nextRunLabel,
-  pickBotName,
   Avatar,
   StatusDot,
   BotIcon,
