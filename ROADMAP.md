@@ -12,4 +12,3 @@ Behaviors agreed on but not yet specced in detail. Each becomes its own spec dir
 - **Installable skills — skills.sh** — discover and install skills from the skills.sh registry.
 - **Installable skills — git repo** — install a skill from a git repository URL.
 - **Isolated MCP execution** — run MCP servers in a container with the orchestrator's own filesystem, network and docker socket withheld, instead of as host processes.
-- **Electron app** — desktop wrapper around the web UI: pick a server, keep bots visible via tray icon and native notifications; reuses the REST API and browser push conventions of the PWA.
