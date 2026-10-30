@@ -65,6 +65,7 @@ Both routes require a browser session and reject API-key bearer authentication w
 | GET | `/api/bots/:id/usage` | Token totals for the bot: `{ lifetime, last30d, budget }`; windows carry `input`, `output`, `cache_read`, `cache_write`, `total`, and `budget` is the trailing-30-day token cap (`null` = unlimited) |
 | GET | `/api/bots/:id/context-usage` | Estimated context split: `{ context_window, categories: { system_prompt, tools, conversation }, used, free }`; `context_window`/`free` are `null` with no model configured |
 | GET/POST | `/api/bots/:id/messages` | Chat history / inject a chat turn (steers or starts; while globally paused `{ runId: null, held: true }`; 409 when archived or disabled) |
+| GET (SSE) | `/api/bots/:id/messages/stream` | Live chat snapshot stream — each `data:` event carries `{ turns, working }`, including partial assistant text and running tool output; bots with no durable conversation receive periodic stored-history snapshots until their first run creates one |
 | DELETE | `/api/bots/:id/messages` | Clear stored context |
 
 ## Global pause

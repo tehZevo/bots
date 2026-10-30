@@ -450,6 +450,39 @@ async function expandTranscript(): Promise<void> {
   await flush();
 }
 
+class FakeEventSource {
+  static sources = new Set<FakeEventSource>();
+  url: string;
+  onopen: ((event?: unknown) => void) | null = null;
+  onerror: ((event?: unknown) => void) | null = null;
+  onmessage: ((event: MessageEvent) => void) | null = null;
+
+  constructor(url: string) {
+    this.url = url;
+    FakeEventSource.sources.add(this);
+  }
+
+  close(): void {
+    FakeEventSource.sources.delete(this);
+  }
+
+  addEventListener(..._args: unknown[]): void {}
+
+  removeEventListener(..._args: unknown[]): void {}
+}
+
+Object.defineProperty(globalThis, "EventSource", {
+  configurable: true,
+  writable: true,
+  value: FakeEventSource,
+});
+
+function chatStream(): FakeEventSource | undefined {
+  return [...FakeEventSource.sources].find((source) =>
+    source.url.endsWith("/messages/stream"),
+  );
+}
+
 test("app navigation, chat, and bot detail flows", async () => {
   const root = await mount(React.createElement(App));
   assert.match(window.document.body.textContent ?? "", /Sable/);
@@ -1675,6 +1708,7 @@ test("accepted chat send flips cues immediately", async () => {
     await typeInto(input, "check");
     await click(button("Send"));
 
+    assert.match(window.document.body.textContent ?? "", /check/);
     assert.ok(byLabel("bot is working"));
     assert.ok(
       window.document.querySelector(
@@ -1683,6 +1717,66 @@ test("accepted chat send flips cues immediately", async () => {
     );
   } finally {
     Object.assign(bot, previous);
+    if (root) {
+      await act(async () => {
+        root?.unmount();
+      });
+    }
+  }
+});
+
+test("chat sidebar updates from stream events", async () => {
+  requests.length = 0;
+  for (const source of FakeEventSource.sources) source.close();
+  let root: ReturnType<typeof createRoot> | undefined;
+  try {
+    root = await mount(React.createElement(App));
+    await click(byLabel("Sable (null)"));
+
+    const source = chatStream();
+    assert.ok(source, "expected a chat event stream");
+    await act(async () => {
+      source.onopen?.();
+    });
+
+    const messageRequests = (): number =>
+      requests.filter((request) => request === "GET /api/bots/b1/messages")
+        .length;
+    assert.ok(messageRequests() > 0);
+    const before = messageRequests();
+
+    await act(async () => {
+      source.onmessage?.({
+        data: JSON.stringify({
+          turns: [
+            { role: "user", text: "hello" },
+            { role: "assistant", text: "streamed reply" },
+          ],
+          working: true,
+        }),
+      } as MessageEvent);
+    });
+
+    assert.match(window.document.body.textContent ?? "", /streamed reply/);
+    assert.ok(byLabel("bot is working"));
+    await act(async () => {
+      source.onmessage?.({
+        data: JSON.stringify({
+          turns: [
+            { role: "user", text: "hello" },
+            { role: "assistant", text: "streamed full reply" },
+          ],
+          working: false,
+        }),
+      } as MessageEvent);
+    });
+
+    const bodyText = window.document.body.textContent ?? "";
+    assert.match(bodyText, /streamed full reply/);
+    assert.doesNotMatch(bodyText, /streamed reply(?! full)/);
+    assert.equal(byLabel("bot is working"), null);
+    assert.equal(messageRequests(), before);
+  } finally {
     if (root) {
       await act(async () => {
         root?.unmount();

@@ -102,9 +102,15 @@ export async function readConversationMessages(
   return messages;
 }
 
-export async function activeContextMessages(
+export interface BotConversationState {
+  harness: Harness;
+  conversation: Conversation;
+  entries: readonly EntryRecord[];
+}
+
+export async function loadBotConversation(
   botId: string,
-): Promise<Message[] | undefined> {
+): Promise<{ harness: Harness; conversation: Conversation } | undefined> {
   const harness = getDurableHarness();
   const mapping = getBotConversation(botId);
   if (!harness || !mapping) return undefined;
@@ -114,8 +120,33 @@ export async function activeContextMessages(
       Number(mapping) as unknown as ConversationId,
       BACKGROUND_CONTEXT,
     );
-    if (!conversation) return undefined;
-    const view = await conversation.context(BACKGROUND_CONTEXT);
+    return conversation ? { harness, conversation } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function loadBotConversationState(
+  botId: string,
+): Promise<BotConversationState | undefined> {
+  const loaded = await loadBotConversation(botId);
+  if (!loaded) return undefined;
+  try {
+    const entries = await scanConversationEntries(loaded.conversation);
+    return { ...loaded, entries };
+  } catch {
+    return undefined;
+  }
+}
+
+export async function activeContextMessages(
+  botId: string,
+): Promise<Message[] | undefined> {
+  const loaded = await loadBotConversation(botId);
+  if (!loaded) return undefined;
+
+  try {
+    const view = await loaded.conversation.context(BACKGROUND_CONTEXT);
     return view.messages.filter(isLlmMessage);
   } catch {
     return undefined;
