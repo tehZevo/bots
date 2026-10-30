@@ -45,17 +45,11 @@ services:
     image: ghcr.io/tehzevo/bots:latest
     ports: ["8075:8075"]
     environment:
-      - SECRETS_KEY=${SECRETS_KEY}   # encrypts secrets + provider keys at rest
+      - SECRETS_KEY=<your-secret-key>   # openssl rand -hex 32
     volumes:
       - ./data:/data            # must be /data (DATA_DIR)
       - /var/run/docker.sock:/var/run/docker.sock
     # SANDBOX_IMAGE only needed to point at a custom sandbox build
-```
-
-Compose reads `SECRETS_KEY` from a `.env` file next to the compose file — create one once and keep it out of git:
-
-```bash
-echo "SECRETS_KEY=$(openssl rand -hex 32)" > .env && chmod 600 .env
 ```
 
 The orchestrator shells out to the host Docker daemon for bot sandboxes, so the socket must be mounted; it pulls `ghcr.io/tehzevo/bots-sandbox:latest` automatically before a bot's first shell command.
