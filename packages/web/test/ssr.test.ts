@@ -4,6 +4,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { BOT_NAMES, pickBotName } from "../src/lib/botNames.ts";
 import { fmt, relTime } from "../src/lib/format.ts";
+import { teamHealth } from "../src/lib/health.ts";
 
 const store = new Map<string, string>();
 globalThis.localStorage = {
@@ -49,7 +50,6 @@ const {
   TeamConfigModal,
   TeamCreateModal,
   Multiselect,
-  teamHealth,
   ProjectsPanel,
   ProjectModal,
   BotProjects,

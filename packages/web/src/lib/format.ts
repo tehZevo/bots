@@ -26,3 +26,8 @@ export function fmtMs(ms: number): string {
     ? `${s.toFixed(1)}s`
     : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
 }
+
+export function titleCase(value: string): string {
+  if (!value) return value;
+  return value[0].toUpperCase() + value.slice(1);
+}
