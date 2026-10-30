@@ -23,6 +23,8 @@ import {
   resumePendingInjections,
   stopAllLoops,
 } from "./agent.ts";
+import type { AuditActor } from "./audit.ts";
+import { logAudit } from "./audit.ts";
 import { exportConfigBackup, importConfigBackup } from "./backup.ts";
 import type { ChatStreamState } from "./chat-stream.ts";
 import { ChatStreamReducer } from "./chat-stream.ts";
@@ -132,6 +134,7 @@ import {
   type ProviderRow,
   projectIdsByBot,
   projectsForBot,
+  queryAuditRows,
   removePushSubscriptionOwned,
   removeTeamMember,
   renameTag,
@@ -207,7 +210,6 @@ import {
   searchSkillsSh,
   storeBundle,
 } from "./skillimport.ts";
-import { HostNotAllowedError } from "./ssrf.ts";
 import {
   checkSkillUpdate,
   detachSkill,
@@ -216,6 +218,7 @@ import {
   refreshImportedModified,
   updateImportedSkill,
 } from "./skillupdates.ts";
+import { HostNotAllowedError } from "./ssrf.ts";
 import {
   listWorkspace,
   readWorkspaceFile,
@@ -747,6 +750,12 @@ export function createApp() {
     const { token } = createSession(id, Date.now() + SESSION_TTL_S * 1000);
     setCookie(c, SESSION_COOKIE, token, cookieOpts);
     clearFailedAuth(ip);
+    logAudit({
+      actor: { kind: "user", id, name: creds.email },
+      action: "auth.login",
+      targetKind: "session",
+      summary: `${creds.email} signed up`,
+    });
     return c.json({ email: creds.email }, 201);
   });
 
@@ -769,6 +778,12 @@ export function createApp() {
     const { token } = createSession(user.id, Date.now() + SESSION_TTL_S * 1000);
     setCookie(c, SESSION_COOKIE, token, cookieOpts);
     clearFailedAuth(ip);
+    logAudit({
+      actor: { kind: "user", id: user.id || null, name: user.email },
+      action: "auth.login",
+      targetKind: "session",
+      summary: `${user.email} signed in`,
+    });
     return c.json({ email: user.email });
   });
 
@@ -784,6 +799,12 @@ export function createApp() {
   app.post("/api/auth/logout", (c) => {
     const token = getCookie(c, SESSION_COOKIE);
     if (token) deleteSession(token);
+    logAudit({
+      actor: auditActor(c),
+      action: "auth.logout",
+      targetKind: "session",
+      summary: "signed out",
+    });
     deleteCookie(c, SESSION_COOKIE, { path: "/" });
     return c.json({ ok: true });
   });
@@ -961,6 +982,7 @@ export function createApp() {
   app.get("/api/settings", (c) =>
     c.json({
       sandbox_idle_minutes: idleMinutes(),
+      audit_retention_days: Number(getSetting("audit_retention_days") ?? 0),
       default_provider_id: getSetting("default_provider_id") ?? null,
       default_model: getSetting("default_model") ?? null,
       control_mcp_enabled: getSetting("control_mcp_enabled") !== "0",
@@ -995,6 +1017,12 @@ export function createApp() {
     }
     setPaused(body.paused);
     if (!body.paused) resumePendingInjections();
+    logAudit({
+      actor: auditActor(c),
+      action: body.paused ? "global.pause" : "global.resume",
+      targetKind: "global",
+      summary: body.paused ? "all bots paused" : "all bots resumed",
+    });
     return c.json({ paused: body.paused });
   });
 
@@ -1019,12 +1047,38 @@ export function createApp() {
   app.post("/api/stop-all", (c) => {
     const stopped = stopAllLoops();
     setPaused(true);
+    logAudit({
+      actor: auditActor(c),
+      action: "global.stop_all",
+      targetKind: "global",
+      summary: `stopped ${stopped} loop(s); all bots paused`,
+    });
     return c.json({ stopped });
+  });
+
+  // specs/audit/log.md — read-only global activity feed for any authenticated principal.
+  app.get("/api/audit", (c) => {
+    const num = (v: string | undefined): number | undefined => {
+      if (!v) return undefined;
+      const ms = /^\d{13}$/.test(v) ? Number(v) : Date.parse(v);
+      return Number.isNaN(ms) ? undefined : ms;
+    };
+    return c.json(
+      queryAuditRows({
+        actor: c.req.query("actor") || undefined,
+        type: c.req.query("type") || undefined,
+        q: c.req.query("q") || undefined,
+        since: num(c.req.query("since")),
+        until: num(c.req.query("until")),
+        limit: c.req.query("limit") ? Number(c.req.query("limit")) : undefined,
+      }),
+    );
   });
 
   app.put("/api/settings", async (c) => {
     const body = (await c.req.json().catch(() => null)) as {
       sandbox_idle_minutes?: unknown;
+      audit_retention_days?: unknown;
       default_provider_id?: unknown;
       default_model?: unknown;
       control_mcp_enabled?: unknown;
@@ -1052,6 +1106,22 @@ export function createApp() {
         );
       setSetting("sandbox_idle_minutes", String(raw));
       out.sandbox_idle_minutes = raw;
+    }
+    if (body.audit_retention_days !== undefined) {
+      const raw = body.audit_retention_days;
+      if (
+        typeof raw !== "number" ||
+        !Number.isInteger(raw) ||
+        raw < 0 ||
+        raw > 3650
+      )
+        return c.json(
+          { error: "audit_retention_days must be an integer 0-3650" },
+          400,
+        );
+      if (raw > 0) setSetting("audit_retention_days", String(raw));
+      else deleteSetting("audit_retention_days");
+      out.audit_retention_days = raw;
     }
     if (body.default_provider_id !== undefined) {
       const id = body.default_provider_id;
@@ -1431,6 +1501,14 @@ export function createApp() {
       created_at: Date.now(),
     };
     insertApiKey(key);
+    logAudit({
+      actor: auditActor(c),
+      action: "key.create",
+      targetKind: "api_key",
+      targetId: key.id,
+      targetName: name,
+      summary: `created API key ${name}`,
+    });
     return c.json({ id: key.id, name, created_at: key.created_at, value }, 201);
   });
 
@@ -1440,6 +1518,13 @@ export function createApp() {
     const user = c.get("user") as { id: string; email: string };
     if (!deleteApiKey(c.req.param("keyId"), user.id))
       return c.json({ error: "not found" }, 404);
+    logAudit({
+      actor: auditActor(c),
+      action: "key.revoke",
+      targetKind: "api_key",
+      targetId: c.req.param("keyId"),
+      summary: "revoked API key",
+    });
     return c.json({ ok: true });
   });
 
@@ -1869,6 +1954,13 @@ export function createApp() {
     ),
   );
 
+  const auditActor = (ctx: Context): AuditActor => {
+    const u = ctx.get("user") as AuthUser | undefined;
+    return u?.email
+      ? { kind: "user", id: u.id || null, name: u.email }
+      : { kind: "system" };
+  };
+
   app.post("/api/bots", async (c) => {
     const payload = toBotPayload(await c.req.json<BotInput>());
     if ("error" in payload) return c.json({ error: payload.error }, 400);
@@ -1884,6 +1976,14 @@ export function createApp() {
       created_at: Date.now(),
     };
     insertBot(bot);
+    logAudit({
+      actor: auditActor(c),
+      action: "bot.create",
+      targetKind: "bot",
+      targetId: bot.id,
+      targetName: bot.name,
+      summary: `created bot ${bot.name}`,
+    });
     return c.json(bot, 201);
   });
 
@@ -2014,7 +2114,16 @@ export function createApp() {
       const includeValues = ["true", "1"].includes(
         c.req.query("include_values")?.toLowerCase() ?? "",
       );
-      return c.json(exportConfigBackup(includeValues));
+      const backup = exportConfigBackup(includeValues);
+      logAudit({
+        actor: auditActor(c),
+        action: "config.export",
+        targetKind: "config",
+        summary: includeValues
+          ? "exported config with values"
+          : "exported config",
+      });
+      return c.json(backup);
     } catch (err) {
       const failed = encryptionConfigError(c, err);
       if (failed) return failed;
@@ -2033,6 +2142,13 @@ export function createApp() {
       return c.json({ error: "invalid backup body" }, 400);
     try {
       const result = importConfigBackup(body, (c.get("user") as AuthUser).id);
+      if (!("error" in result))
+        logAudit({
+          actor: auditActor(c),
+          action: "config.restore",
+          targetKind: "config",
+          summary: "restored config backup",
+        });
       return "error" in result ? c.json(result, 400) : c.json(result);
     } catch (err) {
       const failed = encryptionConfigError(c, err);
@@ -2460,6 +2576,14 @@ export function createApp() {
     resetBotRuntime(bot.id);
     deleteBot(bot.id);
     removeContainer(bot.id);
+    logAudit({
+      actor: auditActor(c),
+      action: "bot.delete",
+      targetKind: "bot",
+      targetId: bot.id,
+      targetName: bot.name,
+      summary: `deleted bot ${bot.name}`,
+    });
     return c.json({ ok: true });
   });
 
@@ -2468,6 +2592,14 @@ export function createApp() {
     if (!bot) return c.json({ error: "not found" }, 404);
     interruptBot(bot.id);
     updateBot(bot.id, { archived: 1 });
+    logAudit({
+      actor: auditActor(c),
+      action: "bot.archive",
+      targetKind: "bot",
+      targetId: bot.id,
+      targetName: bot.name,
+      summary: `archived bot ${bot.name}`,
+    });
     return c.json(getBot(bot.id));
   });
 
@@ -2475,6 +2607,14 @@ export function createApp() {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
     updateBot(bot.id, { archived: 0, enabled: 0 });
+    logAudit({
+      actor: auditActor(c),
+      action: "bot.unarchive",
+      targetKind: "bot",
+      targetId: bot.id,
+      targetName: bot.name,
+      summary: `unarchived bot ${bot.name}`,
+    });
     return c.json(getBot(bot.id));
   });
 
@@ -2711,12 +2851,29 @@ export function createApp() {
     const text = typeof body?.text === "string" ? body.text.trim() : "";
     if (!text) return c.json({ error: "text is required" }, 400);
     const { runId, steered, held } = injectMessage(bot, text, "chat");
+    logAudit({
+      actor: auditActor(c),
+      action: "chat.send",
+      targetKind: "bot",
+      targetId: bot.id,
+      targetName: bot.name,
+      summary: text,
+    });
     return c.json({ runId, steered, ...(held ? { held: true } : {}) });
   });
   app.post("/api/bots/:id/interrupt", (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
-    return c.json({ stopped: interruptBot(bot.id) });
+    const stopped = interruptBot(bot.id);
+    logAudit({
+      actor: auditActor(c),
+      action: "bot.interrupt",
+      targetKind: "bot",
+      targetId: bot.id,
+      targetName: bot.name,
+      summary: stopped ? `interrupted ${bot.name}` : `${bot.name} was idle`,
+    });
+    return c.json({ stopped });
   });
 
   app.post("/api/bots/:id/restart-machine", async (c) => {
@@ -2880,6 +3037,14 @@ export function createApp() {
       created_at: Date.now(),
     };
     insertTrigger(trigger);
+    logAudit({
+      actor: auditActor(c),
+      action: "trigger.create",
+      targetKind: "trigger",
+      targetId: trigger.id,
+      targetName: `${payload.kind} ${payload.schedule ?? ""}`.trim(),
+      summary: `on bot ${bot.name}`,
+    });
     return c.json({ ...trigger, url: `/api/webhooks/${trigger.id}` }, 201);
   });
 
@@ -2914,6 +3079,14 @@ export function createApp() {
       ...(enabled === undefined ? {} : { enabled }),
       next_run_at: nextRunAtPatch,
     });
+    logAudit({
+      actor: auditActor(c),
+      action: "trigger.update",
+      targetKind: "trigger",
+      targetId: trigger.id,
+      targetName: `${payload.kind} ${payload.schedule ?? ""}`.trim(),
+      summary: `on bot ${getBot(trigger.bot_id)?.name ?? trigger.bot_id}`,
+    });
     const fresh = getTrigger(trigger.id);
     if (!fresh) return c.json({ error: "not found" }, 404);
     const { secret: _secret, ...rest } = fresh;
@@ -2924,6 +3097,14 @@ export function createApp() {
     const trigger = getTrigger(c.req.param("triggerId"));
     if (!trigger) return c.json({ error: "not found" }, 404);
     deleteTrigger(trigger.id);
+    logAudit({
+      actor: auditActor(c),
+      action: "trigger.delete",
+      targetKind: "trigger",
+      targetId: trigger.id,
+      targetName: `${trigger.kind} ${trigger.schedule ?? ""}`.trim(),
+      summary: `on bot ${getBot(trigger.bot_id)?.name ?? trigger.bot_id}`,
+    });
     return c.json({ ok: true });
   });
 

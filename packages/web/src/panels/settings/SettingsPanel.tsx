@@ -28,6 +28,7 @@ import { PasswordSettings, SessionSettings } from "../../auth.tsx";
 import { PushSection } from "../../push.tsx";
 
 import { ApiKeysSection } from "./ApiKeysSection.tsx";
+import { AuditRetentionSection } from "./AuditRetentionSection.tsx";
 import { ConfigBackupSection } from "./ConfigBackupSection.tsx";
 import { ControlMcpSection } from "./ControlMcpSection.tsx";
 import { EventDestinationsSection } from "./EventDestinationsSection.tsx";
@@ -96,6 +97,7 @@ export function SettingsGeneral() {
       <PasswordSettings />
       <ThemeSection />
       <SandboxIdleSection />
+      <AuditRetentionSection />
       <SpendCapSection />
       <SoundsSection />
       <PushSection />

@@ -1,5 +1,6 @@
 import { CronExpressionParser } from "cron-parser";
 import { injectMessage } from "./agent.ts";
+import { logAudit } from "./audit.ts";
 import {
   dueTriggers,
   evaluateWatchdogs,
@@ -8,6 +9,7 @@ import {
   latestErrorBotIds,
   updateTrigger,
 } from "./db.ts";
+import { redactText } from "./redact.ts";
 import { runDailySkillChecks } from "./skillupdates.ts";
 
 export function nextRunAt(
@@ -112,12 +114,28 @@ export function runTick(): void {
       errers ??= latestErrorBotIds();
       if (isBlocked(trigger.bot_id, errers)) continue;
       inject(bot, trigger.message, "continuous");
+      logAudit({
+        actor: { kind: "trigger", id: trigger.id },
+        action: "trigger.fire",
+        targetKind: "bot",
+        targetId: bot.id,
+        targetName: bot.name,
+        summary: redactText(bot.id, trigger.message),
+      });
     } else {
       updateTrigger(trigger.id, { next_run_at: nextRunAt(trigger.schedule) });
       if (paused) continue;
       const bot = getBot(trigger.bot_id);
       if (!bot?.enabled || bot.archived) continue;
       inject(bot, trigger.message, "schedule");
+      logAudit({
+        actor: { kind: "trigger", id: trigger.id },
+        action: "trigger.fire",
+        targetKind: "bot",
+        targetId: bot.id,
+        targetName: bot.name,
+        summary: redactText(bot.id, trigger.message),
+      });
     }
   }
   evaluateWatchdogs(Date.now());
