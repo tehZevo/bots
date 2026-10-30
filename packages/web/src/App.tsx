@@ -5994,22 +5994,18 @@ export function BotGeneral({
   };
 
   return (
-    <>
-      <div className="profile">
+    <div className="botgeneral">
+      <label className="field">
+        <span>Name</span>
         <input
           aria-label="Bot name"
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-        <textarea
-          aria-label="Instructions"
-          placeholder="instructions (optional)"
-          rows={3}
-          value={instructions}
-          onChange={(e) => setInstructions(e.target.value)}
-        />
-        <p className="rolepick">
-          Watchdog hours{" "}
+      </label>
+      <label className="field watchdog-field">
+        <span>Watchdog hours</span>
+        <div className="unit-control">
           <input
             type="number"
             aria-label="Watchdog hours"
@@ -6020,14 +6016,14 @@ export function BotGeneral({
             value={watchdogHours}
             onChange={(e) => setWatchdogHours(e.target.value)}
           />
+          <span>hours</span>
+        </div>
+      </label>
+      {parsedWatchdog === "invalid" && (
+        <p className="muted field-error">
+          Watchdog must be a whole number from 1 to 720 hours, or empty for off.
         </p>
-        {parsedWatchdog === "invalid" && (
-          <p className="muted">
-            Watchdog must be a whole number from 1 to 720 hours, or empty for
-            off.
-          </p>
-        )}
-      </div>
+      )}
       <p className="statusline">
         Status:{" "}
         <StatusDot
@@ -6041,80 +6037,96 @@ export function BotGeneral({
       <BotTags botId={bot.id} />
       <BotSecrets botId={bot.id} />
       <BotTeams botId={bot.id} />
-      <p className="rolepick">
-        Role{" "}
-        <select
-          value={roleId}
-          aria-label="Bot role"
-          onChange={(e) => setRoleId(e.target.value)}
-        >
-          <option value="">None</option>
-          {roles.map((role) => (
-            <option key={role.id} value={role.id}>
-              {role.name}
-            </option>
-          ))}
-        </select>
-      </p>
-      <p className="rolepick">
-        Machine{" "}
-        <select
-          value={machineId}
-          aria-label="Bot machine"
-          onChange={(e) => setMachineId(e.target.value)}
-        >
-          <option value="">Default</option>
-          {machines.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name}
-            </option>
-          ))}
-        </select>
-      </p>
-      <p className="rolepick">
-        Model{" "}
-        <select
-          value={modelId}
-          aria-label="Bot model"
-          onChange={(e) => setModelId(e.target.value)}
-        >
-          <option value="">Server default</option>
-          {modelOptions.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-      </p>
-      <p className="rolepick">
-        Sound{" "}
-        <select
-          value={bot.sound ?? ""}
-          aria-label="Bot notification sound"
-          onChange={(e) => {
-            const v = e.target.value;
-            patchBot({ sound: v === "" ? null : v })
-              .then(onChanged)
-              .catch((err) => alert(err.message));
-          }}
-        >
-          <option value="">Global default</option>
-          <option value="none">None</option>
-          {SOUND_LIBRARY.map(([id, label]) => (
-            <option key={id} value={id}>
-              {label}
-            </option>
-          ))}
-        </select>{" "}
-        <button
-          type="button"
-          onClick={() =>
-            playSound(bot.sound && bot.sound !== "none" ? bot.sound : "default")
-          }
-        >
-          Preview
-        </button>
-      </p>
+      <div className="picker-row">
+        <label className="field">
+          <span>Role</span>
+          <select
+            value={roleId}
+            aria-label="Bot role"
+            onChange={(e) => setRoleId(e.target.value)}
+          >
+            <option value="">None</option>
+            {roles.map((role) => (
+              <option key={role.id} value={role.id}>
+                {role.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Model</span>
+          <select
+            value={modelId}
+            aria-label="Bot model"
+            onChange={(e) => setModelId(e.target.value)}
+          >
+            <option value="">Server default</option>
+            {modelOptions.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Machine</span>
+          <select
+            value={machineId}
+            aria-label="Bot machine"
+            onChange={(e) => setMachineId(e.target.value)}
+          >
+            <option value="">Default</option>
+            {machines.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Sound</span>
+          <div className="sound-control">
+            <select
+              value={bot.sound ?? ""}
+              aria-label="Bot notification sound"
+              onChange={(e) => {
+                const v = e.target.value;
+                patchBot({ sound: v === "" ? null : v })
+                  .then(onChanged)
+                  .catch((err) => alert(err.message));
+              }}
+            >
+              <option value="">Global default</option>
+              <option value="none">None</option>
+              {SOUND_LIBRARY.map(([id, label]) => (
+                <option key={id} value={id}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() =>
+                playSound(
+                  bot.sound && bot.sound !== "none" ? bot.sound : "default",
+                )
+              }
+            >
+              Preview
+            </button>
+          </div>
+        </label>
+      </div>
+      <label className="field instructions-field">
+        <span>Instructions</span>
+        <textarea
+          aria-label="Instructions"
+          placeholder="instructions (optional)"
+          rows={3}
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
+        />
+      </label>
       <div className="botdetailactions">
         <UnsavedNote dirty={dirty} />
         <button
@@ -6236,7 +6248,7 @@ export function BotGeneral({
           }}
         />
       )}
-    </>
+    </div>
   );
 }
 

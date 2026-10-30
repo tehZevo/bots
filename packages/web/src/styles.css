@@ -871,8 +871,9 @@ mark {
   align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
-  gap: 0.6rem;
-  margin: 1.25rem -1.25rem 0;
+  gap: var(--gap-inner);
+  margin-top: auto;
+  margin-inline: -1.25rem;
   padding: 0.75rem 1.25rem calc(0.75rem + env(safe-area-inset-bottom));
   background: var(--panel);
   border-top: 1px solid var(--border);
@@ -3042,6 +3043,37 @@ main.scr-active,
   margin-top: 0.5rem;
 }
 
+.botgeneral {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-section);
+}
+
+.tabbody:has(> .botgeneral) {
+  display: flex;
+  padding-bottom: 0;
+}
+
+.tabbody > .botgeneral {
+  flex: 1 1 auto;
+}
+
+.botgeneral > .statusline {
+  margin-bottom: 0;
+}
+
+.botgeneral .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.botgeneral .field > input,
+.botgeneral .field > select,
+.botgeneral .sound-control > select {
+
 .grantpicker {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3074,6 +3106,70 @@ main.scr-active,
   color: var(--text);
   font-size: inherit;
 }
+
+.botgeneral .unit-control {
+  display: flex;
+  align-items: center;
+  min-height: var(--control-h);
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-control);
+}
+
+.botgeneral .unit-control input {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  font-size: inherit;
+  background: none;
+  border: 0;
+  border-radius: 0;
+}
+
+.botgeneral .unit-control span {
+  padding-right: 9px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.picker-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--gap-inner);
+}
+
+.sound-control {
+  display: flex;
+  gap: 6px;
+}
+
+.botgeneral .instructions-field {
+  flex: 1 1 auto;
+  min-height: 8rem;
+}
+
+.botgeneral .instructions-field textarea {
+  height: auto;
+  min-height: inherit;
+  box-sizing: border-box;
+  color: var(--text);
+  font-size: inherit;
+}
+
+@media (max-width: 900px) {
+  .picker-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 650px) {
+  .botgeneral {
+    gap: var(--gap-inner);
+  }
+
+  .picker-row {
+    grid-template-columns: minmax(0, 1fr);
 
 .grantlist {
   display: flex;

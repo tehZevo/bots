@@ -803,6 +803,37 @@ test("bot General model override saves and clears", async () => {
   }
 });
 
+test("bot General groups related pickers and flexes instructions", async () => {
+  const root = await mount(
+    React.createElement(BotGeneral, { bot, onChanged: () => undefined }),
+  );
+  try {
+    assert.ok(window.document.querySelector(".botgeneral"));
+    const row = window.document.querySelector(".picker-row");
+    assert.ok(row, "related picker row renders");
+    assert.deepEqual(
+      [...row.querySelectorAll("select")].map((el) =>
+        el.getAttribute("aria-label"),
+      ),
+      ["Bot role", "Bot model", "Bot machine", "Bot notification sound"],
+    );
+    assert.equal(
+      [...window.document.querySelectorAll(".picker-row .field > span")]
+        .map((label) => label.textContent?.trim())
+        .join(","),
+      "Role,Model,Machine,Sound",
+    );
+    const instructions = window.document.querySelector(
+      ".instructions-field textarea[aria-label='Instructions']",
+    );
+    assert.ok(instructions, "instructions field fills the form");
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
 test("trigger editor creates and edits triggers", async () => {
   const root = await mount(React.createElement(Triggers, { botId: "b1" }));
 
