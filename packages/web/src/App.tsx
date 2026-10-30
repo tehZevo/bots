@@ -127,6 +127,7 @@ export function applyOptimisticRunStates(
 interface GrantOption {
   id: string;
   name: string;
+  description?: string;
 }
 
 interface TemplateTrigger {
@@ -4365,6 +4366,109 @@ export function Multiselect({
   );
 }
 
+function GrantDualList({
+  label,
+  options,
+  selected,
+  onChange,
+  emptyText,
+}: {
+  label: string;
+  options: GrantOption[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+  emptyText: string;
+}) {
+  const [query, setQuery] = useState("");
+  const chosen = new Set(selected);
+  const q = query.trim().toLowerCase();
+  const available = options.filter(
+    (option) =>
+      !chosen.has(option.id) &&
+      (!q ||
+        `${option.name} ${option.description ?? ""}`.toLowerCase().includes(q)),
+  );
+  const granted = selected
+    .map((id) => options.find((option) => option.id === id))
+    .filter((option): option is GrantOption => Boolean(option));
+
+  return (
+    <div className="grantpicker">
+      <section
+        className="grantpane grantavailable"
+        aria-label={`Available ${label}`}
+      >
+        <h3>Available</h3>
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={`Search ${label.toLowerCase()}…`}
+          aria-label={`Search ${label}`}
+        />
+        <ul className="grantlist">
+          {available.map((option) => (
+            <li key={option.id}>
+              <button
+                type="button"
+                className="grantentry grantadd"
+                aria-label={`Add ${option.name}`}
+                onClick={() => onChange([...selected, option.id])}
+              >
+                <span className="grantname">{option.name}</span>
+                {option.description && (
+                  <span className="grantdesc">{option.description}</span>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+        {options.length === 0 && (
+          <p className="grantempty muted">{emptyText}</p>
+        )}
+        {options.length > 0 && available.length === 0 && (
+          <p className="grantempty muted">
+            {q
+              ? `No matches for “${query.trim()}”.`
+              : `All ${label.toLowerCase()} are granted.`}
+          </p>
+        )}
+      </section>
+
+      <section
+        className="grantpane grantselected"
+        aria-label={`Granted ${label}`}
+      >
+        <h3>Granted</h3>
+        <ul className="grantlist">
+          {granted.map((option) => (
+            <li key={option.id} className="grantentry grantselrow">
+              <span className="grantinfo">
+                <strong>{option.name}</strong>
+                {option.description && (
+                  <small className="grantdesc">{option.description}</small>
+                )}
+              </span>
+              <button
+                type="button"
+                className="grantremove"
+                aria-label={`Remove ${option.name}`}
+                onClick={() =>
+                  onChange(selected.filter((id) => id !== option.id))
+                }
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+        {granted.length === 0 && (
+          <p className="grantempty muted">Nothing granted yet.</p>
+        )}
+      </section>
+    </div>
+  );
+}
+
 export function teamHealth(members: TeamMember[], bots: Bot[]): Bot["health"] {
   const hs = members
     .map((m) => bots.find((b) => b.id === m.bot_id)?.health)
@@ -5180,22 +5284,38 @@ export function RoleFormModal({
   );
 
   useEffect(() => {
-    void api<GrantOption[]>("/api/mcp-servers")
-      .then(setMcpOptions)
+    void api<{ id: string; name: string; command?: unknown }[]>(
+      "/api/mcp-servers",
+    )
+      .then((servers) =>
+        setMcpOptions(
+          servers.map((server) => ({
+            id: server.id,
+            name: server.name,
+            description:
+              typeof server.command === "string" ? server.command : undefined,
+          })),
+        ),
+      )
       .catch(() => setMcpOptions([]));
-    void api<GrantOption[]>("/api/skills")
-      .then(setSkillOptions)
+    void api<{ id: string; name: string; description?: unknown }[]>(
+      "/api/skills",
+    )
+      .then((skills) =>
+        setSkillOptions(
+          skills.map((skill) => ({
+            id: skill.id,
+            name: skill.name,
+            description:
+              typeof skill.description === "string"
+                ? skill.description
+                : undefined,
+          })),
+        ),
+      )
       .catch(() => setSkillOptions([]));
   }, []);
 
-  const toggleId = (
-    id: string,
-    current: string[],
-    setter: (v: string[]) => void,
-  ) =>
-    setter(
-      current.includes(id) ? current.filter((x) => x !== id) : [...current, id],
-    );
   const nameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -5219,7 +5339,7 @@ export function RoleFormModal({
         onClick={attemptClose}
       />
       <form
-        className="dialog narrow"
+        className="dialog"
         role="dialog"
         aria-label={role ? "Edit role" : "Create role"}
         onSubmit={(e) => {
@@ -5301,38 +5421,22 @@ export function RoleFormModal({
           </>
         )}
         {roleTab === "mcp" && (
-          <div className="grantlist">
-            {mcpOptions.length === 0 && (
-              <p className="muted">No MCP servers — add one in Integrations.</p>
-            )}
-            {mcpOptions.map((opt) => (
-              <label key={opt.id} className="grantrow">
-                <input
-                  type="checkbox"
-                  checked={mcpIds.includes(opt.id)}
-                  onChange={() => toggleId(opt.id, mcpIds, setMcpIds)}
-                />
-                {opt.name}
-              </label>
-            ))}
-          </div>
+          <GrantDualList
+            label="MCP servers"
+            options={mcpOptions}
+            selected={mcpIds}
+            onChange={setMcpIds}
+            emptyText="No MCP servers — add one in Integrations."
+          />
         )}
         {roleTab === "skills" && (
-          <div className="grantlist">
-            {skillOptions.length === 0 && (
-              <p className="muted">No skills — add one in Skills.</p>
-            )}
-            {skillOptions.map((opt) => (
-              <label key={opt.id} className="grantrow">
-                <input
-                  type="checkbox"
-                  checked={skillIds.includes(opt.id)}
-                  onChange={() => toggleId(opt.id, skillIds, setSkillIds)}
-                />
-                {opt.name}
-              </label>
-            ))}
-          </div>
+          <GrantDualList
+            label="Skills"
+            options={skillOptions}
+            selected={skillIds}
+            onChange={setSkillIds}
+            emptyText="No skills — add one in Skills."
+          />
         )}
         <div className="actions">
           <button type="submit" disabled={busy}>
