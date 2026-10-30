@@ -644,6 +644,14 @@ const HEALTH_LABEL: Record<Bot["health"], string> = {
   gray: "disabled",
 };
 
+const STATUS_CHIPS: { health: Bot["health"]; label: string }[] = [
+  { health: "green", label: HEALTH_LABEL.green },
+  { health: "blue", label: HEALTH_LABEL.blue },
+  { health: "yellow", label: HEALTH_LABEL.yellow },
+  { health: "red", label: HEALTH_LABEL.red },
+  { health: "gray", label: HEALTH_LABEL.gray },
+];
+
 function ShapePreview({ preset }: { preset: number }) {
   const radii = shapeRadii(mulberry32(1000 + preset * 7919), preset);
   const base = 46 / Math.max(...radii);
@@ -1671,92 +1679,116 @@ export function App() {
     });
   };
 
-  const redCount = bots.filter((b) => b.health === "red").length;
+  const statusCounts = bots.reduce(
+    (counts, bot) => {
+      counts[bot.health] += 1;
+      return counts;
+    },
+    { green: 0, blue: 0, yellow: 0, red: 0, gray: 0 } as Record<
+      Bot["health"],
+      number
+    >,
+  );
+  const runningCount = bots.filter((b) => b.run_state === "running").length;
   return (
     <NavGuardContext.Provider value={discardGuard}>
       <div className="app">
         <header className="statusbar">
-          <button
-            type="button"
-            className="railtoggle"
-            aria-label={rail ? "Expand sidebar" : "Collapse sidebar"}
-            onClick={toggleRail}
-          >
-            {rail ? "›" : "‹"}
-          </button>
-          <span className="counts">
-            {bots.length} total ·{" "}
-            {bots.filter((b) => b.run_state === "running").length} running
-            {redCount > 0 && (
-              <>
-                {" "}
-                · <span className="redcount">{redCount} blocked</span>
-              </>
+          <div className="statuschips" role="status">
+            {runningCount > 0 && (
+              <span className="statuschip running">
+                <i className="dot blue pulse" />
+                <strong>{runningCount}</strong> running
+              </span>
             )}
-            {paused && (
-              <>
-                {" "}
-                ·{" "}
-                <span className="pausedcount">
-                  {pauseReason === "breaker" && breaker
-                    ? `over spend cap (${fmtTokens(breaker.tokens_30d)} / ${fmtTokens(breaker.limit_tokens)})`
-                    : "paused"}
+            {STATUS_CHIPS.map(({ health, label }) => {
+              const count = statusCounts[health];
+              if (!count) return null;
+              return (
+                <span key={health} className={`statuschip ${health}`}>
+                  <i className={`dot ${health}`} />
+                  <strong>{count}</strong> {label}
                 </span>
-              </>
+              );
+            })}
+            {paused && (
+              <span
+                className="statuschip paused"
+                title={
+                  pauseReason === "breaker" && breaker
+                    ? `over spend cap (${fmtTokens(breaker.tokens_30d)} / ${fmtTokens(breaker.limit_tokens)})`
+                    : undefined
+                }
+              >
+                <PauseIcon size={14} /> paused
+              </span>
             )}
-          </span>
-          <button
-            type="button"
-            className={`pausetoggle${paused ? " on" : ""}`}
-            aria-label={paused ? "Resume all bots" : "Pause all bots"}
-            title={
-              paused && pauseReason === "breaker" && breaker
-                ? `Trailing 30-day usage of ${breaker.tokens_30d.toLocaleString()} tokens is over the cap of ${breaker.limit_tokens.toLocaleString()} — raise or clear it in Settings to resume`
-                : paused
-                  ? "Resume all bots"
-                  : "Pause all bots"
-            }
-            onClick={() =>
-              void api("/api/pause", {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ paused: !paused }),
-              })
-                .then(() => void load())
-                .catch((e) => alert(e instanceof Error ? e.message : String(e)))
-            }
-          >
-            {paused ? "Resume" : "Pause"}
-          </button>
-          <button
-            type="button"
-            className="stopall"
-            aria-label="Stop all bots"
-            title="Interrupt every running bot and pause everything (panic button)"
-            onClick={() => setStopAllConfirm(true)}
-          >
-            Stop all
-          </button>
-          <button
-            type="button"
-            className="searchtoggle"
-            aria-label="Open search"
-            title="Search records or run commands (backtick)"
-            onClick={() => setSearchOpen(true)}
-          >
-            Search
-            <kbd className="searchshortcut" aria-hidden="true">
-              `
-            </kbd>
-          </button>
+          </div>
+          <div className="statusactions">
+            <button
+              type="button"
+              className={`pausetoggle${paused ? " on" : ""}`}
+              aria-label={paused ? "Resume all bots" : "Pause all bots"}
+              title={
+                paused && pauseReason === "breaker" && breaker
+                  ? `Trailing 30-day usage of ${breaker.tokens_30d.toLocaleString()} tokens is over the cap of ${breaker.limit_tokens.toLocaleString()} — raise or clear it in Settings to resume`
+                  : paused
+                    ? "Resume all bots"
+                    : "Pause all bots"
+              }
+              onClick={() =>
+                void api("/api/pause", {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ paused: !paused }),
+                })
+                  .then(() => void load())
+                  .catch((e) =>
+                    alert(e instanceof Error ? e.message : String(e)),
+                  )
+              }
+            >
+              <PauseIcon size={15} />
+              <span className="actionlabel">{paused ? "Resume" : "Pause"}</span>
+            </button>
+            <button
+              type="button"
+              className="stopall"
+              aria-label="Stop all bots"
+              title="Interrupt every running bot and pause everything (panic button)"
+              onClick={() => setStopAllConfirm(true)}
+            >
+              <StopIcon size={15} />
+              <span className="actionlabel">Stop all</span>
+            </button>
+            <button
+              type="button"
+              className="searchtoggle"
+              aria-label="Open search"
+              title="Search records or run commands (backtick)"
+              onClick={() => setSearchOpen(true)}
+            >
+              <SearchIcon size={15} />
+              <span className="actionlabel">Search</span>
+              <kbd className="searchshortcut" aria-hidden="true">
+                `
+              </kbd>
+            </button>
+          </div>
           <div className="notifwrap">
             <button
               type="button"
+              className="notiftoggle"
               aria-label={`Notifications${unreadNotifications > 0 ? `, ${unreadNotifications} unread` : ""}`}
+              title={
+                unreadNotifications > 0
+                  ? `${unreadNotifications} unread notifications`
+                  : "Notifications"
+              }
               aria-expanded={notificationPanelOpen}
               onClick={() => setNotificationPanelOpen((open) => !open)}
             >
-              🔔
+              <BellIcon size={18} />
               {unreadNotifications > 0 && (
                 <span className="notifbadge">
                   {unreadNotifications > 99 ? "99+" : unreadNotifications}
@@ -1785,9 +1817,10 @@ export function App() {
                       <button
                         type="button"
                         aria-label="Close notifications"
+                        title="Close notifications"
                         onClick={() => setNotificationPanelOpen(false)}
                       >
-                        ✕
+                        <CloseIcon size={16} />
                       </button>
                     </div>
                   </div>
@@ -1843,17 +1876,31 @@ export function App() {
         </header>
         <div className="layout">
           <aside className={rail ? "rail" : ""}>
+            <div className="brand">
+              <BotIcon size={24} />
+              {!rail && <span>Bots</span>}
+            </div>
             {error && <p className="error">{error}</p>}
             {renderNav(rail)}
+            <button
+              type="button"
+              className="railtoggle"
+              aria-label={rail ? "Expand sidebar" : "Collapse sidebar"}
+              title={rail ? "Expand sidebar" : "Collapse sidebar"}
+              onClick={toggleRail}
+            >
+              <SidebarToggleIcon size={20} collapsed={rail} />
+            </button>
           </aside>
           <div className="topbar">
             <button
               type="button"
               className="hamburger"
               aria-label="Menu"
+              title="Open menu"
               onClick={() => setNavOpen(true)}
             >
-              ☰
+              <MenuIcon size={20} />
             </button>
           </div>
           {navOpen && (
@@ -1866,7 +1913,10 @@ export function App() {
               />
               <div className="panel">
                 <div className="hdr">
-                  <h1>Bots</h1>
+                  <div className="brand">
+                    <BotIcon size={24} />
+                    <span>Bots</span>
+                  </div>
                 </div>
                 {error && <p className="error">{error}</p>}
                 {renderNav(false)}
@@ -2228,7 +2278,7 @@ export function App() {
                       aria-label="Close"
                       onClick={requestCloseDetails}
                     >
-                      ×
+                      <CloseIcon size={18} />
                     </button>
                   </div>
                 </div>
@@ -2554,7 +2604,7 @@ export function AddBotModal({
             aria-label="Cancel"
             onClick={attemptClose}
           >
-            ×
+            <CloseIcon size={18} />
           </button>
         </div>
         {templates.length > 0 && (
@@ -2592,7 +2642,7 @@ export function AddBotModal({
               title="Suggest another name"
               onClick={reshuffle}
             >
-              ↻
+              <RefreshIcon size={17} />
             </button>
           )}
         </div>
@@ -2741,6 +2791,174 @@ export function KebabIcon({ size = 14 }: { size?: number }) {
       <circle cx="5" cy="12" r="2" />
       <circle cx="12" cy="12" r="2" />
       <circle cx="19" cy="12" r="2" />
+    </svg>
+  );
+}
+
+export function BellIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M7.5 10a4.5 4.5 0 0 1 9 0c0 3.2.7 4.6 1.8 5.8H5.7C6.8 14.6 7.5 13.2 7.5 10Z" />
+      <path d="M9.8 18.8a2.4 2.4 0 0 0 4.4 0" />
+    </svg>
+  );
+}
+
+export function MenuIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="M4 7h16M4 12h16M4 17h16" />
+    </svg>
+  );
+}
+
+export function CloseIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="m6.5 6.5 11 11M17.5 6.5l-11 11" />
+    </svg>
+  );
+}
+
+export function SidebarToggleIcon({
+  size = 20,
+  collapsed,
+}: {
+  size?: number;
+  collapsed: boolean;
+}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="4" width="18" height="16" rx="2.5" />
+      <path d="M9 4v16" />
+      {collapsed ? (
+        <path d="m14.5 9.5 3 2.5-3 2.5" />
+      ) : (
+        <path d="m17.5 9.5-3 2.5 3 2.5" />
+      )}
+    </svg>
+  );
+}
+
+export function PauseIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <rect x="7" y="5.5" width="3.5" height="13" rx="1.2" />
+      <rect x="13.5" y="5.5" width="3.5" height="13" rx="1.2" />
+    </svg>
+  );
+}
+
+export function StopIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <rect x="6.5" y="6.5" width="11" height="11" rx="2" />
+    </svg>
+  );
+}
+
+export function SearchIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <circle cx="10.5" cy="10.5" r="6" />
+      <path d="m15 15 4.5 4.5" />
+    </svg>
+  );
+}
+
+export function SendIcon({ size = 17 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4.5 12h13" />
+      <path d="m12.5 6.5 5 5.5-5 5.5" />
+    </svg>
+  );
+}
+
+export function RefreshIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M19.5 10a7.5 7.5 0 1 0-.3 4" />
+      <path d="M20 6v4h-4" />
     </svg>
   );
 }
@@ -2914,23 +3132,44 @@ function TemplateIcon({ size = 18 }: { size?: number }) {
   );
 }
 
-const NAV_ITEMS: {
+type NavItem = {
   id: Tab;
   label: string;
   Icon: (p: { size?: number }) => ReactElement;
-}[] = [
+};
+
+const NAV_ITEMS: NavItem[] = [
   { id: "bots", label: "Bots", Icon: BotIcon },
   { id: "teams", label: "Teams", Icon: TeamIcon },
   { id: "roles", label: "Roles", Icon: RoleIcon },
-  { id: "machines", label: "Machines", Icon: MachineIcon },
-  { id: "integrations", label: "Integrations", Icon: PlugIcon },
   { id: "skills", label: "Skills", Icon: BookIcon },
   { id: "templates", label: "Templates", Icon: TemplateIcon },
   { id: "projects", label: "Projects", Icon: ProjectIcon },
   { id: "tags", label: "Tags", Icon: TagIcon },
+  { id: "machines", label: "Machines", Icon: MachineIcon },
+  { id: "integrations", label: "Integrations", Icon: PlugIcon },
   { id: "secrets", label: "Secrets", Icon: KeyIcon },
   { id: "settings", label: "Settings", Icon: GearIcon },
 ];
+
+const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
+  { label: "Operate", ids: ["bots", "teams"] },
+  {
+    label: "Library",
+    ids: ["roles", "skills", "templates", "projects", "tags"],
+  },
+  {
+    label: "Admin",
+    ids: ["machines", "integrations", "secrets", "settings"],
+  },
+]
+  .map((group) => ({
+    label: group.label,
+    items: group.ids.flatMap(
+      (id) => NAV_ITEMS.filter((item) => item.id === id) as NavItem[],
+    ),
+  }))
+  .filter((group) => group.items.length > 0);
 
 function Nav({
   tab,
@@ -2943,17 +3182,26 @@ function Nav({
 }) {
   return (
     <nav className="sidetabs">
-      {NAV_ITEMS.map(({ id, label, Icon }) => (
-        <button
-          key={id}
-          type="button"
-          title={label}
-          className={tab === id ? "sel" : ""}
-          onClick={() => onSelect(id)}
+      {NAV_GROUPS.map((group) => (
+        <section
+          key={group.label}
+          className="navgroup"
+          aria-label={group.label}
         >
-          <Icon size={rail ? 20 : 17} />
-          {!rail && label}
-        </button>
+          <span className="navgrouplabel">{group.label}</span>
+          {group.items.map(({ id, label, Icon }) => (
+            <button
+              key={id}
+              type="button"
+              title={label}
+              className={tab === id ? "sel" : ""}
+              onClick={() => onSelect(id)}
+            >
+              <Icon size={rail ? 20 : 17} />
+              {!rail && label}
+            </button>
+          ))}
+        </section>
       ))}
     </nav>
   );
@@ -3750,7 +3998,7 @@ function EventDestinationModal({
             aria-label="Cancel"
             onClick={attemptClose}
           >
-            ×
+            <CloseIcon size={18} />
           </button>
         </div>
         {error && <p className="error">{error}</p>}
@@ -4204,7 +4452,7 @@ export function ProviderFormModal({
             aria-label="Cancel"
             onClick={attemptClose}
           >
-            ×
+            <CloseIcon size={18} />
           </button>
         </div>
         {error && <p className="error">{error}</p>}
@@ -5381,7 +5629,7 @@ export function RoleFormModal({
             aria-label="Cancel"
             onClick={attemptClose}
           >
-            ×
+            <CloseIcon size={18} />
           </button>
         </div>
         <nav className="mtabs">
@@ -6131,6 +6379,7 @@ export function BotGeneral({
         <UnsavedNote dirty={dirty} />
         <button
           type="button"
+          className="primary"
           disabled={busy || !dirty || !name.trim()}
           onClick={() => {
             setBusy(true);
@@ -7445,7 +7694,7 @@ export function ChatSidebar({
           aria-label="Close"
           onClick={onClose}
         >
-          ×
+          <CloseIcon size={18} />
         </button>
       </div>
       <Chat
@@ -7627,7 +7876,8 @@ export function Chat({
           disabled={sending || !enabled}
         />
         <button type="submit" disabled={sending || !enabled || !draft.trim()}>
-          {sending ? "Sending…" : "Send"}
+          {sending ? <SpinnerIcon size={17} /> : <SendIcon size={17} />}
+          <span className="sr-only">{sending ? "Sending…" : "Send"}</span>
         </button>
       </form>
     </section>
@@ -8284,7 +8534,7 @@ export function AddSkillModal({
             aria-label="Cancel"
             onClick={attemptClose}
           >
-            ×
+            <CloseIcon size={18} />
           </button>
         </div>
         <nav className="mtabs">
@@ -8554,7 +8804,7 @@ export function McpServerModal({
                   aria-label={`Remove env var ${i + 1}`}
                   onClick={() => setEnvRows(envRows.filter((_, j) => j !== i))}
                 >
-                  ×
+                  <CloseIcon size={18} />
                 </button>
               </div>
             ))}
@@ -8902,7 +9152,7 @@ export function TemplateEditorModal({
             aria-label="Cancel"
             onClick={attemptClose}
           >
-            ×
+            <CloseIcon size={18} />
           </button>
         </div>
         <input
@@ -8983,7 +9233,7 @@ export function TemplateEditorModal({
               aria-label={`Remove trigger ${i + 1}`}
               onClick={() => setTriggers((ts) => ts.filter((_, j) => j !== i))}
             >
-              ×
+              <CloseIcon size={18} />
             </button>
           </div>
         ))}
@@ -9354,7 +9604,7 @@ export function BotTags({ botId }: { botId: string }) {
                 disabled={busy}
                 onClick={() => save(attached.filter((x) => x !== id))}
               >
-                ×
+                <CloseIcon size={18} />
               </button>
             </span>
           );
