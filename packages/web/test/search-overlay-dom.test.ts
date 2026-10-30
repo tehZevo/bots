@@ -171,7 +171,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 
 const React = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { SearchOverlay } = await import("../src/App.tsx");
+const { SearchOverlay } = await import("../src/components/SearchOverlay.tsx");
 const act = React.act;
 
 async function flush(): Promise<void> {

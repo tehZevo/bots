@@ -20,55 +20,33 @@ globalThis.matchMedia = ((q: string) => ({
   removeEventListener: () => undefined,
 })) as unknown as typeof globalThis.matchMedia;
 
-const {
-  nextRunLabel,
-  Avatar,
-  StatusDot,
-  BotIcon,
-  RoleIcon,
-  BookIcon,
-  GearIcon,
-  PlugIcon,
-  MachineIcon,
-  ConfirmDialog,
-  UnsavedNote,
-  formDirty,
-  App,
-  SettingsPanel,
-  SettingsGeneral,
-  SettingsProviders,
-  SettingsSystem,
-  ConfigBackupSection,
-  RolesPanel,
-  TeamsPanel,
-  BotTeams,
-  TeamConfigModal,
-  TeamCreateModal,
-  Multiselect,
-  ProjectsPanel,
-  ProjectModal,
-  BotProjects,
-  MachinesPanel,
-  SkillsPanel,
-  AddSkillModal,
-  IntegrationsPanel,
-  BotGeneral,
-  ChatSidebar,
-  Chat,
-  BotCard,
-  ChatTurnView,
-  ChatBar,
-  mergeOptimisticChatTurns,
-  Triggers,
-  AddBotModal,
-  TemplateEditorModal,
-  TemplatesPanel,
-  RoleFormModal,
-  SkillModal,
-  McpServerModal,
-  MachineModal,
-  ProviderFormModal,
-} = await import("../src/App.tsx");
+const { App } = await import("../src/App.tsx");
+const { AddBotModal } = await import("../src/components/AddBotModal.tsx");
+const { Avatar, StatusDot } = await import("../src/components/Avatar.tsx");
+const { BotCard } = await import("../src/components/BotCard.tsx");
+const { Chat, ChatBar, ChatSidebar, ChatTurnView } = await import("../src/components/Chat.tsx");
+const { Multiselect } = await import("../src/components/Multiselect.tsx");
+const { Triggers, nextRunLabel } = await import("../src/components/Triggers.tsx");
+const { BotGeneral } = await import("../src/components/botTabs/BotGeneral.tsx");
+const { BotProjects } = await import("../src/components/botTabs/BotProjects.tsx");
+const { BotTeams } = await import("../src/components/botTabs/BotTeams.tsx");
+const { BookIcon, BotIcon, GearIcon, MachineIcon, PlugIcon, RoleIcon } = await import("../src/components/icons/index.ts");
+const { ConfirmDialog } = await import("../src/components/ui/ConfirmDialog.tsx");
+const { UnsavedNote, formDirty } = await import("../src/components/ui/discard.tsx");
+const { mergeOptimisticChatTurns } = await import("../src/lib/chat.ts");
+const { IntegrationsPanel, McpServerModal } = await import("../src/panels/IntegrationsPanel.tsx");
+const { MachineModal, MachinesPanel } = await import("../src/panels/MachinesPanel.tsx");
+const { ProjectModal, ProjectsPanel } = await import("../src/panels/ProjectsPanel.tsx");
+const { RoleFormModal, RolesPanel } = await import("../src/panels/RolesPanel.tsx");
+const { AddSkillModal, SkillModal, SkillsPanel } = await import("../src/panels/SkillsPanel.tsx");
+const { TeamConfigModal, TeamCreateModal, TeamsPanel } = await import("../src/panels/TeamsPanel.tsx");
+const { TemplateEditorModal, TemplatesPanel } = await import("../src/panels/TemplatesPanel.tsx");
+const { ConfigBackupSection } = await import("../src/panels/settings/ConfigBackupSection.tsx");
+const { ProviderFormModal, ProvidersSection } = await import(
+  "../src/panels/settings/ProvidersSection.tsx"
+);
+const SettingsProviders = ProvidersSection;
+const { SettingsGeneral, SettingsPanel, SettingsSystem } = await import("../src/panels/settings/SettingsPanel.tsx");
 
 test("relTime buckets ages", () => {
   const now = Date.now();
