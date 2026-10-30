@@ -50,6 +50,13 @@
 - Durable agent state runs on `@earendil-works/pi-durable`: every transcript entry, tool call and wait is a Harness commit before it surfaces; boot calls resume, tools declare replay policy explicitly (`shell`/`web_fetch`/MCP are not replay-safe), and the harness keeps its own SQLite file beside `data.db`. Pin exact pi package versions — minors ship breaking changes.
 - Trigger firing and message injection are fire-and-forget; every run row must reach a terminal status (`ok`/`error`) — keep the try/catch/finally around the loop in `agent.ts` intact.
 
+## Module size and coupling
+
+- Keep modules small and single-purpose: when one grows long enough to hold several features or layers, split it before extending — never let a file creep back to thousands of lines.
+- Separate concerns by layer: pure logic in `packages/web/src/lib/**` (no React/DOM imports), presentational components take props and never fetch, panels/modals own their data fetching, shells (`App.tsx`, panel composition) stay thin wiring with no inline business logic or duplicated markup blocks.
+- Dependency direction is one-way: leaf modules (lib, primitives, icons, hooks, panels) must not import app shells, and nothing imports from `App.tsx` except `main.tsx`. Shared types/constants live in `src/types.ts`/`lib`, never re-exported through the shell.
+- A second copy of an expression is a refactor signal: extract the helper into `lib/` instead of duplicating it (status labels, time formatting, modal chrome).
+
 ## Testing without CI
 
 Dev conveniences (never for production): `DEV_SEED_AUTH=1` idempotently seeds `dev@example.com`/`devpassword`; when it creates the API key named `dev`, its full value is logged once (`specs/auth/dev-credentials.md`). `DEV_FAKE_LLM=1` adds the keyless scripted Fake provider (`specs/llm/fake-provider.md`). Use both instead of hand-editing `data.db`.
