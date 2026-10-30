@@ -9,6 +9,8 @@ services:
   orchestrator:
     image: ghcr.io/tehzevo/bots:latest
     ports: ["8075:8075"]
+    environment:
+      - SECRETS_KEY=<your-secret-key>   # openssl rand -hex 32
     volumes:
       - ./data:/data            # database + bot workspaces — must be /data (DATA_DIR)
       - /var/run/docker.sock:/var/run/docker.sock   # to manage sandbox containers
