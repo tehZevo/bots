@@ -1,6 +1,7 @@
 import {
   type CSSProperties,
   createContext,
+  type FormEvent,
   type ReactElement,
   useCallback,
   useContext,
@@ -11,6 +12,12 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { PasswordSettings, SessionSettings } from "./auth.tsx";
+import { ConfirmDialog } from "./components/ui/ConfirmDialog.tsx";
+import { Modal, ModalForm } from "./components/ui/Modal.tsx";
+import { SwitchToggle } from "./components/ui/SwitchToggle.tsx";
+import type { TabNavTab } from "./components/ui/TabNav.tsx";
+import { TabNav } from "./components/ui/TabNav.tsx";
+import { useEscape } from "./components/ui/useEscape.ts";
 import { api } from "./lib/api.ts";
 import {
   AVATAR_COLORS,
@@ -400,13 +407,7 @@ function AvatarPicker({
   onPick: (body: Record<string, unknown>) => Promise<unknown>;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", key);
-    return () => window.removeEventListener("keydown", key);
-  }, [onClose]);
+  useEscape(onClose);
   const pick = (body: Record<string, unknown>) => {
     void onPick(body).catch((e) => alert((e as Error).message));
   };
@@ -1818,214 +1819,188 @@ export function App() {
             />
           )}
           {detailOpen && openBotRow && (
-            <div className="modal">
-              <button
-                type="button"
-                className="mscrim"
-                aria-label="Close details"
-                onClick={requestCloseDetails}
-              />
-              <div
-                className="dialog tabs"
-                role="dialog"
-                aria-label={`${openBotRow.name} details`}
-              >
-                <div className="viewhead">
+            <Modal
+              scrimOnCancel={requestCloseDetails}
+              scrimLabel="Close details"
+              className="dialog tabs"
+              role="dialog"
+              aria-label={`${openBotRow.name} details`}
+            >
+              <div className="viewhead">
+                <button
+                  type="button"
+                  className="avatarpick"
+                  aria-label="Change avatar"
+                  onClick={() => setAvatarMenu((v) => !v)}
+                >
+                  <Avatar
+                    name={openBotRow.name}
+                    id={openBotRow.id}
+                    shape={openBotRow.avatar_shape}
+                    color={openBotRow.avatar_color}
+                    health={openBotRow.health}
+                  />
+                </button>
+                {detailOpen && avatarMenu && (
+                  <AvatarPicker
+                    bot={openBotRow}
+                    onClose={() => setAvatarMenu(false)}
+                    onPick={(body) =>
+                      api(`/api/bots/${openBotRow.id}`, {
+                        method: "PATCH",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify(body),
+                      }).then(load)
+                    }
+                  />
+                )}
+                <h2>{openBotRow.name}</h2>
+                {openBotRow.archived ? (
+                  <span className="archivebadge detailarchive">Archived</span>
+                ) : null}
+                {openBotRow.current_task && !openBotRow.status && (
+                  <p className="taskline">
+                    {openBotRow.current_task}
+                    {openBotRow.current_task_updated_at && (
+                      <em> · {relTime(openBotRow.current_task_updated_at)}</em>
+                    )}
+                  </p>
+                )}
+                {openBotRow.current_task && openBotRow.status && (
+                  <p className="taskline">{openBotRow.current_task}</p>
+                )}
+                {openBotRow.status && (
+                  <p className="statline">
+                    {openBotRow.status}
+                    {openBotRow.current_task_updated_at && (
+                      <em> · {relTime(openBotRow.current_task_updated_at)}</em>
+                    )}
+                  </p>
+                )}
+                <div className="detailhead-actions">
+                  <SwitchToggle
+                    ariaLabel="Bot enabled"
+                    checked={openBotRow.enabled !== 0}
+                    disabled={headerBusy || Boolean(openBotRow.archived)}
+                    onChange={() => {
+                      setHeaderBusy(true);
+                      void api(`/api/bots/${openBotRow.id}`, {
+                        method: "PATCH",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify({
+                          enabled: openBotRow.enabled === 0,
+                        }),
+                      })
+                        .then(load)
+                        .catch((e) => alert(e.message))
+                        .finally(() => setHeaderBusy(false));
+                    }}
+                    stateLabel={
+                      openBotRow.archived || !openBotRow.enabled
+                        ? "Disabled"
+                        : "Enabled"
+                    }
+                  />
+                  {openBotRow.run_state === "running" && (
+                    <button
+                      type="button"
+                      className="danger"
+                      aria-label="Stop while running"
+                      disabled={headerBusy}
+                      onClick={() => {
+                        setHeaderBusy(true);
+                        void stopBotWork(openBotRow.id)
+                          .then(load)
+                          .catch((e) => alert(e.message))
+                          .finally(() => setHeaderBusy(false));
+                      }}
+                    >
+                      Stop
+                    </button>
+                  )}
                   <button
                     type="button"
-                    className="avatarpick"
-                    aria-label="Change avatar"
-                    onClick={() => setAvatarMenu((v) => !v)}
+                    className="close"
+                    aria-label="Close"
+                    onClick={requestCloseDetails}
                   >
-                    <Avatar
-                      name={openBotRow.name}
-                      id={openBotRow.id}
-                      shape={openBotRow.avatar_shape}
-                      color={openBotRow.avatar_color}
-                      health={openBotRow.health}
-                    />
+                    <CloseIcon size={18} />
                   </button>
-                  {detailOpen && avatarMenu && (
-                    <AvatarPicker
-                      bot={openBotRow}
-                      onClose={() => setAvatarMenu(false)}
-                      onPick={(body) =>
-                        api(`/api/bots/${openBotRow.id}`, {
-                          method: "PATCH",
-                          headers: { "content-type": "application/json" },
-                          body: JSON.stringify(body),
-                        }).then(load)
-                      }
-                    />
-                  )}
-                  <h2>{openBotRow.name}</h2>
-                  {openBotRow.archived ? (
-                    <span className="archivebadge detailarchive">Archived</span>
-                  ) : null}
-                  {openBotRow.current_task && !openBotRow.status && (
-                    <p className="taskline">
-                      {openBotRow.current_task}
-                      {openBotRow.current_task_updated_at && (
-                        <em>
-                          {" "}
-                          · {relTime(openBotRow.current_task_updated_at)}
-                        </em>
-                      )}
-                    </p>
-                  )}
-                  {openBotRow.current_task && openBotRow.status && (
-                    <p className="taskline">{openBotRow.current_task}</p>
-                  )}
-                  {openBotRow.status && (
-                    <p className="statline">
-                      {openBotRow.status}
-                      {openBotRow.current_task_updated_at && (
-                        <em>
-                          {" "}
-                          · {relTime(openBotRow.current_task_updated_at)}
-                        </em>
-                      )}
-                    </p>
-                  )}
-                  <div className="detailhead-actions">
-                    <label className="switch">
-                      <input
-                        type="checkbox"
-                        aria-label="Bot enabled"
-                        checked={openBotRow.enabled !== 0}
-                        disabled={headerBusy || Boolean(openBotRow.archived)}
-                        onChange={() => {
-                          setHeaderBusy(true);
-                          void api(`/api/bots/${openBotRow.id}`, {
-                            method: "PATCH",
-                            headers: { "content-type": "application/json" },
-                            body: JSON.stringify({
-                              enabled: openBotRow.enabled === 0,
-                            }),
-                          })
-                            .then(load)
-                            .catch((e) => alert(e.message))
-                            .finally(() => setHeaderBusy(false));
-                        }}
-                      />
-                      <span className="knob" />
-                      <span className="state">
-                        {openBotRow.archived || !openBotRow.enabled
-                          ? "Disabled"
-                          : "Enabled"}
-                      </span>
-                    </label>
-                    {openBotRow.run_state === "running" && (
-                      <button
-                        type="button"
-                        className="danger"
-                        aria-label="Stop while running"
-                        disabled={headerBusy}
-                        onClick={() => {
-                          setHeaderBusy(true);
-                          void stopBotWork(openBotRow.id)
-                            .then(load)
-                            .catch((e) => alert(e.message))
-                            .finally(() => setHeaderBusy(false));
-                        }}
-                      >
-                        Stop
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="close"
-                      aria-label="Close"
-                      onClick={requestCloseDetails}
-                    >
-                      <CloseIcon size={18} />
-                    </button>
-                  </div>
-                </div>
-                <nav className="mtabs">
-                  {(
-                    ["general", "triggers", "logs", "stats", "files"] as const
-                  ).map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      className={modalTab === t ? "sel" : ""}
-                      onClick={() => discardGuard(() => setModalTab(t))}
-                    >
-                      {titleCase(t)}
-                    </button>
-                  ))}
-                </nav>
-                <div className="tabbody">
-                  {modalTab === "general" && (
-                    <BotGeneral
-                      key={openBotRow.id}
-                      bot={openBotRow}
-                      onChanged={load}
-                      onCancel={requestCloseDetails}
-                    />
-                  )}
-                  {modalTab === "triggers" && (
-                    <Triggers botId={openBotRow.id} />
-                  )}
-                  {modalTab === "logs" && (
-                    <>
-                      {runs.length === 0 && (
-                        <p>
-                          No runs yet. Press "Run now" or wait for a trigger.
-                        </p>
-                      )}
-                      {runs.map((run) => (
-                        <article key={run.id}>
-                          <button
-                            type="button"
-                            className="runhead"
-                            aria-expanded={replayRun === run.id}
-                            title="Show the transcript replay for this run"
-                            onClick={() =>
-                              setReplayRun(replayRun === run.id ? null : run.id)
-                            }
-                          >
-                            <span className={`status ${run.status}`}>
-                              {run.status}
-                            </span>
-                            <span>{run.trigger}</span>
-                            <span>{fmt(run.started_at)}</span>
-                            {run.finished_at && (
-                              <span>→ {fmt(run.finished_at)}</span>
-                            )}
-                          </button>
-                          {run.output && <pre>{run.output}</pre>}
-                          {run.error && (
-                            <pre className="error">{run.error}</pre>
-                          )}
-                          {replayRun === run.id && openBot && (
-                            <ReplayPanel
-                              botId={openBot}
-                              run={run}
-                              running={openBotRow.run_state === "running"}
-                              onRerun={(message) =>
-                                rerunTranscriptMessage(openBot, message)
-                              }
-                            />
-                          )}
-                        </article>
-                      ))}
-                    </>
-                  )}
-                  {modalTab === "stats" && (
-                    <BotStats
-                      key={openBotRow.id}
-                      botId={openBotRow.id}
-                      running={openBotRow.run_state === "running"}
-                    />
-                  )}
-                  {modalTab === "files" && (
-                    <BotFiles key={openBotRow.id} botId={openBotRow.id} />
-                  )}
                 </div>
               </div>
-            </div>
+              <TabNav
+                tabs={BOT_MODAL_TABS.map((t) => ({
+                  id: t,
+                  label: titleCase(t),
+                }))}
+                selected={modalTab}
+                onSelect={(t) =>
+                  discardGuard(() => setModalTab(t as BotModalTab))
+                }
+              />
+              <div className="tabbody">
+                {modalTab === "general" && (
+                  <BotGeneral
+                    key={openBotRow.id}
+                    bot={openBotRow}
+                    onChanged={load}
+                    onCancel={requestCloseDetails}
+                  />
+                )}
+                {modalTab === "triggers" && <Triggers botId={openBotRow.id} />}
+                {modalTab === "logs" && (
+                  <>
+                    {runs.length === 0 && (
+                      <p>No runs yet. Press "Run now" or wait for a trigger.</p>
+                    )}
+                    {runs.map((run) => (
+                      <article key={run.id}>
+                        <button
+                          type="button"
+                          className="runhead"
+                          aria-expanded={replayRun === run.id}
+                          title="Show the transcript replay for this run"
+                          onClick={() =>
+                            setReplayRun(replayRun === run.id ? null : run.id)
+                          }
+                        >
+                          <span className={`status ${run.status}`}>
+                            {run.status}
+                          </span>
+                          <span>{run.trigger}</span>
+                          <span>{fmt(run.started_at)}</span>
+                          {run.finished_at && (
+                            <span>→ {fmt(run.finished_at)}</span>
+                          )}
+                        </button>
+                        {run.output && <pre>{run.output}</pre>}
+                        {run.error && <pre className="error">{run.error}</pre>}
+                        {replayRun === run.id && openBot && (
+                          <ReplayPanel
+                            botId={openBot}
+                            run={run}
+                            running={openBotRow.run_state === "running"}
+                            onRerun={(message) =>
+                              rerunTranscriptMessage(openBot, message)
+                            }
+                          />
+                        )}
+                      </article>
+                    ))}
+                  </>
+                )}
+                {modalTab === "stats" && (
+                  <BotStats
+                    key={openBotRow.id}
+                    botId={openBotRow.id}
+                    running={openBotRow.run_state === "running"}
+                  />
+                )}
+                {modalTab === "files" && (
+                  <BotFiles key={openBotRow.id} botId={openBotRow.id} />
+                )}
+              </div>
+            </Modal>
           )}
           {addOpen && (
             <AddBotModal
@@ -2163,151 +2138,140 @@ export function AddBotModal({
     roleId !== "" ||
     machineId !== "";
   const attemptClose = useDiscardGuard("this new bot", dirty, onClose);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") attemptClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [attemptClose]);
+  useEscape(attemptClose);
+
+  async function submitNewBot(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const bot = await api<Bot>("/api/bots", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name,
+          instructions,
+          role_id: roleId || null,
+          machine_id: machineId || null,
+        }),
+      });
+      const tpl = templates.find((t) => t.id === templateSel);
+      for (const t of tpl?.triggers ?? []) {
+        await api(`/api/bots/${bot.id}/triggers`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            kind: "schedule",
+            message: t.message,
+            schedule: t.schedule,
+          }),
+        }).catch(() => null);
+      }
+      onCreated();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err));
+      setBusy(false);
+    }
+  }
 
   return (
-    <div className="modal">
-      <button
-        type="button"
-        className="mscrim"
-        aria-label="Cancel"
-        onClick={attemptClose}
-      />
-      <form
-        className="dialog narrow"
-        role="dialog"
-        aria-label="Add bot"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setBusy(true);
-          try {
-            const bot = await api<Bot>("/api/bots", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                name,
-                instructions,
-                role_id: roleId || null,
-                machine_id: machineId || null,
-              }),
-            });
-            const tpl = templates.find((t) => t.id === templateSel);
-            for (const t of tpl?.triggers ?? []) {
-              await api(`/api/bots/${bot.id}/triggers`, {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({
-                  kind: "schedule",
-                  message: t.message,
-                  schedule: t.schedule,
-                }),
-              }).catch(() => null);
-            }
-            onCreated();
-          } catch (err) {
-            alert(err instanceof Error ? err.message : String(err));
-            setBusy(false);
-          }
-        }}
-      >
-        <div className="viewhead">
-          <h2>Add bot</h2>
+    <ModalForm
+      scrimOnCancel={attemptClose}
+      className="dialog narrow"
+      role="dialog"
+      aria-label="Add bot"
+      onSubmit={submitNewBot}
+    >
+      <div className="viewhead">
+        <h2>Add bot</h2>
+        <button
+          type="button"
+          className="close"
+          aria-label="Cancel"
+          onClick={attemptClose}
+        >
+          <CloseIcon size={18} />
+        </button>
+      </div>
+      {templates.length > 0 && (
+        <p className="rolepick">
+          Template{" "}
+          <select
+            value={templateSel}
+            onChange={(e) => {
+              setTemplateSel(e.target.value);
+              applyTemplate(e.target.value);
+            }}
+          >
+            <option value="">None</option>
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </p>
+      )}
+      <div className="namerow">
+        <input
+          autoFocus
+          placeholder="name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
+        {BOT_NAMES.length > 1 && (
           <button
             type="button"
-            className="close"
-            aria-label="Cancel"
-            onClick={attemptClose}
+            className="shuffle"
+            aria-label="Suggest another name"
+            title="Suggest another name"
+            onClick={reshuffle}
           >
-            <CloseIcon size={18} />
+            <RefreshIcon size={17} />
           </button>
-        </div>
-        {templates.length > 0 && (
-          <p className="rolepick">
-            Template{" "}
-            <select
-              value={templateSel}
-              onChange={(e) => {
-                setTemplateSel(e.target.value);
-                applyTemplate(e.target.value);
-              }}
-            >
-              <option value="">None</option>
-              {templates.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-          </p>
         )}
-        <div className="namerow">
-          <input
-            autoFocus
-            placeholder="name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-          {BOT_NAMES.length > 1 && (
-            <button
-              type="button"
-              className="shuffle"
-              aria-label="Suggest another name"
-              title="Suggest another name"
-              onClick={reshuffle}
-            >
-              <RefreshIcon size={17} />
-            </button>
-          )}
-        </div>
-        <textarea
-          placeholder="instructions (optional)"
-          rows={3}
-          value={instructions}
-          onChange={(e) => setInstructions(e.target.value)}
-        />
-        <p className="rolepick">
-          Role{" "}
-          <select value={roleId} onChange={(e) => setRoleId(e.target.value)}>
-            <option value="">None</option>
-            {roles.map((role) => (
-              <option key={role.id} value={role.id}>
-                {role.name}
-              </option>
-            ))}
-          </select>
-        </p>
-        <p className="rolepick">
-          Machine{" "}
-          <select
-            value={machineId}
-            onChange={(e) => setMachineId(e.target.value)}
-          >
-            <option value="">Default</option>
-            {machines.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-        </p>
-        <div className="actions">
-          <button type="submit" disabled={busy}>
-            Create
-          </button>
-          <UnsavedNote dirty={dirty} />
-          <button type="button" onClick={attemptClose}>
-            Cancel
-          </button>
-        </div>
-      </form>
-    </div>
+      </div>
+      <textarea
+        placeholder="instructions (optional)"
+        rows={3}
+        value={instructions}
+        onChange={(e) => setInstructions(e.target.value)}
+      />
+      <p className="rolepick">
+        Role{" "}
+        <select value={roleId} onChange={(e) => setRoleId(e.target.value)}>
+          <option value="">None</option>
+          {roles.map((role) => (
+            <option key={role.id} value={role.id}>
+              {role.name}
+            </option>
+          ))}
+        </select>
+      </p>
+      <p className="rolepick">
+        Machine{" "}
+        <select
+          value={machineId}
+          onChange={(e) => setMachineId(e.target.value)}
+        >
+          <option value="">Default</option>
+          {machines.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+      </p>
+      <div className="actions">
+        <button type="submit" disabled={busy}>
+          Create
+        </button>
+        <UnsavedNote dirty={dirty} />
+        <button type="button" onClick={attemptClose}>
+          Cancel
+        </button>
+      </div>
+    </ModalForm>
   );
 }
 
@@ -2817,6 +2781,17 @@ function Nav({
 const THEMES = ["light", "dark", "system"] as const;
 type Theme = (typeof THEMES)[number];
 
+const ROLE_FORM_TABS: readonly TabNavTab[] = [
+  { id: "general", label: "General" },
+  { id: "mcp", label: "MCP" },
+  { id: "skills", label: "Skills" },
+];
+
+const SKILL_MODAL_TABS: readonly TabNavTab[] = [
+  { id: "create", label: "Create" },
+  { id: "import", label: "Import" },
+];
+
 const SETTINGS_TABS: readonly { id: SettingsTab; label: string }[] = [
   { id: "general", label: "General" },
   { id: "providers", label: "Providers" },
@@ -2872,18 +2847,12 @@ export function SettingsPanel() {
       <div className="mainhead">
         <h2>Settings</h2>
       </div>
-      <nav className="mtabs" aria-label="Settings sections">
-        {SETTINGS_TABS.map((x) => (
-          <button
-            key={x.id}
-            type="button"
-            className={sub === x.id ? "sel" : ""}
-            onClick={() => switchTab(x.id)}
-          >
-            {x.label}
-          </button>
-        ))}
-      </nav>
+      <TabNav
+        tabs={SETTINGS_TABS}
+        selected={sub}
+        onSelect={(id) => switchTab(id as SettingsTab)}
+        ariaLabel="Settings sections"
+      />
       <div
         className="tabbody settingstab"
         role="tabpanel"
@@ -3030,21 +2999,17 @@ export function SettingsGeneral() {
       </div>
       <p className="muted">Notification sounds</p>
       <div className="actions">
-        <label className="switch">
-          <input
-            type="checkbox"
-            aria-label="Play notification sounds"
-            checked={soundsOn}
-            onChange={() => {
-              const next = !soundsOn;
-              setSoundsOn(next);
-              localStorage.setItem("bots-sounds", next ? "on" : "off");
-              if (next) playSound("default");
-            }}
-          />
-          <span className="knob" />
-          <span className="state">{soundsOn ? "On" : "Off"}</span>
-        </label>
+        <SwitchToggle
+          ariaLabel="Play notification sounds"
+          checked={soundsOn}
+          onChange={() => {
+            const next = !soundsOn;
+            setSoundsOn(next);
+            localStorage.setItem("bots-sounds", next ? "on" : "off");
+            if (next) playSound("default");
+          }}
+          stateLabel={soundsOn ? "On" : "Off"}
+        />
         <button type="button" onClick={() => playSound("default")}>
           Preview
         </button>
@@ -3321,24 +3286,20 @@ export function SettingsSystem() {
 
       <p className="muted">Control MCP server</p>
       <div className="tedithead">
-        <label className="switch">
-          <input
-            type="checkbox"
-            aria-label="Control MCP enabled"
-            checked={mcpEnabled}
-            onChange={() => {
-              const next = !mcpEnabled;
-              setMcpEnabled(next);
-              api("/api/settings", {
-                method: "PUT",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ control_mcp_enabled: next }),
-              }).catch((e) => alert(e.message));
-            }}
-          />
-          <span className="knob" />
-          <span className="state">{mcpEnabled ? "Enabled" : "Disabled"}</span>
-        </label>
+        <SwitchToggle
+          ariaLabel="Control MCP enabled"
+          checked={mcpEnabled}
+          onChange={() => {
+            const next = !mcpEnabled;
+            setMcpEnabled(next);
+            api("/api/settings", {
+              method: "PUT",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ control_mcp_enabled: next }),
+            }).catch((e) => alert(e.message));
+          }}
+          stateLabel={mcpEnabled ? "Enabled" : "Disabled"}
+        />
         <code>/mcp</code>
       </div>
 
@@ -3571,94 +3532,84 @@ function EventDestinationModal({
   };
 
   return (
-    <div className="modal">
-      <button
-        type="button"
-        className="mscrim"
-        aria-label="Cancel"
-        onClick={attemptClose}
-      />
-      <div className="dialog">
-        <div className="viewhead">
-          <h2>
-            {destination ? `Edit ${destination.name}` : "Add destination"}
-          </h2>
-          <button
-            type="button"
-            className="close"
-            aria-label="Cancel"
-            onClick={attemptClose}
-          >
-            <CloseIcon size={18} />
-          </button>
-        </div>
-        {error && <p className="error">{error}</p>}
-        <label className="field">
-          Name
-          <input
-            aria-label="Destination name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </label>
-        <label className="field">
-          URL
-          <input
-            aria-label="Destination URL"
-            placeholder="https://example.com/hooks/bots"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-          />
-        </label>
-        <label className="field">
-          Secret
-          <input
-            type="password"
-            aria-label="Destination secret"
-            placeholder={
-              destination?.has_secret ? "saved — leave empty to keep" : ""
-            }
-            value={secret}
-            onChange={(e) => setSecret(e.target.value)}
-          />
-        </label>
-        <p className="muted">Events</p>
-        <ul className="modellist">
-          {HOOK_EVENT_OPTIONS.map(([value, label]) => (
-            <li key={value}>
-              <label>
-                <input
-                  type="checkbox"
-                  aria-label={label}
-                  checked={eventTypes.includes(value)}
-                  onChange={() =>
-                    setEventTypes((current) =>
-                      current.includes(value)
-                        ? current.filter((x) => x !== value)
-                        : [...current, value],
-                    )
-                  }
-                />{" "}
-                {label}
-              </label>
-            </li>
-          ))}
-        </ul>
-        <div className="actions">
-          <button
-            type="button"
-            disabled={busy || !canSave}
-            onClick={() => void save()}
-          >
-            {busy
-              ? "Saving…"
-              : destination
-                ? "Save destination"
-                : "Add destination"}
-          </button>
-        </div>
+    <Modal scrimOnCancel={attemptClose} className="dialog">
+      <div className="viewhead">
+        <h2>{destination ? `Edit ${destination.name}` : "Add destination"}</h2>
+        <button
+          type="button"
+          className="close"
+          aria-label="Cancel"
+          onClick={attemptClose}
+        >
+          <CloseIcon size={18} />
+        </button>
       </div>
-    </div>
+      {error && <p className="error">{error}</p>}
+      <label className="field">
+        Name
+        <input
+          aria-label="Destination name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </label>
+      <label className="field">
+        URL
+        <input
+          aria-label="Destination URL"
+          placeholder="https://example.com/hooks/bots"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+        />
+      </label>
+      <label className="field">
+        Secret
+        <input
+          type="password"
+          aria-label="Destination secret"
+          placeholder={
+            destination?.has_secret ? "saved — leave empty to keep" : ""
+          }
+          value={secret}
+          onChange={(e) => setSecret(e.target.value)}
+        />
+      </label>
+      <p className="muted">Events</p>
+      <ul className="modellist">
+        {HOOK_EVENT_OPTIONS.map(([value, label]) => (
+          <li key={value}>
+            <label>
+              <input
+                type="checkbox"
+                aria-label={label}
+                checked={eventTypes.includes(value)}
+                onChange={() =>
+                  setEventTypes((current) =>
+                    current.includes(value)
+                      ? current.filter((x) => x !== value)
+                      : [...current, value],
+                  )
+                }
+              />{" "}
+              {label}
+            </label>
+          </li>
+        ))}
+      </ul>
+      <div className="actions">
+        <button
+          type="button"
+          disabled={busy || !canSave}
+          onClick={() => void save()}
+        >
+          {busy
+            ? "Saving…"
+            : destination
+              ? "Save destination"
+              : "Add destination"}
+        </button>
+      </div>
+    </Modal>
   );
 }
 
@@ -3813,19 +3764,15 @@ export function ConfigBackupSection() {
     <div className="backupconfig">
       <p className="muted">Configuration backup</p>
       <div className="actions">
-        <label className="switch">
-          <span id="secret-values-export-label">Secret values in export</span>
-          <input
-            type="checkbox"
-            aria-labelledby="secret-values-export-label"
-            checked={includeValues}
-            onChange={() => setIncludeValues((current) => !current)}
-          />
-          <span className="knob" />
-          <span className="state">
-            {includeValues ? "Included" : "Names only"}
-          </span>
-        </label>
+        <SwitchToggle
+          title={
+            <span id="secret-values-export-label">Secret values in export</span>
+          }
+          labelledBy="secret-values-export-label"
+          checked={includeValues}
+          onChange={() => setIncludeValues((current) => !current)}
+          stateLabel={includeValues ? "Included" : "Names only"}
+        />
         <button
           type="button"
           disabled={busy}
@@ -4027,112 +3974,104 @@ export function ProviderFormModal({
   };
 
   return (
-    <div className="modal">
-      <button
-        type="button"
-        className="mscrim"
-        aria-label="Cancel"
-        onClick={attemptClose}
-      />
-      <div className="dialog">
-        <div className="viewhead">
-          <h2>{provider ? `Edit ${provider.name}` : "Add provider"}</h2>
-          <button
-            type="button"
-            className="close"
-            aria-label="Cancel"
-            onClick={attemptClose}
-          >
-            <CloseIcon size={18} />
-          </button>
-        </div>
-        {error && <p className="error">{error}</p>}
-        <label className="field">
-          Name
-          <input value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <label className="field">
-          Base URL
-          <input
-            placeholder="https://host/v1"
-            value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
-          />
-        </label>
-        <label className="field">
-          API key
-          <input
-            type="password"
-            placeholder={provider?.has_key ? "saved — leave empty to keep" : ""}
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-          />
-        </label>
-        <div className="actions">
-          <button
-            type="button"
-            disabled={busy || !baseUrl}
-            onClick={() => void detect()}
-          >
-            {busy ? "Working…" : "Detect models"}
-          </button>
-        </div>
-        {detected && (
-          <ul className="modellist">
-            {[...models.filter((m) => !detected.includes(m)), ...detected].map(
-              (id) => (
-                <li key={id}>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={models.includes(id)}
-                      onChange={() => toggleModel(id)}
-                    />{" "}
-                    {id}
-                  </label>
-                </li>
-              ),
-            )}
-          </ul>
-        )}
-        {models.length > 0 && !detected && (
-          <ul className="modellist">
-            {models.map((id) => (
+    <Modal scrimOnCancel={attemptClose} className="dialog">
+      <div className="viewhead">
+        <h2>{provider ? `Edit ${provider.name}` : "Add provider"}</h2>
+        <button
+          type="button"
+          className="close"
+          aria-label="Cancel"
+          onClick={attemptClose}
+        >
+          <CloseIcon size={18} />
+        </button>
+      </div>
+      {error && <p className="error">{error}</p>}
+      <label className="field">
+        Name
+        <input value={name} onChange={(e) => setName(e.target.value)} />
+      </label>
+      <label className="field">
+        Base URL
+        <input
+          placeholder="https://host/v1"
+          value={baseUrl}
+          onChange={(e) => setBaseUrl(e.target.value)}
+        />
+      </label>
+      <label className="field">
+        API key
+        <input
+          type="password"
+          placeholder={provider?.has_key ? "saved — leave empty to keep" : ""}
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+        />
+      </label>
+      <div className="actions">
+        <button
+          type="button"
+          disabled={busy || !baseUrl}
+          onClick={() => void detect()}
+        >
+          {busy ? "Working…" : "Detect models"}
+        </button>
+      </div>
+      {detected && (
+        <ul className="modellist">
+          {[...models.filter((m) => !detected.includes(m)), ...detected].map(
+            (id) => (
               <li key={id}>
                 <label>
                   <input
                     type="checkbox"
-                    checked
+                    checked={models.includes(id)}
                     onChange={() => toggleModel(id)}
                   />{" "}
                   {id}
                 </label>
               </li>
-            ))}
-          </ul>
-        )}
-        <div className="actions">
-          <input
-            placeholder="Add model id manually"
-            value={manual}
-            onChange={(e) => setManual(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") addManual();
-            }}
-          />
-          <button type="button" onClick={addManual}>
-            Add
-          </button>
-        </div>
-        <div className="actions">
-          <button
-            type="button"
-            disabled={busy || !name || !baseUrl.startsWith("http")}
-            onClick={requestSave}
-          >
-            Save provider
-          </button>
-        </div>
+            ),
+          )}
+        </ul>
+      )}
+      {models.length > 0 && !detected && (
+        <ul className="modellist">
+          {models.map((id) => (
+            <li key={id}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked
+                  onChange={() => toggleModel(id)}
+                />{" "}
+                {id}
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="actions">
+        <input
+          placeholder="Add model id manually"
+          value={manual}
+          onChange={(e) => setManual(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") addManual();
+          }}
+        />
+        <button type="button" onClick={addManual}>
+          Add
+        </button>
+      </div>
+      <div className="actions">
+        <button
+          type="button"
+          disabled={busy || !name || !baseUrl.startsWith("http")}
+          onClick={requestSave}
+        >
+          Save provider
+        </button>
       </div>
       {confirmRotate && provider && (
         <ConfirmDialog
@@ -4145,7 +4084,7 @@ export function ProviderFormModal({
           }}
         />
       )}
-    </div>
+    </Modal>
   );
 }
 
@@ -4324,89 +4263,77 @@ export function TeamCreateModal({
   const [leaderSel, setLeaderSel] = useState<string[]>([]);
   const dirty = name !== "" || memberSel.length > 0 || leaderSel.length > 0;
   const attemptClose = useDiscardGuard("this new team", dirty, onClose);
+  useEscape(attemptClose);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") attemptClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  });
+  function submitTeam(e: FormEvent) {
+    e.preventDefault();
+    mutate(async () => {
+      const created = await api<Team>("/api/teams", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      for (const id of new Set([...memberSel, ...leaderSel]))
+        await api(`/api/teams/${created.id}/members`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            bot_id: id,
+            leader: leaderSel.includes(id),
+          }),
+        });
+      onClose();
+    });
+  }
 
   return (
-    <div className="modal">
-      <button
-        type="button"
-        className="mscrim"
-        aria-label="Cancel"
-        onClick={attemptClose}
-      />
-      <form
-        className="dialog narrow"
-        role="dialog"
-        aria-label="Create team"
-        onSubmit={(e) => {
-          e.preventDefault();
-          mutate(async () => {
-            const created = await api<Team>("/api/teams", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ name: name.trim() }),
-            });
-            for (const id of new Set([...memberSel, ...leaderSel]))
-              await api(`/api/teams/${created.id}/members`, {
-                method: "PUT",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({
-                  bot_id: id,
-                  leader: leaderSel.includes(id),
-                }),
-              });
-            onClose();
-          });
-        }}
-      >
-        <label className="field">
-          Name
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-        </label>
-        <div className="field">
-          Members
-          <Multiselect
-            label={`Members of new team`}
-            options={bots.map((b) => ({ id: b.id, name: b.name }))}
-            selected={memberSel}
-            onChange={setMemberSel}
-            busy={busy}
-            placeholder="Add teammates…"
-          />
-        </div>
-        <div className="field">
-          Leaders (also added as members)
-          <Multiselect
-            label={`Leaders of new team`}
-            options={bots.map((b) => ({ id: b.id, name: b.name }))}
-            selected={leaderSel}
-            onChange={setLeaderSel}
-            busy={busy}
-            placeholder="Pick leaders…"
-          />
-        </div>
-        <div className="actions">
-          <button type="submit" disabled={busy || !name.trim()}>
-            Create team
-          </button>
-          <UnsavedNote dirty={dirty} />
-          <button type="button" onClick={attemptClose}>
-            Cancel
-          </button>
-        </div>
-      </form>
-    </div>
+    <ModalForm
+      scrimOnCancel={attemptClose}
+      className="dialog narrow"
+      role="dialog"
+      aria-label="Create team"
+      onSubmit={submitTeam}
+    >
+      <label className="field">
+        Name
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
+      </label>
+      <div className="field">
+        Members
+        <Multiselect
+          label={`Members of new team`}
+          options={bots.map((b) => ({ id: b.id, name: b.name }))}
+          selected={memberSel}
+          onChange={setMemberSel}
+          busy={busy}
+          placeholder="Add teammates…"
+        />
+      </div>
+      <div className="field">
+        Leaders (also added as members)
+        <Multiselect
+          label={`Leaders of new team`}
+          options={bots.map((b) => ({ id: b.id, name: b.name }))}
+          selected={leaderSel}
+          onChange={setLeaderSel}
+          busy={busy}
+          placeholder="Pick leaders…"
+        />
+      </div>
+      <div className="actions">
+        <button type="submit" disabled={busy || !name.trim()}>
+          Create team
+        </button>
+        <UnsavedNote dirty={dirty} />
+        <button type="button" onClick={attemptClose}>
+          Cancel
+        </button>
+      </div>
+    </ModalForm>
   );
 }
 
@@ -4610,22 +4537,19 @@ export function TeamConfigModal({
   };
   const attemptClose = useDiscardGuard(`team ${team.name}`, dirty, onClose);
 
+  function submitTeamEdit(e: FormEvent) {
+    e.preventDefault();
+    save();
+  }
+
   return (
-    <div className="modal">
-      <button
-        type="button"
-        className="mscrim"
-        aria-label="Cancel"
-        onClick={attemptClose}
-      />
-      <form
+    <>
+      <ModalForm
+        scrimOnCancel={attemptClose}
         className="dialog narrow"
         role="dialog"
         aria-label={`Configure team ${team.name}`}
-        onSubmit={(e) => {
-          e.preventDefault();
-          save();
-        }}
+        onSubmit={submitTeamEdit}
       >
         <label className="field">
           Name
@@ -4685,7 +4609,7 @@ export function TeamConfigModal({
             Cancel
           </button>
         </div>
-      </form>
+      </ModalForm>
       {confirmDel && (
         <ConfirmDialog
           text={`Delete team ${team.name}? The bots stay.`}
@@ -4698,7 +4622,7 @@ export function TeamConfigModal({
           }}
         />
       )}
-    </div>
+    </>
   );
 }
 
@@ -4864,22 +4788,19 @@ export function ProjectModal({
     }
   };
 
+  function submitProject(e: FormEvent) {
+    e.preventDefault();
+    void save();
+  }
+
   return (
-    <div className="modal">
-      <button
-        type="button"
-        className="mscrim"
-        aria-label="Cancel"
-        onClick={attemptClose}
-      />
-      <form
+    <>
+      <ModalForm
+        scrimOnCancel={attemptClose}
         className="dialog narrow"
         role="dialog"
         aria-label={project ? "Edit project" : "Create project"}
-        onSubmit={(e) => {
-          e.preventDefault();
-          void save();
-        }}
+        onSubmit={submitProject}
       >
         <label className="field">
           Name
@@ -4929,7 +4850,7 @@ export function ProjectModal({
             </button>
           )}
         </div>
-      </form>
+      </ModalForm>
       {confirmDel && project && (
         <ConfirmDialog
           text={`Delete project ${project.name}? Attached bots lose it from their prompts.`}
@@ -4942,7 +4863,7 @@ export function ProjectModal({
           }}
         />
       )}
-    </div>
+    </>
   );
 }
 
@@ -5152,56 +5073,47 @@ export function RoleFormModal({
     nameRef.current?.focus();
   }, []);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !confirmDel) attemptClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose, confirmDel]);
+  useEscape(() => {
+    if (!confirmDel) attemptClose();
+  }, true);
+
+  async function submitRole(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const body = JSON.stringify({
+        name,
+        instructions,
+        mcp_server_ids: mcpIds,
+        skill_ids: skillIds,
+      });
+      if (role)
+        await api(`/api/roles/${role.id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body,
+        });
+      else
+        await api("/api/roles", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body,
+        });
+      onSaved();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err));
+      setBusy(false);
+    }
+  }
 
   return (
-    <div className="modal">
-      <button
-        type="button"
-        className="mscrim"
-        aria-label="Cancel"
-        onClick={attemptClose}
-      />
-      <form
+    <>
+      <ModalForm
+        scrimOnCancel={attemptClose}
         className="dialog"
         role="dialog"
         aria-label={role ? "Edit role" : "Create role"}
-        onSubmit={(e) => {
-          e.preventDefault();
-          void (async () => {
-            setBusy(true);
-            try {
-              const body = JSON.stringify({
-                name,
-                instructions,
-                mcp_server_ids: mcpIds,
-                skill_ids: skillIds,
-              });
-              if (role)
-                await api(`/api/roles/${role.id}`, {
-                  method: "PATCH",
-                  headers: { "content-type": "application/json" },
-                  body,
-                });
-              else
-                await api("/api/roles", {
-                  method: "POST",
-                  headers: { "content-type": "application/json" },
-                  body,
-                });
-              onSaved();
-            } catch (err) {
-              alert(err instanceof Error ? err.message : String(err));
-              setBusy(false);
-            }
-          })();
-        }}
+        onSubmit={submitRole}
       >
         <div className="viewhead">
           <h2>{role ? "Edit role" : "Create role"}</h2>
@@ -5214,24 +5126,11 @@ export function RoleFormModal({
             <CloseIcon size={18} />
           </button>
         </div>
-        <nav className="mtabs">
-          {(
-            [
-              ["general", "General"],
-              ["mcp", "MCP"],
-              ["skills", "Skills"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              className={roleTab === id ? "sel" : ""}
-              onClick={() => setRoleTab(id)}
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
+        <TabNav
+          tabs={ROLE_FORM_TABS}
+          selected={roleTab}
+          onSelect={(id) => setRoleTab(id as "general" | "mcp" | "skills")}
+        />
         {roleTab === "general" && (
           <>
             <input
@@ -5287,7 +5186,7 @@ export function RoleFormModal({
             Cancel
           </button>
         </div>
-      </form>
+      </ModalForm>
       {role && confirmDel && (
         <ConfirmDialog
           text={`Delete role ${role.name}? Bots using it fall back to their own prompts.`}
@@ -5308,7 +5207,7 @@ export function RoleFormModal({
           }}
         />
       )}
-    </div>
+    </>
   );
 }
 
@@ -6687,49 +6586,7 @@ export function SearchOverlay({
   );
 }
 
-export function ConfirmDialog({
-  text,
-  confirmLabel,
-  cancelLabel = "Cancel",
-  onCancel,
-  onConfirm,
-}: {
-  text: string;
-  confirmLabel: string;
-  cancelLabel?: string;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onCancel]);
-
-  return (
-    <div className="confirm">
-      <button
-        type="button"
-        className="mscrim"
-        aria-label="Cancel"
-        onClick={onCancel}
-      />
-      <div className="dialog narrow" role="alertdialog" aria-label={text}>
-        <p>{text}</p>
-        <div className="actions">
-          <button type="button" className="danger" onClick={onConfirm}>
-            {confirmLabel}
-          </button>
-          <button type="button" onClick={onCancel}>
-            {cancelLabel}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+export { ConfirmDialog } from "./components/ui/ConfirmDialog.tsx";
 
 export function Triggers({ botId }: { botId: string }) {
   const [triggers, setTriggers] = useState<Trigger[]>([]);
@@ -7014,20 +6871,14 @@ function TriggerEditor({
   return (
     <>
       <div className="tedithead">
-        <label className="switch">
-          <input
-            type="checkbox"
-            aria-label="Trigger enabled"
-            checked={trigger.enabled === 1}
-            onChange={() =>
-              void onPatch(trigger.id, { enabled: trigger.enabled !== 1 })
-            }
-          />
-          <span className="knob" />
-          <span className="state">
-            {trigger.enabled === 1 ? "Enabled" : "Disabled"}
-          </span>
-        </label>
+        <SwitchToggle
+          ariaLabel="Trigger enabled"
+          checked={trigger.enabled === 1}
+          onChange={() =>
+            void onPatch(trigger.id, { enabled: trigger.enabled !== 1 })
+          }
+          stateLabel={trigger.enabled === 1 ? "Enabled" : "Disabled"}
+        />
         {trigger.kind === "webhook" ? (
           <code>{`POST /api/webhooks/${trigger.id}`}</code>
         ) : nextRun ? (
@@ -7818,72 +7669,70 @@ export function SkillModal({
   const attemptClose = useDiscardGuard(`skill ${skill.name}`, dirty, onClose);
 
   return (
-    <div className="modal">
-      <button
-        type="button"
-        className="mscrim"
-        aria-label="Close"
-        onClick={attemptClose}
-      />
-      <div className="dialog" role="dialog" aria-label="Skill">
-        <h2>Edit skill</h2>
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setBusy(true);
-            setError(null);
-            try {
-              await api(`/api/skills/${skill.id}`, {
-                method: "PATCH",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ name, description, instructions }),
-              });
-              onSaved();
-            } catch (err) {
-              setError(err instanceof Error ? err.message : String(err));
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          <label>
-            Name
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-            />
-          </label>
-          <label>
-            Description (optional)
-            <input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </label>
-          <label>
-            Instructions (markdown)
-            <textarea
-              className="fixed"
-              rows={12}
-              value={instructions}
-              onChange={(e) => setInstructions(e.target.value)}
-              required
-            />
-          </label>
-          {error && <p className="error">{error}</p>}
-          <div className="actions">
-            <button type="submit" disabled={busy}>
-              {busy ? "Saving…" : "Save"}
-            </button>
-            <UnsavedNote dirty={dirty} />
-            <button type="button" onClick={attemptClose}>
-              Cancel
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <Modal
+      scrimOnCancel={attemptClose}
+      scrimLabel="Close"
+      className="dialog"
+      role="dialog"
+      aria-label="Skill"
+    >
+      <h2>Edit skill</h2>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          setError(null);
+          try {
+            await api(`/api/skills/${skill.id}`, {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ name, description, instructions }),
+            });
+            onSaved();
+          } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <label>
+          Name
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
+        </label>
+        <label>
+          Description (optional)
+          <input
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </label>
+        <label>
+          Instructions (markdown)
+          <textarea
+            className="fixed"
+            rows={12}
+            value={instructions}
+            onChange={(e) => setInstructions(e.target.value)}
+            required
+          />
+        </label>
+        {error && <p className="error">{error}</p>}
+        <div className="actions">
+          <button type="submit" disabled={busy}>
+            {busy ? "Saving…" : "Save"}
+          </button>
+          <UnsavedNote dirty={dirty} />
+          <button type="button" onClick={attemptClose}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -7984,54 +7833,40 @@ export function AddSkillModal({
   }
 
   return (
-    <div className="modal">
-      <button
-        type="button"
-        className="mscrim"
-        aria-label="Close"
-        onClick={attemptClose}
-      />
-      <div className="dialog tabs" role="dialog" aria-label="Add skill">
-        <div className="viewhead">
-          <h2>Add skill</h2>
-          <button
-            type="button"
-            className="close"
-            aria-label="Cancel"
-            onClick={attemptClose}
-          >
-            <CloseIcon size={18} />
-          </button>
-        </div>
-        <nav className="mtabs">
-          {(
-            [
-              ["create", "Create"],
-              ["import", "Import"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              className={tab === id ? "sel" : ""}
-              onClick={() => switchTab(id)}
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
-        <div className="tabbody">
-          {tab === "create" && (
-            <CreateSkillForm
-              key={formKey}
-              onSaved={onSaved}
-              onDirtyChange={setCreateDirty}
-            />
-          )}
-          {tab === "import" && <ImportSkillsPane onImported={onSaved} />}
-        </div>
+    <Modal
+      scrimOnCancel={attemptClose}
+      scrimLabel="Close"
+      className="dialog tabs"
+      role="dialog"
+      aria-label="Add skill"
+    >
+      <div className="viewhead">
+        <h2>Add skill</h2>
+        <button
+          type="button"
+          className="close"
+          aria-label="Cancel"
+          onClick={attemptClose}
+        >
+          <CloseIcon size={18} />
+        </button>
       </div>
-    </div>
+      <TabNav
+        tabs={SKILL_MODAL_TABS}
+        selected={tab}
+        onSelect={(id) => switchTab(id as "create" | "import")}
+      />
+      <div className="tabbody">
+        {tab === "create" && (
+          <CreateSkillForm
+            key={formKey}
+            onSaved={onSaved}
+            onDirtyChange={setCreateDirty}
+          />
+        )}
+        {tab === "import" && <ImportSkillsPane onImported={onSaved} />}
+      </div>
+    </Modal>
   );
 }
 
@@ -8099,215 +7934,208 @@ export function McpServerModal({
   );
 
   return (
-    <div className="modal">
-      <button
-        type="button"
-        className="mscrim"
-        aria-label="Close"
-        onClick={attemptClose}
-      />
-      <div className="dialog" role="dialog" aria-label="MCP server">
-        <h2>{server ? "Edit MCP server" : "Add MCP server"}</h2>
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            const duplicateKey = findDuplicateEnvKey(envRows);
-            if (duplicateKey !== null) {
-              setError(`duplicate environment variable key ${duplicateKey}`);
-              return;
-            }
-            setBusy(true);
-            setError(null);
-            const body = {
-              name,
-              command,
-              args: args
-                .split("\n")
-                .map((a) => a.trim())
-                .filter(Boolean),
-              env: mcpEnvMapFromRows(envRows),
-              enabled,
-            };
-            try {
-              await api(
-                server ? `/api/mcp-servers/${server.id}` : "/api/mcp-servers",
-                {
-                  method: server ? "PATCH" : "POST",
-                  headers: { "content-type": "application/json" },
-                  body: JSON.stringify(body),
-                },
-              );
-              onSaved();
-            } catch (err) {
-              setError(err instanceof Error ? err.message : String(err));
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          <label>
-            Name
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-            />
-          </label>
-          <label>
-            Command
-            <input
-              value={command}
-              placeholder="npx"
-              onChange={(e) => setCommand(e.target.value)}
-              required
-            />
-          </label>
-          <label>
-            Args (one per line)
-            <textarea
-              rows={3}
-              value={args}
-              placeholder={"-y\n@example/mcp-server"}
-              onChange={(e) => setArgs(e.target.value)}
-            />
-          </label>
-          <fieldset className="envrows">
-            <legend>Env vars</legend>
-            {envRows.map((row, i) => (
-              <div className="envrow" key={i}>
-                <input
-                  placeholder="KEY"
-                  value={row.key}
-                  onChange={(e) =>
-                    setEnvRows(
-                      envRows.map((r, j) =>
-                        j === i ? { ...r, key: e.target.value } : r,
-                      ),
-                    )
-                  }
-                />
-                <div className="envvalue">
-                  <div className="themegroup envmode">
-                    <button
-                      type="button"
-                      aria-label={`Use a literal value for env var ${i + 1}`}
-                      className={row.mode === "literal" ? "sel" : ""}
-                      onClick={() =>
-                        setEnvRows(
-                          envRows.map((r, j) =>
-                            j === i ? { ...r, mode: "literal" } : r,
-                          ),
-                        )
-                      }
-                    >
-                      Literal
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Use a secret reference for env var ${i + 1}`}
-                      className={row.mode === "secret" ? "sel" : ""}
-                      onClick={() =>
-                        setEnvRows(
-                          envRows.map((r, j) => {
-                            if (j !== i) return r;
-                            const known = secrets.some(
-                              (s) => s.name === r.value,
-                            );
-                            return {
-                              ...r,
-                              mode: "secret",
-                              value: known ? r.value : "",
-                            };
-                          }),
-                        )
-                      }
-                    >
-                      Secret
-                    </button>
-                  </div>
-                  {row.mode === "literal" ? (
-                    <input
-                      placeholder="value"
-                      value={row.value}
-                      onChange={(e) =>
-                        setEnvRows(
-                          envRows.map((r, j) =>
-                            j === i ? { ...r, value: e.target.value } : r,
-                          ),
-                        )
-                      }
-                    />
-                  ) : (
-                    <select
-                      aria-label={`Env var ${i + 1} secret`}
-                      value={row.value}
-                      onChange={(e) =>
-                        setEnvRows(
-                          envRows.map((r, j) =>
-                            j === i ? { ...r, value: e.target.value } : r,
-                          ),
-                        )
-                      }
-                    >
-                      <option value="">Select a secret…</option>
-                      {row.value &&
-                        !secrets.some((s) => s.name === row.value) && (
-                          <option
-                            value={row.value}
-                          >{`${row.value} (missing)`}</option>
-                        )}
-                      {secrets.map((secret) => (
-                        <option key={secret.id} value={secret.name}>
-                          {secret.name}
-                        </option>
-                      ))}
-                    </select>
-                  )}
+    <Modal
+      scrimOnCancel={attemptClose}
+      scrimLabel="Close"
+      className="dialog"
+      role="dialog"
+      aria-label="MCP server"
+    >
+      <h2>{server ? "Edit MCP server" : "Add MCP server"}</h2>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const duplicateKey = findDuplicateEnvKey(envRows);
+          if (duplicateKey !== null) {
+            setError(`duplicate environment variable key ${duplicateKey}`);
+            return;
+          }
+          setBusy(true);
+          setError(null);
+          const body = {
+            name,
+            command,
+            args: args
+              .split("\n")
+              .map((a) => a.trim())
+              .filter(Boolean),
+            env: mcpEnvMapFromRows(envRows),
+            enabled,
+          };
+          try {
+            await api(
+              server ? `/api/mcp-servers/${server.id}` : "/api/mcp-servers",
+              {
+                method: server ? "PATCH" : "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify(body),
+              },
+            );
+            onSaved();
+          } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <label>
+          Name
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
+        </label>
+        <label>
+          Command
+          <input
+            value={command}
+            placeholder="npx"
+            onChange={(e) => setCommand(e.target.value)}
+            required
+          />
+        </label>
+        <label>
+          Args (one per line)
+          <textarea
+            rows={3}
+            value={args}
+            placeholder={"-y\n@example/mcp-server"}
+            onChange={(e) => setArgs(e.target.value)}
+          />
+        </label>
+        <fieldset className="envrows">
+          <legend>Env vars</legend>
+          {envRows.map((row, i) => (
+            <div className="envrow" key={i}>
+              <input
+                placeholder="KEY"
+                value={row.key}
+                onChange={(e) =>
+                  setEnvRows(
+                    envRows.map((r, j) =>
+                      j === i ? { ...r, key: e.target.value } : r,
+                    ),
+                  )
+                }
+              />
+              <div className="envvalue">
+                <div className="themegroup envmode">
+                  <button
+                    type="button"
+                    aria-label={`Use a literal value for env var ${i + 1}`}
+                    className={row.mode === "literal" ? "sel" : ""}
+                    onClick={() =>
+                      setEnvRows(
+                        envRows.map((r, j) =>
+                          j === i ? { ...r, mode: "literal" } : r,
+                        ),
+                      )
+                    }
+                  >
+                    Literal
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Use a secret reference for env var ${i + 1}`}
+                    className={row.mode === "secret" ? "sel" : ""}
+                    onClick={() =>
+                      setEnvRows(
+                        envRows.map((r, j) => {
+                          if (j !== i) return r;
+                          const known = secrets.some((s) => s.name === r.value);
+                          return {
+                            ...r,
+                            mode: "secret",
+                            value: known ? r.value : "",
+                          };
+                        }),
+                      )
+                    }
+                  >
+                    Secret
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  className="danger ghost"
-                  aria-label={`Remove env var ${i + 1}`}
-                  onClick={() => setEnvRows(envRows.filter((_, j) => j !== i))}
-                >
-                  <CloseIcon size={18} />
-                </button>
+                {row.mode === "literal" ? (
+                  <input
+                    placeholder="value"
+                    value={row.value}
+                    onChange={(e) =>
+                      setEnvRows(
+                        envRows.map((r, j) =>
+                          j === i ? { ...r, value: e.target.value } : r,
+                        ),
+                      )
+                    }
+                  />
+                ) : (
+                  <select
+                    aria-label={`Env var ${i + 1} secret`}
+                    value={row.value}
+                    onChange={(e) =>
+                      setEnvRows(
+                        envRows.map((r, j) =>
+                          j === i ? { ...r, value: e.target.value } : r,
+                        ),
+                      )
+                    }
+                  >
+                    <option value="">Select a secret…</option>
+                    {row.value &&
+                      !secrets.some((s) => s.name === row.value) && (
+                        <option
+                          value={row.value}
+                        >{`${row.value} (missing)`}</option>
+                      )}
+                    {secrets.map((secret) => (
+                      <option key={secret.id} value={secret.name}>
+                        {secret.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
-            ))}
-            <button
-              type="button"
-              className="linklike"
-              onClick={() =>
-                setEnvRows([
-                  ...envRows,
-                  { key: "", mode: "literal", value: "" },
-                ])
-              }
-            >
-              + Add variable
-            </button>
-          </fieldset>
-          <label className="checkrow">
-            <input
-              type="checkbox"
-              checked={enabled}
-              onChange={(e) => setEnabled(e.target.checked)}
-            />
-            Enabled
-          </label>
-          {error && <p className="error">{error}</p>}
-          <div className="actions">
-            <button type="button" onClick={attemptClose}>
-              Cancel
-            </button>
-            <button type="submit" disabled={busy}>
-              {busy ? "Saving…" : "Save"}
-            </button>
-            <UnsavedNote dirty={dirty} />
-          </div>
-        </form>
-      </div>
-    </div>
+              <button
+                type="button"
+                className="danger ghost"
+                aria-label={`Remove env var ${i + 1}`}
+                onClick={() => setEnvRows(envRows.filter((_, j) => j !== i))}
+              >
+                <CloseIcon size={18} />
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="linklike"
+            onClick={() =>
+              setEnvRows([...envRows, { key: "", mode: "literal", value: "" }])
+            }
+          >
+            + Add variable
+          </button>
+        </fieldset>
+        <label className="checkrow">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => setEnabled(e.target.checked)}
+          />
+          Enabled
+        </label>
+        {error && <p className="error">{error}</p>}
+        <div className="actions">
+          <button type="button" onClick={attemptClose}>
+            Cancel
+          </button>
+          <button type="submit" disabled={busy}>
+            {busy ? "Saving…" : "Save"}
+          </button>
+          <UnsavedNote dirty={dirty} />
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -8444,79 +8272,77 @@ export function MachineModal({
   );
 
   return (
-    <div className="modal">
-      <button
-        type="button"
-        className="mscrim"
-        aria-label="Close"
-        onClick={attemptClose}
-      />
-      <div className="dialog" role="dialog" aria-label="Machine">
-        <h2>{machine ? "Edit machine" : "Add machine"}</h2>
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setBusy(true);
-            setError(null);
-            try {
-              await api(
-                machine ? `/api/machines/${machine.id}` : "/api/machines",
-                {
-                  method: machine ? "PATCH" : "POST",
-                  headers: { "content-type": "application/json" },
-                  body: JSON.stringify({ name, description, dockerfile }),
-                },
-              );
-              onSaved();
-            } catch (err) {
-              setError(err instanceof Error ? err.message : String(err));
-            } finally {
-              setBusy(false);
+    <Modal
+      scrimOnCancel={attemptClose}
+      scrimLabel="Close"
+      className="dialog"
+      role="dialog"
+      aria-label="Machine"
+    >
+      <h2>{machine ? "Edit machine" : "Add machine"}</h2>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          setError(null);
+          try {
+            await api(
+              machine ? `/api/machines/${machine.id}` : "/api/machines",
+              {
+                method: machine ? "PATCH" : "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ name, description, dockerfile }),
+              },
+            );
+            onSaved();
+          } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <label>
+          Name
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
+        </label>
+        <label>
+          Description (optional)
+          <input
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </label>
+        <label>
+          Dockerfile
+          <textarea
+            className="code"
+            rows={14}
+            spellCheck={false}
+            placeholder={
+              "FROM ghcr.io/tehzevo/bots-sandbox:latest\nRUN apt-get update && apt-get install -y ripgrep"
             }
-          }}
-        >
-          <label>
-            Name
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-            />
-          </label>
-          <label>
-            Description (optional)
-            <input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </label>
-          <label>
-            Dockerfile
-            <textarea
-              className="code"
-              rows={14}
-              spellCheck={false}
-              placeholder={
-                "FROM ghcr.io/tehzevo/bots-sandbox:latest\nRUN apt-get update && apt-get install -y ripgrep"
-              }
-              value={dockerfile}
-              onChange={(e) => setDockerfile(e.target.value)}
-              required
-            />
-          </label>
-          {error && <p className="error">{error}</p>}
-          <div className="actions">
-            <button type="submit" disabled={busy}>
-              {busy ? "Saving…" : machine ? "Save" : "Create"}
-            </button>
-            <UnsavedNote dirty={dirty} />
-            <button type="button" onClick={attemptClose}>
-              Cancel
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+            value={dockerfile}
+            onChange={(e) => setDockerfile(e.target.value)}
+            required
+          />
+        </label>
+        {error && <p className="error">{error}</p>}
+        <div className="actions">
+          <button type="submit" disabled={busy}>
+            {busy ? "Saving…" : machine ? "Save" : "Create"}
+          </button>
+          <UnsavedNote dirty={dirty} />
+          <button type="button" onClick={attemptClose}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -8571,157 +8397,150 @@ export function TemplateEditorModal({
     roleId && !roles.some((r) => r.id === roleId) ? "role" : null,
   ].filter(Boolean);
 
+  async function submitTemplate(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const body = JSON.stringify({
+        name,
+        description,
+        instructions,
+        machine_id: machineId || null,
+        role_id: roleId || null,
+        triggers,
+      });
+      await api(
+        initial.id ? `/api/templates/${initial.id}` : "/api/templates",
+        {
+          method: initial.id ? "PATCH" : "POST",
+          headers: { "content-type": "application/json" },
+          body,
+        },
+      );
+      onSaved();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err));
+      setBusy(false);
+    }
+  }
+
   return (
-    <div className="modal">
-      <button
-        type="button"
-        className="mscrim"
-        aria-label="Cancel"
-        onClick={attemptClose}
+    <ModalForm
+      scrimOnCancel={attemptClose}
+      className="dialog narrow"
+      role="dialog"
+      aria-label="Template"
+      onSubmit={submitTemplate}
+    >
+      <div className="viewhead">
+        <h2>{initial.id ? "Edit template" : "New template"}</h2>
+        <button
+          type="button"
+          className="close"
+          aria-label="Cancel"
+          onClick={attemptClose}
+        >
+          <CloseIcon size={18} />
+        </button>
+      </div>
+      <input
+        placeholder="template name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        required
       />
-      <form
-        className="dialog narrow"
-        role="dialog"
-        aria-label="Template"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setBusy(true);
-          try {
-            const body = JSON.stringify({
-              name,
-              description,
-              instructions,
-              machine_id: machineId || null,
-              role_id: roleId || null,
-              triggers,
-            });
-            await api(
-              initial.id ? `/api/templates/${initial.id}` : "/api/templates",
-              {
-                method: initial.id ? "PATCH" : "POST",
-                headers: { "content-type": "application/json" },
-                body,
-              },
-            );
-            onSaved();
-          } catch (err) {
-            alert(err instanceof Error ? err.message : String(err));
-            setBusy(false);
-          }
-        }}
-      >
-        <div className="viewhead">
-          <h2>{initial.id ? "Edit template" : "New template"}</h2>
+      <input
+        placeholder="description (optional)"
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+      />
+      <textarea
+        placeholder="instructions (optional)"
+        rows={3}
+        value={instructions}
+        onChange={(e) => setInstructions(e.target.value)}
+      />
+      {missing.length > 0 && (
+        <p className="warnline">⚠ referenced {missing.join(" and ")} deleted</p>
+      )}
+      <p className="rolepick">
+        Role{" "}
+        <select value={roleId} onChange={(e) => setRoleId(e.target.value)}>
+          <option value="">None</option>
+          {roles.map((role) => (
+            <option key={role.id} value={role.id}>
+              {role.name}
+            </option>
+          ))}
+        </select>
+      </p>
+      <p className="rolepick">
+        Machine{" "}
+        <select
+          value={machineId}
+          onChange={(e) => setMachineId(e.target.value)}
+        >
+          <option value="">Default</option>
+          {machines.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+      </p>
+      <p className="muted">Starter triggers</p>
+      {triggers.map((t, i) => (
+        <div className="keyrow" key={i}>
+          <input
+            placeholder="message"
+            value={t.message}
+            onChange={(e) =>
+              setTriggers((ts) =>
+                ts.map((x, j) =>
+                  j === i ? { ...x, message: e.target.value } : x,
+                ),
+              )
+            }
+          />
+          <input
+            className="sched"
+            placeholder="@every 1h"
+            value={t.schedule}
+            onChange={(e) =>
+              setTriggers((ts) =>
+                ts.map((x, j) =>
+                  j === i ? { ...x, schedule: e.target.value } : x,
+                ),
+              )
+            }
+          />
           <button
             type="button"
-            className="close"
-            aria-label="Cancel"
-            onClick={attemptClose}
+            aria-label={`Remove trigger ${i + 1}`}
+            onClick={() => setTriggers((ts) => ts.filter((_, j) => j !== i))}
           >
             <CloseIcon size={18} />
           </button>
         </div>
-        <input
-          placeholder="template name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-        />
-        <input
-          placeholder="description (optional)"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
-        <textarea
-          placeholder="instructions (optional)"
-          rows={3}
-          value={instructions}
-          onChange={(e) => setInstructions(e.target.value)}
-        />
-        {missing.length > 0 && (
-          <p className="warnline">
-            ⚠ referenced {missing.join(" and ")} deleted
-          </p>
-        )}
-        <p className="rolepick">
-          Role{" "}
-          <select value={roleId} onChange={(e) => setRoleId(e.target.value)}>
-            <option value="">None</option>
-            {roles.map((role) => (
-              <option key={role.id} value={role.id}>
-                {role.name}
-              </option>
-            ))}
-          </select>
-        </p>
-        <p className="rolepick">
-          Machine{" "}
-          <select
-            value={machineId}
-            onChange={(e) => setMachineId(e.target.value)}
-          >
-            <option value="">Default</option>
-            {machines.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-        </p>
-        <p className="muted">Starter triggers</p>
-        {triggers.map((t, i) => (
-          <div className="keyrow" key={i}>
-            <input
-              placeholder="message"
-              value={t.message}
-              onChange={(e) =>
-                setTriggers((ts) =>
-                  ts.map((x, j) =>
-                    j === i ? { ...x, message: e.target.value } : x,
-                  ),
-                )
-              }
-            />
-            <input
-              className="sched"
-              placeholder="@every 1h"
-              value={t.schedule}
-              onChange={(e) =>
-                setTriggers((ts) =>
-                  ts.map((x, j) =>
-                    j === i ? { ...x, schedule: e.target.value } : x,
-                  ),
-                )
-              }
-            />
-            <button
-              type="button"
-              aria-label={`Remove trigger ${i + 1}`}
-              onClick={() => setTriggers((ts) => ts.filter((_, j) => j !== i))}
-            >
-              <CloseIcon size={18} />
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          onClick={() =>
-            setTriggers((ts) => [...ts, { message: "", schedule: "@every 1h" }])
-          }
-        >
-          Add trigger
+      ))}
+      <button
+        type="button"
+        onClick={() =>
+          setTriggers((ts) => [...ts, { message: "", schedule: "@every 1h" }])
+        }
+      >
+        Add trigger
+      </button>
+      <div className="actions">
+        <button type="submit" disabled={busy}>
+          Save
         </button>
-        <div className="actions">
-          <button type="submit" disabled={busy}>
-            Save
-          </button>
-          <UnsavedNote dirty={dirty} />
-          <button type="button" onClick={attemptClose}>
-            Cancel
-          </button>
-        </div>
-      </form>
-    </div>
+        <UnsavedNote dirty={dirty} />
+        <button type="button" onClick={attemptClose}>
+          Cancel
+        </button>
+      </div>
+    </ModalForm>
   );
 }
 
@@ -8939,22 +8758,19 @@ export function TagModal({
     }
   };
 
+  function submitTag(e: FormEvent) {
+    e.preventDefault();
+    void save();
+  }
+
   return (
-    <div className="modal">
-      <button
-        type="button"
-        className="mscrim"
-        aria-label="Cancel"
-        onClick={attemptClose}
-      />
-      <form
+    <>
+      <ModalForm
+        scrimOnCancel={attemptClose}
         className="dialog narrow"
         role="dialog"
         aria-label={tag ? "Edit tag" : "Create tag"}
-        onSubmit={(e) => {
-          e.preventDefault();
-          void save();
-        }}
+        onSubmit={submitTag}
       >
         <label className="field">
           Name
@@ -8980,7 +8796,7 @@ export function TagModal({
             </button>
           )}
         </div>
-      </form>
+      </ModalForm>
       {confirmDel && tag && (
         <ConfirmDialog
           text={`Delete tag ${tag.name}? Bots keep running — the label is removed from them.`}
@@ -8993,7 +8809,7 @@ export function TagModal({
           }}
         />
       )}
-    </div>
+    </>
   );
 }
 
@@ -9251,22 +9067,19 @@ export function SecretModal({
     }
   };
 
+  function submitSecret(e: FormEvent) {
+    e.preventDefault();
+    void save();
+  }
+
   return (
-    <div className="modal">
-      <button
-        type="button"
-        className="mscrim"
-        aria-label="Cancel"
-        onClick={onClose}
-      />
-      <form
+    <>
+      <ModalForm
+        scrimOnCancel={onClose}
         className="dialog narrow"
         role="dialog"
         aria-label={secret ? "Edit secret" : "Create secret"}
-        onSubmit={(e) => {
-          e.preventDefault();
-          void save();
-        }}
+        onSubmit={submitSecret}
       >
         <label className="field">
           Name
@@ -9335,7 +9148,7 @@ export function SecretModal({
             </button>
           )}
         </div>
-      </form>
+      </ModalForm>
       {confirmDel && secret && (
         <ConfirmDialog
           text={`Delete ${secret.name}? Sandboxes using it must be restarted to drop the variable.`}
@@ -9348,7 +9161,7 @@ export function SecretModal({
           }}
         />
       )}
-    </div>
+    </>
   );
 }
 
