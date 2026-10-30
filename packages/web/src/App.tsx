@@ -46,6 +46,20 @@ import {
 
 export * from "./components/ui/discard.tsx";
 
+import { ApiKeysSection } from "./panels/settings/ApiKeysSection.tsx";
+import { ControlMcpSection } from "./panels/settings/ControlMcpSection.tsx";
+import { ProvidersSection } from "./panels/settings/ProvidersSection.tsx";
+import { SandboxIdleSection } from "./panels/settings/SandboxIdleSection.tsx";
+import { SoundsSection } from "./panels/settings/SoundsSection.tsx";
+import { SpendCapSection } from "./panels/settings/SpendCapSection.tsx";
+import { ThemeSection } from "./panels/settings/ThemeSection.tsx";
+
+export {
+  ProviderFormModal,
+  ProvidersSection,
+  ProvidersSection as SettingsProviders,
+} from "./panels/settings/ProvidersSection.tsx";
+
 import { FilterBar } from "./components/FilterBar.tsx";
 
 export { FilterBar } from "./components/FilterBar.tsx";
@@ -114,7 +128,6 @@ import { playSound, SOUND_LIBRARY } from "./lib/sound.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { ensurePushSubscription, PushSection } from "./push.tsx";
 import { ScheduleEditor } from "./schedule.tsx";
-import { readStoredTheme, setStoredTheme } from "./theme.ts";
 import type {
   ApiKey,
   Bot,
@@ -2218,9 +2231,6 @@ function Nav({
   );
 }
 
-const THEMES = ["light", "dark", "system"] as const;
-type Theme = (typeof THEMES)[number];
-
 const SETTINGS_TABS: readonly { id: SettingsTab; label: string }[] = [
   { id: "general", label: "General" },
   { id: "providers", label: "Providers" },
@@ -2288,7 +2298,7 @@ export function SettingsPanel() {
         aria-label={`${titleCase(sub)} settings`}
       >
         {sub === "general" && <SettingsGeneral key="general" />}
-        {sub === "providers" && <SettingsProviders key="providers" />}
+        {sub === "providers" && <ProvidersSection key="providers" />}
         {sub === "system" && <SettingsSystem key="system" />}
       </div>
     </section>
@@ -2296,442 +2306,25 @@ export function SettingsPanel() {
 }
 
 export function SettingsGeneral() {
-  const [theme, setTheme] = useState<Theme>(readStoredTheme);
-  const [idle, setIdle] = useState(5);
-  const [savedIdle, setSavedIdle] = useState<number | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    void api<{ sandbox_idle_minutes: number }>("/api/settings")
-      .then((s) => {
-        setIdle(s.sandbox_idle_minutes);
-        setSavedIdle(s.sandbox_idle_minutes);
-      })
-      .catch(() => {});
-  }, []);
-
-  const idleDirty = savedIdle !== null && idle !== savedIdle;
-  useDirtyGuard("the sandbox idle timeout", idleDirty);
-
-  const saveIdle = async () => {
-    setSaving(true);
-    try {
-      await api("/api/settings", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sandbox_idle_minutes: idle }),
-      });
-      setSavedIdle(idle);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const [cap, setCap] = useState(0);
-  const [savedCap, setSavedCap] = useState<number | null>(null);
-  const [usage30d, setUsage30d] = useState(0);
-  const [savingCap, setSavingCap] = useState(false);
-
-  useEffect(() => {
-    void api<Breaker>("/api/breaker")
-      .then((b) => {
-        setCap(b.limit_tokens);
-        setSavedCap(b.limit_tokens);
-        setUsage30d(b.tokens_30d);
-      })
-      .catch(() => {});
-  }, []);
-
-  const capDirty = savedCap !== null && cap !== savedCap;
-  useDirtyGuard("the spend circuit breaker cap", capDirty);
-
-  const saveCap = async () => {
-    setSavingCap(true);
-    try {
-      const b = await api<Breaker>("/api/breaker", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ limit_tokens: cap }),
-      });
-      setSavedCap(b.limit_tokens);
-      setUsage30d(b.tokens_30d);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSavingCap(false);
-    }
-  };
-
-  const [soundsOn, setSoundsOn] = useState(
-    () => localStorage.getItem("bots-sounds") === "on",
-  );
-
-  const pickTheme = (t: Theme) => {
-    setStoredTheme(t);
-    setTheme(t);
-  };
-
   return (
     <>
       <PasswordSettings />
-      <p className="muted">Theme</p>
-      <div className="themegroup" role="group" aria-label="Theme">
-        {THEMES.map((t) => (
-          <button
-            key={t}
-            type="button"
-            className={t === theme ? "sel" : ""}
-            onClick={() => pickTheme(t)}
-          >
-            {titleCase(t)}
-          </button>
-        ))}
-      </div>
-      <p className="muted">Sandbox idle timeout</p>
-      <div className="actions">
-        <input
-          type="number"
-          min={0}
-          max={1440}
-          aria-label="Sandbox idle timeout"
-          value={idle}
-          onChange={(e) => setIdle(Number(e.target.value))}
-        />
-        minutes
-        <button type="button" disabled={saving} onClick={() => void saveIdle()}>
-          Save
-        </button>
-        <UnsavedNote dirty={idleDirty} />
-      </div>
-      <p className="muted">Spend circuit breaker cap</p>
-      <div className="actions">
-        <input
-          type="number"
-          min={0}
-          aria-label="Spend circuit breaker token cap"
-          value={cap}
-          onChange={(e) =>
-            setCap(Math.max(0, Math.floor(Number(e.target.value) || 0)))
-          }
-        />
-        tokens / trailing 30 days (0 = unlimited · {fmtTokens(usage30d)} used)
-        <button
-          type="button"
-          disabled={savingCap}
-          onClick={() => void saveCap()}
-        >
-          Save
-        </button>
-        <UnsavedNote dirty={capDirty} />
-      </div>
-      <p className="muted">Notification sounds</p>
-      <div className="actions">
-        <SwitchToggle
-          ariaLabel="Play notification sounds"
-          checked={soundsOn}
-          onChange={() => {
-            const next = !soundsOn;
-            setSoundsOn(next);
-            localStorage.setItem("bots-sounds", next ? "on" : "off");
-            if (next) playSound("default");
-          }}
-          stateLabel={soundsOn ? "On" : "Off"}
-        />
-        <button type="button" onClick={() => playSound("default")}>
-          Preview
-        </button>
-      </div>
+      <ThemeSection />
+      <SandboxIdleSection />
+      <SpendCapSection />
+      <SoundsSection />
       <PushSection />
     </>
   );
 }
 
-export function SettingsProviders() {
-  const [providers, setProviders] = useState<Provider[]>([]);
-  const [defaultProviderId, setDefaultProviderId] = useState<string | null>(
-    null,
-  );
-  const [defaultModel, setDefaultModel] = useState<string | null>(null);
-  const [formOpen, setFormOpen] = useState(false);
-  const [formProvider, setFormProvider] = useState<Provider | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<Provider | null>(null);
-
-  const loadProviders = useCallback(async () => {
-    const [list, settings] = await Promise.all([
-      api<Provider[]>("/api/providers").catch(() => [] as Provider[]),
-      api<{ default_provider_id: string | null; default_model: string | null }>(
-        "/api/settings",
-      ).catch(() => null),
-    ]);
-    setProviders(list);
-    if (settings) {
-      setDefaultProviderId(settings.default_provider_id);
-      setDefaultModel(settings.default_model);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadProviders();
-  }, [loadProviders]);
-
-  const saveDefaults = async (providerId: string, model: string) => {
-    setDefaultProviderId(providerId);
-    setDefaultModel(model);
-    try {
-      await api("/api/settings", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          default_provider_id: providerId,
-          default_model: model,
-        }),
-      });
-    } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  const removeProvider = async (p: Provider) => {
-    try {
-      await api(`/api/providers/${p.id}`, { method: "DELETE" });
-      setConfirmDelete(null);
-      await loadProviders();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  const defaultProvider = providers.find((p) => p.id === defaultProviderId);
-  const modelOptions = defaultProvider
-    ? [
-        ...new Set([
-          ...defaultProvider.models,
-          ...(defaultModel ? [defaultModel] : []),
-        ]),
-      ]
-    : [];
-
-  return (
-    <>
-      <p className="muted">LLM providers</p>
-      {providers.length === 0 && (
-        <p className="muted">
-          No providers configured — runs fail until you add one.
-        </p>
-      )}
-      <ul className="plist">
-        {providers.map((p) => (
-          <li key={p.id}>
-            <div className="pinfo">
-              <strong>{p.name}</strong>
-              {p.id === defaultProviderId && (
-                <span className="defbadge">default</span>
-              )}
-              <span className="muted">{p.base_url}</span>
-              <span className="muted">
-                {p.models.length} model{p.models.length === 1 ? "" : "s"}
-              </span>
-            </div>
-            <div className="actions">
-              {p.builtin ? (
-                <span className="muted">built-in</span>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFormProvider(p);
-                      setFormOpen(true);
-                    }}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    onClick={() => setConfirmDelete(p)}
-                  >
-                    Delete
-                  </button>
-                </>
-              )}
-            </div>
-          </li>
-        ))}
-      </ul>
-      <div className="actions">
-        <button
-          type="button"
-          onClick={() => {
-            setFormProvider(null);
-            setFormOpen(true);
-          }}
-        >
-          Add provider
-        </button>
-      </div>
-      {providers.length > 0 && (
-        <>
-          <p className="muted">Default model</p>
-          <div className="actions">
-            <select
-              value={defaultProviderId ?? ""}
-              onChange={(e) => {
-                const p = providers.find((x) => x.id === e.target.value);
-                void saveDefaults(e.target.value, p?.models[0] ?? "");
-              }}
-            >
-              {providers.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <select
-              value={defaultModel ?? ""}
-              onChange={(e) =>
-                void saveDefaults(defaultProviderId ?? "", e.target.value)
-              }
-            >
-              {modelOptions.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-          </div>
-        </>
-      )}
-      {formOpen && (
-        <ProviderFormModal
-          provider={formProvider}
-          onClose={() => setFormOpen(false)}
-          onSaved={() => {
-            setFormOpen(false);
-            void loadProviders();
-          }}
-        />
-      )}
-      {confirmDelete && (
-        <ConfirmDialog
-          text={`Remove ${confirmDelete.name}? Runs will fail until a new default is selected.`}
-          confirmLabel="Delete provider"
-          onCancel={() => setConfirmDelete(null)}
-          onConfirm={() => void removeProvider(confirmDelete)}
-        />
-      )}
-    </>
-  );
-}
-
 export function SettingsSystem() {
-  const [keys, setKeys] = useState<ApiKey[]>([]);
-  const [keyName, setKeyName] = useState("");
-  const [revealedKey, setRevealedKey] = useState<string | null>(null);
-  const [mcpEnabled, setMcpEnabled] = useState(true);
-
-  const loadKeys = useCallback(async () => {
-    const list = await api<ApiKey[]>("/api/api-keys").catch(
-      () => [] as ApiKey[],
-    );
-    setKeys(list);
-  }, []);
-
-  useEffect(() => {
-    void loadKeys();
-    void api<{ control_mcp_enabled?: boolean }>("/api/settings")
-      .then((settings) => setMcpEnabled(settings.control_mcp_enabled !== false))
-      .catch(() => undefined);
-  }, [loadKeys]);
-
-  const createKey = async () => {
-    const res = await api<{ value: string }>("/api/api-keys", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: keyName.trim() }),
-    }).catch(() => null);
-    if (res?.value) {
-      setRevealedKey(res.value);
-      setKeyName("");
-      void loadKeys();
-    }
-  };
-
-  const revokeKey = async (id: string) => {
-    await api(`/api/api-keys/${id}`, { method: "DELETE" }).catch(() => null);
-    void loadKeys();
-  };
-
   return (
     <>
       <SessionSettings />
-      <p className="muted">API keys</p>
-      <ul className="plist">
-        {keys.map((k) => (
-          <li key={k.id}>
-            <div className="pinfo">
-              <strong>{k.name}</strong>
-              <span className="muted">created {relTime(k.created_at)}</span>
-              <span className="muted">
-                {k.last_used_at === null
-                  ? "never used"
-                  : `last used ${relTime(k.last_used_at)}`}
-              </span>
-            </div>
-            <div className="actions">
-              <button type="button" onClick={() => void revokeKey(k.id)}>
-                Revoke
-              </button>
-            </div>
-          </li>
-        ))}
-      </ul>
-      {revealedKey !== null && (
-        <p className="keyreveal">
-          New key — shown once: <code>{revealedKey}</code>
-        </p>
-      )}
-      <div className="keyrow">
-        <input
-          placeholder="Key name"
-          value={keyName}
-          onChange={(e) => setKeyName(e.target.value)}
-        />
-        <button
-          type="button"
-          disabled={!keyName.trim()}
-          onClick={() => void createKey()}
-        >
-          Add key
-        </button>
-      </div>
-      <p className="muted">
-        Headless access: <a href="/api/openapi.json">OpenAPI spec</a>
-      </p>
-
+      <ApiKeysSection />
       <ConfigBackupSection />
-
-      <p className="muted">Control MCP server</p>
-      <div className="tedithead">
-        <SwitchToggle
-          ariaLabel="Control MCP enabled"
-          checked={mcpEnabled}
-          onChange={() => {
-            const next = !mcpEnabled;
-            setMcpEnabled(next);
-            api("/api/settings", {
-              method: "PUT",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ control_mcp_enabled: next }),
-            }).catch((e) => alert(e.message));
-          }}
-          stateLabel={mcpEnabled ? "Enabled" : "Disabled"}
-        />
-        <code>/mcp</code>
-      </div>
-
+      <ControlMcpSection />
       <EventDestinationsSection />
     </>
   );
@@ -3309,211 +2902,6 @@ export function ConfigBackupSection() {
         </>
       )}
     </div>
-  );
-}
-
-export function ProviderFormModal({
-  provider,
-  onClose,
-  onSaved,
-}: {
-  provider: Provider | null;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [name, setName] = useState(provider?.name ?? "");
-  const [baseUrl, setBaseUrl] = useState(provider?.base_url ?? "");
-  const [apiKey, setApiKey] = useState("");
-  const [models, setModels] = useState<string[]>(provider?.models ?? []);
-  const [detected, setDetected] = useState<string[] | null>(null);
-  const [manual, setManual] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [confirmRotate, setConfirmRotate] = useState(false);
-  const dirty =
-    name !== (provider?.name ?? "") ||
-    baseUrl !== (provider?.base_url ?? "") ||
-    apiKey !== "" ||
-    models.join(",") !== (provider?.models ?? []).join(",");
-  const attemptClose = useDiscardGuard(
-    provider ? `provider ${provider.name}` : "this new provider",
-    dirty,
-    onClose,
-  );
-
-  const toggleModel = (id: string) => {
-    setModels((ms) =>
-      ms.includes(id) ? ms.filter((m) => m !== id) : [...ms, id],
-    );
-  };
-
-  const detect = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await api<{ models: string[] }>("/api/providers/detect", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          id: provider?.id,
-          base_url: baseUrl,
-          api_key: apiKey,
-        }),
-      });
-      setDetected(res.models);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const addManual = () => {
-    const id = manual.trim();
-    if (!id) return;
-    setModels((ms) => (ms.includes(id) ? ms : [...ms, id]));
-    setDetected((d) => (d && !d.includes(id) ? [id, ...d] : d));
-    setManual("");
-  };
-
-  const save = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const body: Record<string, unknown> = { name, base_url: baseUrl, models };
-      if (apiKey !== "") body.api_key = apiKey;
-      await api(provider ? `/api/providers/${provider.id}` : "/api/providers", {
-        method: provider ? "PUT" : "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      onSaved();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setBusy(false);
-    }
-  };
-
-  const requestSave = () => {
-    if (provider?.has_key && apiKey !== "") {
-      setConfirmRotate(true);
-      return;
-    }
-    void save();
-  };
-
-  return (
-    <Modal scrimOnCancel={attemptClose} className="dialog">
-      <div className="viewhead">
-        <h2>{provider ? `Edit ${provider.name}` : "Add provider"}</h2>
-        <button
-          type="button"
-          className="close"
-          aria-label="Cancel"
-          onClick={attemptClose}
-        >
-          <CloseIcon size={18} />
-        </button>
-      </div>
-      {error && <p className="error">{error}</p>}
-      <label className="field">
-        Name
-        <input value={name} onChange={(e) => setName(e.target.value)} />
-      </label>
-      <label className="field">
-        Base URL
-        <input
-          placeholder="https://host/v1"
-          value={baseUrl}
-          onChange={(e) => setBaseUrl(e.target.value)}
-        />
-      </label>
-      <label className="field">
-        API key
-        <input
-          type="password"
-          placeholder={provider?.has_key ? "saved — leave empty to keep" : ""}
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-        />
-      </label>
-      <div className="actions">
-        <button
-          type="button"
-          disabled={busy || !baseUrl}
-          onClick={() => void detect()}
-        >
-          {busy ? "Working…" : "Detect models"}
-        </button>
-      </div>
-      {detected && (
-        <ul className="modellist">
-          {[...models.filter((m) => !detected.includes(m)), ...detected].map(
-            (id) => (
-              <li key={id}>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={models.includes(id)}
-                    onChange={() => toggleModel(id)}
-                  />{" "}
-                  {id}
-                </label>
-              </li>
-            ),
-          )}
-        </ul>
-      )}
-      {models.length > 0 && !detected && (
-        <ul className="modellist">
-          {models.map((id) => (
-            <li key={id}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked
-                  onChange={() => toggleModel(id)}
-                />{" "}
-                {id}
-              </label>
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="actions">
-        <input
-          placeholder="Add model id manually"
-          value={manual}
-          onChange={(e) => setManual(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") addManual();
-          }}
-        />
-        <button type="button" onClick={addManual}>
-          Add
-        </button>
-      </div>
-      <div className="actions">
-        <button
-          type="button"
-          disabled={busy || !name || !baseUrl.startsWith("http")}
-          onClick={requestSave}
-        >
-          Save provider
-        </button>
-      </div>
-      {confirmRotate && provider && (
-        <ConfirmDialog
-          text={`Rotate the API key for ${provider.name}? The current key stops working immediately — existing integrations break until updated.`}
-          confirmLabel="Rotate key"
-          onCancel={() => setConfirmRotate(false)}
-          onConfirm={() => {
-            setConfirmRotate(false);
-            void save();
-          }}
-        />
-      )}
-    </Modal>
   );
 }
 
