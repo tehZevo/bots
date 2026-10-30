@@ -852,6 +852,7 @@ mark {
 }
 
 .notifscrim {
+  border-radius: 0;
   position: fixed;
   inset: 0;
   z-index: 19;
@@ -982,6 +983,7 @@ mark {
 }
 
 .mscrim {
+  border-radius: 0;
   position: absolute;
   inset: 0;
   background: var(--scrim);
@@ -1284,6 +1286,7 @@ pre {
 }
 
 .drawer .scrim {
+  border-radius: 0;
   position: fixed;
   inset: 0;
   z-index: 20;
@@ -2379,6 +2382,7 @@ button.danger.ghost {
   position: relative;
 }
 .pickscrim {
+  border-radius: 0;
   position: fixed;
   inset: 0;
   z-index: 19;
@@ -3182,6 +3186,11 @@ main.scr-active,
 .botgeneral .field > input,
 .botgeneral .field > select,
 .botgeneral .sound-control > select {
+  width: 100%;
+  box-sizing: border-box;
+  color: var(--text);
+  font-size: inherit;
+}
 
 .grantpicker {
   display: grid;
@@ -3445,9 +3454,10 @@ button:not(.sidetabs button):not(.card) {
   background: var(--scrim);
 }
 
-button.mscrim,
-.drawer button.scrim,
-.notifscrim {
+.mscrim,
+.notifscrim,
+.pickscrim,
+.drawer .scrim {
   border-radius: 0;
 }
 
