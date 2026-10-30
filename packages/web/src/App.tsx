@@ -11,6 +11,8 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { PasswordSettings, SessionSettings } from "./auth.tsx";
+import { BOT_NAMES, pickBotName } from "./lib/botNames.ts";
+import { fmt, fmtMs, fmtTokens, relTime } from "./lib/format.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { ensurePushSubscription, PushSection } from "./push.tsx";
 import { ScheduleEditor } from "./schedule.tsx";
@@ -113,14 +115,6 @@ export function applyOptimisticRunStates(
     ),
     overrides: kept,
   };
-}
-
-function fmtMs(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  const s = ms / 1000;
-  return s < 60
-    ? `${s.toFixed(1)}s`
-    : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
 }
 
 function ReplayStep({
@@ -611,32 +605,11 @@ function AvatarPicker({
   );
 }
 
-export function relTime(ts: number): string {
-  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-}
-
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init);
   const body = await res.json();
   if (!res.ok) throw new Error(body.error ?? `${res.status}`);
   return body as T;
-}
-
-export function fmtTokens(n: number): string {
-  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
-  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
-  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
-  return String(n);
-}
-
-export function fmt(ts: number | null): string {
-  return ts ? new Date(ts).toLocaleString() : "—";
 }
 
 const SOUND_LIBRARY: [string, string][] = [
@@ -2302,46 +2275,6 @@ export function App() {
       </div>
     </NavGuardContext.Provider>
   );
-}
-
-export const BOT_NAMES = [
-  "Atlas",
-  "Juno",
-  "Marlow",
-  "Sable",
-  "Wren",
-  "Nova",
-  "Kestrel",
-  "Orbit",
-  "Tundra",
-  "Quill",
-  "Vesper",
-  "Bramble",
-  "Cinder",
-  "Dune",
-  "Ember",
-  "Flint",
-  "Gale",
-  "Harbor",
-  "Iris",
-  "Juniper",
-  "Kelp",
-  "Lyra",
-  "Onyx",
-  "Rowan",
-  "Sage",
-  "Cobalt",
-  "Indigo",
-  "Zenith",
-  "Zephyr",
-  "Lark",
-];
-
-export function pickBotName(used: string[]): string {
-  const taken = new Set(used.map((n) => n.toLowerCase()));
-  const free = BOT_NAMES.filter((n) => !taken.has(n.toLowerCase()));
-  const pool = free.length > 0 ? free : BOT_NAMES;
-  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 export function AddBotModal({
