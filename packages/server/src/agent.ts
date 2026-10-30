@@ -9,6 +9,7 @@ import {
 } from "./db.ts";
 import { activeContextMessages } from "./durable-conversations.ts";
 import {
+  activeLoopBotIds as _activeLoopBotIds,
   deliverDm as _deliverDm,
   injectMessage as _injectMessage,
   interruptBot as _interruptBot,
@@ -119,6 +120,7 @@ function estimateTokens(messages: AgentMessage[]): number {
   return Math.floor(chars / 4);
 }
 
+export const activeLoopBotIds = _activeLoopBotIds;
 export const deliverDm = _deliverDm;
 export const injectMessage = _injectMessage;
 export const interruptBot = _interruptBot;

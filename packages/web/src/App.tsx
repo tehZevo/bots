@@ -7732,6 +7732,7 @@ export function Chat({
   const [liveWorking, setLiveWorking] = useState<boolean | null>(null);
   const [streamActive, setStreamActive] = useState(false);
   const optimisticSeq = useRef(0);
+  const botIsWorking = working || Boolean(liveWorking);
 
   const applyIncomingTurns = useCallback((incoming: ChatTurn[]) => {
     setHistory(incoming);
@@ -7790,9 +7791,9 @@ export function Chat({
   useEffect(() => {
     if (streamActive) return;
     void loadChat();
-    const t = setInterval(loadChat, working ? 800 : 5000);
+    const t = setInterval(loadChat, botIsWorking ? 800 : 5000);
     return () => clearInterval(t);
-  }, [loadChat, streamActive, working]);
+  }, [loadChat, streamActive, botIsWorking]);
 
   const turns = useMemo(
     () => mergeOptimisticChatTurns(history, pendingMessages),
@@ -7851,7 +7852,7 @@ export function Chat({
         )}
         <div ref={bottomRef} />
       </div>
-      {(working || liveWorking) && (
+      {botIsWorking && (
         <div className="chat-working" aria-label="bot is working">
           <span className="who">{botName}</span>
           <span className="dots">

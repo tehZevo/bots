@@ -258,3 +258,49 @@ test("teams attach projects via PATCH", async () => {
 
   await authedRequest(`/api/teams/${team.id}`, { method: "DELETE" });
 });
+
+test("bot list follows a running row before the live watcher attaches", async () => {
+  makeBot("loop-row-bot", "Loop Row");
+  const idle = (await (await authedRequest("/api/bots")).json()) as {
+    id: string;
+    run_state: string;
+  }[];
+  assert.equal(
+    idle.find((row) => row.id === "loop-row-bot")?.run_state,
+    "enabled",
+  );
+
+  dbm.insertRun({
+    id: "loop-row-run",
+    bot_id: "loop-row-bot",
+    status: "running",
+    trigger: "chat",
+    started_at: Date.now(),
+    finished_at: null,
+    output: null,
+    error: null,
+  });
+  dbm.setCurrentRunForBot("loop-row-bot", "loop-row-run");
+
+  const running = (await (await authedRequest("/api/bots")).json()) as {
+    id: string;
+    run_state: string;
+  }[];
+  assert.equal(
+    running.find((row) => row.id === "loop-row-bot")?.run_state,
+    "running",
+  );
+  assert.ok(isLoopActive("loop-row-bot"));
+
+  dbm.finishRun("loop-row-run", "ok", "done", null);
+
+  const settled = (await (await authedRequest("/api/bots")).json()) as {
+    id: string;
+    run_state: string;
+  }[];
+  assert.equal(
+    settled.find((row) => row.id === "loop-row-bot")?.run_state,
+    "enabled",
+  );
+  assert.ok(!isLoopActive("loop-row-bot"));
+});

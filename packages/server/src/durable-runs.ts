@@ -24,11 +24,13 @@ import {
   insertPendingInjection,
   insertRun,
   isPaused,
+  latestRunningRunForBot,
   listCurrentDurableRuns,
   listPendingInjections,
   loadMessages,
   pendingBotIds,
   recordRunUsage,
+  runningLoopBotIds,
   setCurrentRunForBot,
   sharesTeamWith,
   sumUsage,
@@ -222,7 +224,18 @@ export function deliverDm(
 }
 
 export function isLoopActive(botId: string): boolean {
-  return isLive(activeRuns.get(botId)) || pendingRecoveries.has(botId);
+  return (
+    isLive(activeRuns.get(botId)) ||
+    pendingRecoveries.has(botId) ||
+    latestRunningRunForBot(botId) !== null
+  );
+}
+
+export function activeLoopBotIds(): Set<string> {
+  const ids = new Set<string>(pendingRecoveries.keys());
+  for (const [botId, active] of activeRuns) if (isLive(active)) ids.add(botId);
+  for (const botId of runningLoopBotIds()) ids.add(botId);
+  return ids;
 }
 
 function submitInput(
