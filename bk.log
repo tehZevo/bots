@@ -1,0 +1,13 @@
+✔ breaker starts unlimited with zero usage and does not trip (6.597397ms)
+✔ breaker cap round-trips and validates input (5.892136ms)
+✔ crossing the cap at run end arms the global pause with a notification (29.590819ms)
+✔ resume is refused while over the cap and permitted after raising it (4.644151ms)
+✔ clearing the cap unarms the breaker (2.745624ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 838.223692

@@ -1,20 +1,49 @@
 import type { Model } from "@earendil-works/pi-ai";
-import { config } from "./config.ts";
+import { devFakeLlm } from "./config.ts";
+import type { ProviderRow } from "./db.ts";
+import { getProvider, getSetting } from "./db.ts";
+import {
+  FAKE_MODEL_ID,
+  FAKE_PROVIDER_ID,
+  fakeOpenAiModel,
+} from "./fake-llm.ts";
 
-export function resolveModel(
-  modelId: string | null,
+export interface ResolvedLlm {
+  model: Model<"openai-completions">;
+  apiKey: string;
+}
+
+export function resolveDefault(
+  modelOverride?: string | null,
+): ResolvedLlm | null {
+  const providerId = getSetting("default_provider_id");
+  if (!providerId) return null;
+  if (devFakeLlm && providerId === FAKE_PROVIDER_ID) {
+    const modelId =
+      modelOverride ?? getSetting("default_model") ?? FAKE_MODEL_ID;
+    return { model: fakeOpenAiModel(modelId), apiKey: "" };
+  }
+  const provider = getProvider(providerId);
+  if (!provider) return null;
+  const modelId = modelOverride ?? getSetting("default_model");
+  if (!modelId) return null;
+  return { model: toOpenAiModel(provider, modelId), apiKey: provider.api_key };
+}
+
+export function toOpenAiModel(
+  provider: ProviderRow,
+  modelId: string,
 ): Model<"openai-completions"> {
-  const id = modelId ?? config.llm.modelId;
   return {
-    id,
-    name: id,
+    id: modelId,
+    name: modelId,
     api: "openai-completions",
     provider: "bots",
-    baseUrl: config.llm.baseUrl,
-    reasoning: false,
+    baseUrl: provider.base_url,
+    reasoning: true,
     input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: config.llm.contextWindow,
-    maxTokens: config.llm.maxTokens,
+    contextWindow: Number(process.env.LLM_CONTEXT_WINDOW ?? 64000),
+    maxTokens: Number(process.env.LLM_MAX_TOKENS ?? 4096),
   };
 }

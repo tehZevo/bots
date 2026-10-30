@@ -1,0 +1,5 @@
+Scope: 2 of 3 workspace projects
+packages/server typecheck$ tsc -p tsconfig.json --noEmit
+packages/web typecheck$ tsc -p tsconfig.json --noEmit
+packages/web typecheck: Done
+packages/server typecheck: Done
