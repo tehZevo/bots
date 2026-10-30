@@ -33,6 +33,27 @@ export * from "./components/icons/index.ts";
 import { Avatar, ShapePreview, StatusDot } from "./components/Avatar.tsx";
 import { AvatarPicker } from "./components/AvatarPicker.tsx";
 export { Avatar, ShapePreview, StatusDot } from "./components/Avatar.tsx";
+import {
+  anyDirtyLabel,
+  clearAllDirty,
+  formDirty,
+  NavGuardContext,
+  UnsavedNote,
+  useDiscardGuard,
+  useDirtyGuard,
+  useNavGuard,
+} from "./components/ui/discard.tsx";
+export * from "./components/ui/discard.tsx";
+import { Multiselect } from "./components/Multiselect.tsx";
+import { GrantDualList } from "./components/GrantDualList.tsx";
+export { Multiselect } from "./components/Multiselect.tsx";
+import {
+  findDuplicateEnvKey,
+  isMcpSecretRef,
+  mcpEnvMapFromRows,
+  mcpEnvRowsFromRecord,
+} from "./lib/mcpEnv.ts";
+export * from "./lib/mcpEnv.ts";
 
 import { api } from "./lib/api.ts";
 import {
@@ -3781,164 +3802,6 @@ export function ProviderFormModal({
   );
 }
 
-export function Multiselect({
-  label,
-  options,
-  selected,
-  onChange,
-  busy,
-  placeholder,
-}: {
-  label: string;
-  options: { id: string; name: string }[];
-  selected: string[];
-  onChange: (next: string[]) => void;
-  busy?: boolean;
-  placeholder?: string;
-}) {
-  const [query, setQuery] = useState("");
-  const sel = new Set(selected);
-  const q = query.trim().toLowerCase();
-  return (
-    <div className="multiselect">
-      <input
-        aria-label={label}
-        placeholder={placeholder ?? "Search…"}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
-      {selected.length > 0 && (
-        <span className="mschosen">{`${selected.length} selected`}</span>
-      )}
-      <ul className="msopts">
-        {options
-          .filter((o) => !q || o.name.toLowerCase().includes(q))
-          .map((o) => (
-            <li key={o.id}>
-              <label>
-                <input
-                  type="checkbox"
-                  disabled={busy}
-                  checked={sel.has(o.id)}
-                  onChange={() =>
-                    onChange(
-                      sel.has(o.id)
-                        ? selected.filter((x) => x !== o.id)
-                        : [...selected, o.id],
-                    )
-                  }
-                />
-                {o.name}
-              </label>
-            </li>
-          ))}
-      </ul>
-    </div>
-  );
-}
-
-function GrantDualList({
-  label,
-  options,
-  selected,
-  onChange,
-  emptyText,
-}: {
-  label: string;
-  options: GrantOption[];
-  selected: string[];
-  onChange: (ids: string[]) => void;
-  emptyText: string;
-}) {
-  const [query, setQuery] = useState("");
-  const chosen = new Set(selected);
-  const q = query.trim().toLowerCase();
-  const available = options.filter(
-    (option) =>
-      !chosen.has(option.id) &&
-      (!q ||
-        `${option.name} ${option.description ?? ""}`.toLowerCase().includes(q)),
-  );
-  const granted = selected
-    .map((id) => options.find((option) => option.id === id))
-    .filter((option): option is GrantOption => Boolean(option));
-
-  return (
-    <div className="grantpicker">
-      <section
-        className="grantpane grantavailable"
-        aria-label={`Available ${label}`}
-      >
-        <h3>Available</h3>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={`Search ${label.toLowerCase()}…`}
-          aria-label={`Search ${label}`}
-        />
-        <ul className="grantlist">
-          {available.map((option) => (
-            <li key={option.id}>
-              <button
-                type="button"
-                className="grantentry grantadd"
-                aria-label={`Add ${option.name}`}
-                onClick={() => onChange([...selected, option.id])}
-              >
-                <span className="grantname">{option.name}</span>
-                {option.description && (
-                  <span className="grantdesc">{option.description}</span>
-                )}
-              </button>
-            </li>
-          ))}
-        </ul>
-        {options.length === 0 && (
-          <p className="grantempty muted">{emptyText}</p>
-        )}
-        {options.length > 0 && available.length === 0 && (
-          <p className="grantempty muted">
-            {q
-              ? `No matches for “${query.trim()}”.`
-              : `All ${label.toLowerCase()} are granted.`}
-          </p>
-        )}
-      </section>
-
-      <section
-        className="grantpane grantselected"
-        aria-label={`Granted ${label}`}
-      >
-        <h3>Granted</h3>
-        <ul className="grantlist">
-          {granted.map((option) => (
-            <li key={option.id} className="grantentry grantselrow">
-              <span className="grantinfo">
-                <strong>{option.name}</strong>
-                {option.description && (
-                  <small className="grantdesc">{option.description}</small>
-                )}
-              </span>
-              <button
-                type="button"
-                className="grantremove"
-                aria-label={`Remove ${option.name}`}
-                onClick={() =>
-                  onChange(selected.filter((id) => id !== option.id))
-                }
-              >
-                ×
-              </button>
-            </li>
-          ))}
-        </ul>
-        {granted.length === 0 && (
-          <p className="grantempty muted">Nothing granted yet.</p>
-        )}
-      </section>
-    </div>
-  );
-}
 
 export function TeamCreateModal({
   bots,
@@ -5649,71 +5512,6 @@ export function BotGeneral({
   );
 }
 
-const dirtyEditors = new Map<string, string>();
-const dirtyListeners = new Set<() => void>();
-
-function bumpDirty(): void {
-  for (const l of dirtyListeners) l();
-}
-
-export function anyDirtyLabel(): string | null {
-  for (const label of dirtyEditors.values()) return label;
-  return null;
-}
-
-export function clearAllDirty(): void {
-  dirtyEditors.clear();
-  bumpDirty();
-}
-
-export function formDirty(
-  snapshot: Record<string, unknown>,
-  current: Record<string, unknown>,
-): boolean {
-  for (const key of Object.keys(snapshot))
-    if (snapshot[key] !== current[key]) return true;
-  return false;
-}
-
-export const NavGuardContext = createContext<(fn: () => void) => void>((fn) =>
-  fn(),
-);
-
-export function useNavGuard(): (fn: () => void) => void {
-  return useContext(NavGuardContext);
-}
-
-export function UnsavedNote({ dirty }: { dirty: boolean }) {
-  if (!dirty) return null;
-  return (
-    <span className="unsavednote" role="status">
-      Unsaved changes
-    </span>
-  );
-}
-
-export function useDirtyGuard(label: string, dirty: boolean): void {
-  useEffect(() => {
-    if (dirty) dirtyEditors.set(label, label);
-    else dirtyEditors.delete(label);
-    bumpDirty();
-    return () => {
-      dirtyEditors.delete(label);
-      bumpDirty();
-    };
-  }, [label, dirty]);
-}
-
-export function useDiscardGuard(
-  label: string,
-  dirty: boolean,
-  close: () => void,
-): () => void {
-  const guard = useNavGuard();
-  useDirtyGuard(label, dirty);
-  return () => guard(close);
-}
-
 const SEARCH_LABELS: Record<SearchEntityType, string> = {
   bots: "Bots",
   archived_bots: "Archived bots",
@@ -6940,37 +6738,6 @@ export function Chat({
   );
 }
 
-function isMcpSecretRef(value: unknown): value is McpSecretRef {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    typeof (value as { secret?: unknown }).secret === "string"
-  );
-}
-
-export function mcpEnvRowsFromRecord(
-  env: Record<string, McpEnvValue>,
-): McpEnvRow[] {
-  return Object.entries(env).map(([key, value]) =>
-    isMcpSecretRef(value)
-      ? { key, mode: "secret", value: value.secret }
-      : { key, mode: "literal", value },
-  );
-}
-
-export function mcpEnvMapFromRows(
-  rows: McpEnvRow[],
-): Record<string, McpEnvValue> {
-  const env: Record<string, McpEnvValue> = {};
-  for (const row of rows) {
-    const key = row.key.trim();
-    if (!key) continue;
-    env[key] = row.mode === "secret" ? { secret: row.value } : row.value;
-  }
-  return env;
-}
-
 export function IntegrationsPanel() {
   const [servers, setServers] = useState<McpServer[]>([]);
   const [form, setForm] = useState<McpServer | "new" | null>(null);
@@ -7561,17 +7328,6 @@ export function AddSkillModal({
       </div>
     </Modal>
   );
-}
-
-export function findDuplicateEnvKey(rows: { key: string }[]): string | null {
-  const seen = new Set<string>();
-  for (const row of rows) {
-    const trimmed = row.key.trim();
-    if (!trimmed) continue;
-    if (seen.has(trimmed)) return trimmed;
-    seen.add(trimmed);
-  }
-  return null;
 }
 
 export function McpServerModal({
