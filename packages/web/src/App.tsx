@@ -50,6 +50,7 @@ import { Multiselect } from "./components/Multiselect.tsx";
 
 export { Multiselect } from "./components/Multiselect.tsx";
 
+import { TAB_PATHS, tabFromPath, useTabRoute } from "./hooks/useTabRoute.ts";
 import { usePolling } from "./hooks/usePolling.ts";
 
 export * from "./lib/mcpEnv.ts";
@@ -710,9 +711,7 @@ function notificationTargetPathFor(item: NotificationItem): string | null {
 
 export function App() {
   const [bots, setBots] = useState<Bot[]>([]);
-  const [tab, setTabRaw] = useState<Tab>(() =>
-    typeof location === "undefined" ? "bots" : tabFromPath(location.pathname),
-  );
+  const [tab, , setTabRaw] = useTabRoute({ syncLocation: false });
   const [pendingDiscard, setPendingDiscard] = useState<null | {
     label: string;
     fn: () => void;
@@ -2350,29 +2349,6 @@ export function RefreshIcon({ size = 16 }: { size?: number }) {
       <path d="M20 6v4h-4" />
     </svg>
   );
-}
-
-const TAB_PATHS: Record<Tab, string> = {
-  bots: "/bots",
-  teams: "/teams",
-  roles: "/roles",
-  machines: "/machines",
-  integrations: "/integrations",
-  skills: "/skills",
-  templates: "/templates",
-  projects: "/projects",
-  tags: "/tags",
-  secrets: "/secrets",
-  settings: "/settings",
-};
-
-function tabFromPath(path: string): Tab {
-  const hit = (Object.keys(TAB_PATHS) as Tab[]).find(
-    (t) =>
-      TAB_PATHS[t] === path.replace(/\/+$/, "") ||
-      (path === "/" && t === "bots"),
-  );
-  return hit ?? "bots";
 }
 
 function ProjectIcon({ size = 18 }: { size?: number }) {
