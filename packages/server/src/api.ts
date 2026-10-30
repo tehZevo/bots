@@ -14,6 +14,7 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import {
+  activeLoopBotIds,
   estimateContext,
   injectMessage,
   interruptBot,
@@ -1823,6 +1824,7 @@ export function createApp() {
         const hasDefault = Boolean(
           getSetting("default_provider_id") && getSetting("default_model"),
         );
+        const loopIds = activeLoopBotIds();
         return listBots(includeArchived).map((bot) => {
           const archived = bot.archived === 1;
           const noModel = !bot.model_id && !hasDefault;
@@ -1844,11 +1846,11 @@ export function createApp() {
                   ? ("red" as const)
                   : bot.status !== null && bot.status_level === "issue"
                     ? ("yellow" as const)
-                    : isLoopActive(bot.id)
+                    : loopIds.has(bot.id)
                       ? ("green" as const)
                       : ("blue" as const),
             run_state:
-              !archived && isLoopActive(bot.id)
+              !archived && loopIds.has(bot.id)
                 ? "running"
                 : archived || !bot.enabled
                   ? "disabled"

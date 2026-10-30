@@ -2131,6 +2131,13 @@ export function latestRunningRunForBot(botId: string): string | null {
   return row?.id ?? null;
 }
 
+export function runningLoopBotIds(): string[] {
+  const rows = db
+    .prepare("SELECT DISTINCT bot_id FROM runs WHERE status = 'running'")
+    .all() as { bot_id: string }[];
+  return rows.map((row) => row.bot_id);
+}
+
 export function sweepUnresumableRuns(resumableBotIds: Set<string>): number {
   const stale = db
     .prepare("SELECT bot_id, id FROM runs WHERE status = 'running'")
