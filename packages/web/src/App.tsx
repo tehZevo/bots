@@ -48,10 +48,15 @@ export * from "./components/ui/discard.tsx";
 
 import { Multiselect } from "./components/Multiselect.tsx";
 
+export { NotificationPanel } from "./components/NotificationPanel.tsx";
+
+import { NotificationPanel } from "./components/NotificationPanel.tsx";
+
 export { Multiselect } from "./components/Multiselect.tsx";
 
-import { TAB_PATHS, tabFromPath, useTabRoute } from "./hooks/useTabRoute.ts";
+import { useNotifications } from "./hooks/useNotifications.ts";
 import { usePolling } from "./hooks/usePolling.ts";
+import { TAB_PATHS, tabFromPath, useTabRoute } from "./hooks/useTabRoute.ts";
 
 export * from "./lib/mcpEnv.ts";
 
@@ -835,14 +840,11 @@ export function App() {
   const [includeArchived, setIncludeArchived] = useState(false);
   const [runs, setRuns] = useState<Run[]>([]);
   const [replayRun, setReplayRun] = useState<string | null>(null);
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [pendingEdit, setPendingEdit] = useState<PendingEntityEdit | null>(
     null,
   );
-  const seenNotifIds = useRef<Set<string> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(false);
   const botsRef = useRef(bots);
@@ -859,42 +861,36 @@ export function App() {
   replayRunRef.current = replayRun;
   const suppressPopEvent = useRef(false);
 
+  const {
+    notifications,
+    unreadCount: unreadNotifications,
+    markOne: markOneNotification,
+    markAll: markAllRead,
+  } = useNotifications({
+    getSound: (botId) =>
+      botsRef.current.find((b) => b.id === botId)?.sound ?? "default",
+    onError: (err) =>
+      setError(err instanceof Error ? err.message : String(err)),
+  });
+
   const load = useCallback(async () => {
     try {
-      const [
-        botData,
-        notificationData,
-        roleData,
-        tagData,
-        pauseData,
-        breakerData,
-      ] = await Promise.all([
-        api<Bot[]>(`/api/bots${includeArchived ? "?archived=1" : ""}`),
-        api<NotificationsResponse>("/api/notifications"),
-        api<Role[]>("/api/roles"),
-        api<Tag[]>("/api/tags").catch(() => []),
-        api<{ paused: boolean; reason?: string | null }>("/api/pause").catch(
-          () => ({ paused: false, reason: null }),
-        ),
-        api<Breaker>("/api/breaker").catch(() => null),
-      ]);
+      const [botData, roleData, tagData, pauseData, breakerData] =
+        await Promise.all([
+          api<Bot[]>(`/api/bots${includeArchived ? "?archived=1" : ""}`),
+          api<Role[]>("/api/roles"),
+          api<Tag[]>("/api/tags").catch(() => []),
+          api<{ paused: boolean; reason?: string | null }>("/api/pause").catch(
+            () => ({ paused: false, reason: null }),
+          ),
+          api<Breaker>("/api/breaker").catch(() => null),
+        ]);
       const applied = applyOptimisticRunStates(botData, optimisticRuns.current);
       optimisticRuns.current = applied.overrides;
       setBots(applied.rows);
       setPausedState(pauseData.paused);
       setPauseReason(pauseData.reason ?? null);
       setBreaker(breakerData);
-      const prevSeen = seenNotifIds.current;
-      if (localStorage.getItem("bots-sounds") === "on" && prevSeen) {
-        const fresh = notificationData.items.filter((n) => !prevSeen.has(n.id));
-        if (fresh.length > 0) {
-          const owner = botData.find((b) => b.id === fresh[0].bot_id);
-          playSound(owner?.sound ?? "default");
-        }
-      }
-      seenNotifIds.current = new Set(notificationData.items.map((n) => n.id));
-      setNotifications(notificationData.items);
-      setUnreadNotifications(notificationData.unread_count);
       setRoles(roleData);
       setTags(tagData);
       setError(null);
@@ -1176,28 +1172,6 @@ export function App() {
     });
   };
 
-  async function markOneNotification(id: string): Promise<void> {
-    try {
-      await api(`/api/notifications/${id}/read`, { method: "POST" });
-      setNotifications((items) =>
-        items.map((item) => (item.id === id ? { ...item, read: 1 } : item)),
-      );
-      setUnreadNotifications((count) => Math.max(0, count - 1));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  async function markAllRead(): Promise<void> {
-    try {
-      await api("/api/notifications/read-all", { method: "POST" });
-      setNotifications((items) => items.map((item) => ({ ...item, read: 1 })));
-      setUnreadNotifications(0);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
   function openNotification(notification: NotificationItem): void {
     const target = notificationTargetPathFor(notification);
     if (!target) {
@@ -1328,104 +1302,17 @@ export function App() {
               <kbd className="searchshortcut">`</kbd>
             </button>
           </div>
-          <div className="notifwrap">
-            <button
-              type="button"
-              className="notiftoggle"
-              aria-label={`Notifications${unreadNotifications > 0 ? `, ${unreadNotifications} unread` : ""}`}
-              title={
-                unreadNotifications > 0
-                  ? `${unreadNotifications} unread notifications`
-                  : "Notifications"
-              }
-              aria-expanded={notificationPanelOpen}
-              onClick={() => setNotificationPanelOpen((open) => !open)}
-            >
-              <BellIcon size={18} />
-              {unreadNotifications > 0 && (
-                <span className="notifbadge">
-                  {unreadNotifications > 99 ? "99+" : unreadNotifications}
-                </span>
-              )}
-            </button>
-            {notificationPanelOpen && (
-              <>
-                <button
-                  type="button"
-                  className="notifscrim"
-                  aria-label="Close notifications"
-                  onClick={() => setNotificationPanelOpen(false)}
-                />
-                <section className="notifpanel" aria-label="Notifications">
-                  <div className="notifhdr">
-                    <strong>Notifications</strong>
-                    <div>
-                      <button
-                        type="button"
-                        disabled={unreadNotifications === 0}
-                        onClick={() => void markAllRead()}
-                      >
-                        Mark all read
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="Close notifications"
-                        title="Close notifications"
-                        onClick={() => setNotificationPanelOpen(false)}
-                      >
-                        <CloseIcon size={16} />
-                      </button>
-                    </div>
-                  </div>
-                  {notifications.length === 0 ? (
-                    <p className="notifempty">No notifications.</p>
-                  ) : (
-                    <ul className="notiflist">
-                      {notifications.map((notification) => {
-                        const target = notificationTargetPathFor(notification);
-                        return (
-                          <li
-                            key={notification.id}
-                            className={notification.read ? "" : "unread"}
-                          >
-                            <button
-                              type="button"
-                              className="notifbody"
-                              disabled={!target && notification.read !== 0}
-                              title={target ? "Open source" : "Mark as read"}
-                              onClick={() => openNotification(notification)}
-                            >
-                              <strong>{notification.title}</strong>
-                              <time
-                                dateTime={new Date(
-                                  notification.created_at,
-                                ).toISOString()}
-                              >
-                                {fmt(notification.created_at)}
-                              </time>
-                              <p>{notification.body}</p>
-                            </button>
-                            {!notification.read && (
-                              <div className="notifactions">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    void markOneNotification(notification.id)
-                                  }
-                                >
-                                  Mark read
-                                </button>
-                              </div>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </section>
-              </>
-            )}
-          </div>
+          <NotificationPanel
+            items={notifications}
+            unreadCount={unreadNotifications}
+            open={notificationPanelOpen}
+            onToggle={() => setNotificationPanelOpen((open) => !open)}
+            onClose={() => setNotificationPanelOpen(false)}
+            onMarkOne={(id) => void markOneNotification(id)}
+            onMarkAll={() => void markAllRead()}
+            onOpenItem={openNotification}
+            targetFor={notificationTargetPathFor}
+          />
         </header>
         <div className="layout">
           <aside className={rail ? "rail" : ""}>
@@ -2196,25 +2083,6 @@ export function KebabIcon({ size = 14 }: { size?: number }) {
       <circle cx="5" cy="12" r="2" />
       <circle cx="12" cy="12" r="2" />
       <circle cx="19" cy="12" r="2" />
-    </svg>
-  );
-}
-
-export function BellIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M7.5 10a4.5 4.5 0 0 1 9 0c0 3.2.7 4.6 1.8 5.8H5.7C6.8 14.6 7.5 13.2 7.5 10Z" />
-      <path d="M9.8 18.8a2.4 2.4 0 0 0 4.4 0" />
     </svg>
   );
 }
