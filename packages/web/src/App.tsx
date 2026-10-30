@@ -12,12 +12,25 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { PasswordSettings, SessionSettings } from "./auth.tsx";
+import {
+  BookIcon,
+  BotIcon,
+  GearIcon,
+  MachineIcon,
+  PlugIcon,
+  RoleIcon,
+  TeamIcon,
+  TemplateIcon,
+} from "./components/icons/index.ts";
 import { ConfirmDialog } from "./components/ui/ConfirmDialog.tsx";
 import { Modal, ModalForm } from "./components/ui/Modal.tsx";
 import { SwitchToggle } from "./components/ui/SwitchToggle.tsx";
 import type { TabNavTab } from "./components/ui/TabNav.tsx";
 import { TabNav } from "./components/ui/TabNav.tsx";
 import { useEscape } from "./components/ui/useEscape.ts";
+
+export * from "./components/icons/index.ts";
+
 import { api } from "./lib/api.ts";
 import {
   AVATAR_COLORS,
@@ -2275,69 +2288,6 @@ export function AddBotModal({
   );
 }
 
-export function BotIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      aria-hidden
-    >
-      <rect x="5" y="8" width="14" height="11" rx="2.5" />
-      <line x1="12" y1="4.5" x2="12" y2="8" />
-      <circle cx="12" cy="3.6" r="1.1" fill="currentColor" stroke="none" />
-      <circle cx="9.2" cy="13" r="1.05" fill="currentColor" stroke="none" />
-      <circle cx="14.8" cy="13" r="1.05" fill="currentColor" stroke="none" />
-      <line x1="9.5" y1="16.3" x2="14.5" y2="16.3" />
-    </svg>
-  );
-}
-
-export function RoleIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M12 3l7 3v5.2c0 4.4-3 7.9-7 9.3-4-1.4-7-4.9-7-9.3V6l7-3z" />
-      <circle cx="12" cy="10.2" r="2.1" />
-      <path
-        d="M8.5 16.6c.8-1.7 2-2.5 3.5-2.5s2.7.8 3.5 2.5"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-export function BookIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5v13z" />
-      <path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5" />
-    </svg>
-  );
-}
-
 export function PlayIcon({ size = 14 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
@@ -2547,65 +2497,6 @@ export function RefreshIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-export function GearIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M10.34 4.79 L9.71 2.06 L14.29 2.06 L13.66 4.79 L15.92 5.72 L17.41 3.35 L20.65 6.59 L18.28 8.08 L19.21 10.34 L21.94 9.71 L21.94 14.29 L19.21 13.66 L18.28 15.92 L20.65 17.41 L17.41 20.65 L15.92 18.28 L13.66 19.21 L14.29 21.94 L9.71 21.94 L10.34 19.21 L8.08 18.28 L6.59 20.65 L3.35 17.41 L5.72 15.92 L4.79 13.66 L2.06 14.29 L2.06 9.71 L4.79 10.34 L5.72 8.08 L3.35 6.59 L6.59 3.35 L8.08 5.72 Z" />
-      <circle cx="12" cy="12" r="3.1" />
-    </svg>
-  );
-}
-
-export function PlugIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      aria-hidden
-    >
-      <path d="M9 3v5" />
-      <path d="M15 3v5" />
-      <path d="M6.5 8h11v3a5.5 5.5 0 0 1-11 0V8Z" />
-      <path d="M12 16.5V21" />
-    </svg>
-  );
-}
-
-export function MachineIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <rect x="3.5" y="4" width="17" height="7" rx="2" />
-      <rect x="3.5" y="13" width="17" height="7" rx="2" />
-      <circle cx="7.2" cy="7.5" r="0.9" fill="currentColor" stroke="none" />
-      <circle cx="7.2" cy="16.5" r="0.9" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
 const TAB_PATHS: Record<Tab, string> = {
   bots: "/bots",
   teams: "/teams",
@@ -2627,26 +2518,6 @@ function tabFromPath(path: string): Tab {
       (path === "/" && t === "bots"),
   );
   return hit ?? "bots";
-}
-
-function TeamIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="9" cy="8" r="3.2" />
-      <path d="M3.5 19c.6-3 2.8-4.6 5.5-4.6s4.9 1.6 5.5 4.6" />
-      <circle cx="17" cy="9" r="2.4" />
-      <path d="M15.6 13.7c2.4.2 4.2 1.7 4.8 4.1" />
-    </svg>
-  );
 }
 
 function ProjectIcon({ size = 18 }: { size?: number }) {
@@ -2680,25 +2551,6 @@ function TagIcon({ size = 18 }: { size?: number }) {
     >
       <path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82Z" />
       <circle cx="7" cy="7" r="1.2" />
-    </svg>
-  );
-}
-
-function TemplateIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="8" y="3" width="13" height="7" rx="1.5" />
-      <rect x="8" y="14" width="13" height="7" rx="1.5" />
-      <path d="M3 6v12" />
     </svg>
   );
 }

@@ -1,0 +1,8 @@
+export { BookIcon } from "./BookIcon.tsx";
+export { BotIcon } from "./BotIcon.tsx";
+export { GearIcon } from "./GearIcon.tsx";
+export { MachineIcon } from "./MachineIcon.tsx";
+export { PlugIcon } from "./PlugIcon.tsx";
+export { RoleIcon } from "./RoleIcon.tsx";
+export { TeamIcon } from "./TeamIcon.tsx";
+export { TemplateIcon } from "./TemplateIcon.tsx";
