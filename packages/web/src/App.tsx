@@ -28,6 +28,7 @@ import {
   STATUS_CHIPS,
   teamHealth,
 } from "./lib/health.ts";
+import { playSound, SOUND_LIBRARY } from "./lib/sound.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { ensurePushSubscription, PushSection } from "./push.tsx";
 import { ScheduleEditor } from "./schedule.tsx";
@@ -464,23 +465,6 @@ function AvatarPicker({
       </div>
     </>
   );
-}
-
-const SOUND_LIBRARY: [string, string][] = [
-  ["default", "Default chime"],
-  ["ping", "Ping"],
-  ["chirp", "Chirp"],
-  ["bell", "Bell"],
-  ["blip", "Blip"],
-  ["warp", "Warp"],
-  ["thunk", "Thunk"],
-];
-
-function playSound(id: string): void {
-  if (!id || id === "none") return;
-  const a = new Audio(`/sounds/${id}.wav`);
-  a.volume = 0.35;
-  void a.play().catch(() => undefined);
 }
 
 export function BotCard({
