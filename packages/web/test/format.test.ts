@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { fmt, fmtMs, fmtTokens, relTime } from "../src/lib/format.ts";
+import {
+  fmt,
+  fmtMs,
+  fmtTokens,
+  relTime,
+  titleCase,
+} from "../src/lib/format.ts";
 
 test("relTime buckets ages against a fixed clock", (t) => {
   const now = Date.now();
@@ -28,4 +34,9 @@ test("fmtMs formats durations", () => {
   assert.equal(fmtMs(250), "250ms");
   assert.equal(fmtMs(3_500), "3.5s");
   assert.equal(fmtMs(90_000), "1m 30s");
+});
+
+test("titleCase uppercases only the first character", () => {
+  assert.equal(titleCase("active"), "Active");
+  assert.equal(titleCase(""), "");
 });

@@ -12,7 +12,13 @@ import {
 import { createPortal } from "react-dom";
 import { PasswordSettings, SessionSettings } from "./auth.tsx";
 import { BOT_NAMES, pickBotName } from "./lib/botNames.ts";
-import { fmt, fmtMs, fmtTokens, relTime } from "./lib/format.ts";
+import { fmt, fmtMs, fmtTokens, relTime, titleCase } from "./lib/format.ts";
+import {
+  HEALTH_LABEL,
+  HEALTH_ORDER,
+  STATUS_CHIPS,
+  teamHealth,
+} from "./lib/health.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { ensurePushSubscription, PushSection } from "./push.tsx";
 import { ScheduleEditor } from "./schedule.tsx";
@@ -502,22 +508,6 @@ export function Avatar({
     </span>
   );
 }
-
-const HEALTH_LABEL: Record<Bot["health"], string> = {
-  green: "active",
-  blue: "idle",
-  yellow: "issues",
-  red: "blocked",
-  gray: "disabled",
-};
-
-const STATUS_CHIPS: { health: Bot["health"]; label: string }[] = [
-  { health: "green", label: HEALTH_LABEL.green },
-  { health: "blue", label: HEALTH_LABEL.blue },
-  { health: "yellow", label: HEALTH_LABEL.yellow },
-  { health: "red", label: HEALTH_LABEL.red },
-  { health: "gray", label: HEALTH_LABEL.gray },
-];
 
 function ShapePreview({ preset }: { preset: number }) {
   const radii = shapeRadii(mulberry32(1000 + preset * 7919), preset);
@@ -1775,25 +1765,18 @@ export function App() {
                       {statusSel.length === 0
                         ? "All"
                         : statusSel
-                            .map(
-                              (s) =>
-                                HEALTH_LABEL[s][0].toUpperCase() +
-                                HEALTH_LABEL[s].slice(1),
-                            )
+                            .map((s) => titleCase(HEALTH_LABEL[s]))
                             .join(", ")}
                     </summary>
                     <div className="filterpanel">
-                      {(
-                        ["green", "blue", "yellow", "red", "gray"] as const
-                      ).map((s) => (
+                      {HEALTH_ORDER.map((s) => (
                         <label key={s}>
                           <input
                             type="checkbox"
                             checked={statusSel.includes(s)}
                             onChange={() => setStatusSel((v) => toggleIn(v, s))}
                           />{" "}
-                          {HEALTH_LABEL[s][0].toUpperCase() +
-                            HEALTH_LABEL[s].slice(1)}
+                          {titleCase(HEALTH_LABEL[s])}
                         </label>
                       ))}
                     </div>
@@ -2121,7 +2104,7 @@ export function App() {
                       className={modalTab === t ? "sel" : ""}
                       onClick={() => discardGuard(() => setModalTab(t))}
                     >
-                      {t[0].toUpperCase() + t.slice(1)}
+                      {titleCase(t)}
                     </button>
                   ))}
                 </nav>
@@ -3056,7 +3039,7 @@ export function SettingsPanel() {
       <div
         className="tabbody settingstab"
         role="tabpanel"
-        aria-label={`${sub[0].toUpperCase()}${sub.slice(1)} settings`}
+        aria-label={`${titleCase(sub)} settings`}
       >
         {sub === "general" && <SettingsGeneral key="general" />}
         {sub === "providers" && <SettingsProviders key="providers" />}
@@ -3156,7 +3139,7 @@ export function SettingsGeneral() {
             className={t === theme ? "sel" : ""}
             onClick={() => pickTheme(t)}
           >
-            {t[0].toUpperCase() + t.slice(1)}
+            {titleCase(t)}
           </button>
         ))}
       </div>
@@ -4475,15 +4458,6 @@ function GrantDualList({
       </section>
     </div>
   );
-}
-
-export function teamHealth(members: TeamMember[], bots: Bot[]): Bot["health"] {
-  const hs = members
-    .map((m) => bots.find((b) => b.id === m.bot_id)?.health)
-    .filter(Boolean) as Bot["health"][];
-  for (const h of ["red", "yellow", "green", "blue"] as const)
-    if (hs.includes(h)) return h;
-  return "gray";
 }
 
 export function TeamCreateModal({
@@ -6561,7 +6535,7 @@ export function SearchOverlay({
       },
       ...(Object.keys(TAB_PATHS) as Tab[]).map((tab) => ({
         id: `open-${tab}`,
-        label: `Open ${tab[0].toUpperCase()}${tab.slice(1)}`,
+        label: `Open ${titleCase(tab)}`,
         group: "Navigation" as const,
         run: async () => {
           onNavigate(tab);
