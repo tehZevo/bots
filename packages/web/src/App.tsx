@@ -46,7 +46,12 @@ import {
 
 export * from "./components/ui/discard.tsx";
 
+import { FilterBar } from "./components/FilterBar.tsx";
+
+export { FilterBar } from "./components/FilterBar.tsx";
+
 import { Multiselect } from "./components/Multiselect.tsx";
+import { filterBots } from "./lib/filterBots.ts";
 
 export { NotificationPanel } from "./components/NotificationPanel.tsx";
 
@@ -104,7 +109,7 @@ export {
 import { api } from "./lib/api.ts";
 import { BOT_NAMES, pickBotName } from "./lib/botNames.ts";
 import { fmt, fmtMs, fmtTokens, relTime, titleCase } from "./lib/format.ts";
-import { HEALTH_LABEL, HEALTH_ORDER, STATUS_CHIPS } from "./lib/health.ts";
+import { HEALTH_LABEL, STATUS_CHIPS } from "./lib/health.ts";
 import { playSound, SOUND_LIBRARY } from "./lib/sound.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { ensurePushSubscription, PushSection } from "./push.tsx";
@@ -122,7 +127,6 @@ import type {
   HookTestResult,
   Machine,
   NotificationItem,
-  NotificationsResponse,
   OptimisticChatMessage,
   OptimisticRunState,
   OptimisticRunStates,
@@ -968,21 +972,12 @@ export function App() {
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  const botFilter = botQuery.trim().toLowerCase();
-  const visibleBots = bots.filter(
-    (bot) =>
-      (statusSel.length === 0 || statusSel.includes(bot.health)) &&
-      (roleSel.length === 0 || roleSel.includes(bot.role_id ?? "")) &&
-      (tagSel.length === 0 ||
-        (bot.tag_ids ?? []).some((t) => tagSel.includes(t))) &&
-      (!botFilter || bot.name.toLowerCase().includes(botFilter)),
-  );
-
-  function toggleIn<T>(list: T[], value: T): T[] {
-    return list.includes(value)
-      ? list.filter((v) => v !== value)
-      : [...list, value];
-  }
+  const visibleBots = filterBots(bots, {
+    query: botQuery,
+    statuses: statusSel,
+    roleIds: roleSel,
+    tagIds: tagSel,
+  });
 
   const openBotRow = bots.find((b) => b.id === openBot);
   const chatBotRow = bots.find((b) => b.id === chatBot);
@@ -1372,126 +1367,20 @@ export function App() {
                     Add bot
                   </button>
                 </div>
-                <div className="filterrow">
-                  <input
-                    placeholder="Search bots by name"
-                    value={botQuery}
-                    onChange={(e) => setBotQuery(e.target.value)}
-                  />
-                  <details className="filterdd">
-                    <summary
-                      aria-label={`Status filter: ${statusSel.length === 0 ? "All" : `${statusSel.length} selected`}`}
-                    >
-                      Status:{" "}
-                      {statusSel.length === 0
-                        ? "All"
-                        : statusSel
-                            .map((s) => titleCase(HEALTH_LABEL[s]))
-                            .join(", ")}
-                    </summary>
-                    <div className="filterpanel">
-                      {HEALTH_ORDER.map((s) => (
-                        <label key={s}>
-                          <input
-                            type="checkbox"
-                            checked={statusSel.includes(s)}
-                            onChange={() => setStatusSel((v) => toggleIn(v, s))}
-                          />{" "}
-                          {titleCase(HEALTH_LABEL[s])}
-                        </label>
-                      ))}
-                    </div>
-                  </details>
-                  <details className="filterdd">
-                    <summary
-                      aria-label={`Role filter: ${roleSel.length === 0 ? "All" : `${roleSel.length} selected`}`}
-                    >
-                      Role:{" "}
-                      {roleSel.length === 0
-                        ? "All"
-                        : roleSel
-                            .map(
-                              (id) =>
-                                roles.find((r) => r.id === id)?.name ??
-                                "(no role)",
-                            )
-                            .join(", ")}
-                    </summary>
-                    <div className="filterpanel">
-                      <input
-                        placeholder="Search roles"
-                        onChange={(e) => {
-                          const q = e.target.value.trim().toLowerCase();
-                          for (const el of e.currentTarget.parentElement
-                            ?.children ?? [])
-                            if (el instanceof HTMLElement && el.dataset.name)
-                              el.hidden =
-                                q !== "" &&
-                                !el.dataset.name.toLowerCase().includes(q);
-                        }}
-                      />
-                      <label data-name="(no role)">
-                        <input
-                          type="checkbox"
-                          checked={roleSel.includes("")}
-                          onChange={() => setRoleSel((v) => toggleIn(v, ""))}
-                        />{" "}
-                        (no role)
-                      </label>
-                      {roles.map((r) => (
-                        <label key={r.id} data-name={r.name}>
-                          <input
-                            type="checkbox"
-                            checked={roleSel.includes(r.id)}
-                            onChange={() =>
-                              setRoleSel((v) => toggleIn(v, r.id))
-                            }
-                          />{" "}
-                          {r.name}
-                        </label>
-                      ))}
-                    </div>
-                  </details>
-                  {tags.length > 0 && (
-                    <details className="filterdd">
-                      <summary
-                        aria-label={`Tag filter: ${tagSel.length === 0 ? "All" : `${tagSel.length} selected`}`}
-                      >
-                        Tag:{" "}
-                        {tagSel.length === 0
-                          ? "All"
-                          : tagSel
-                              .map(
-                                (id) =>
-                                  tags.find((t) => t.id === id)?.name ?? "?",
-                              )
-                              .join(", ")}
-                      </summary>
-                      <div className="filterpanel">
-                        {tags.map((t) => (
-                          <label key={t.id} data-name={t.name}>
-                            <input
-                              type="checkbox"
-                              checked={tagSel.includes(t.id)}
-                              onChange={() =>
-                                setTagSel((v) => toggleIn(v, t.id))
-                              }
-                            />{" "}
-                            {t.name}
-                          </label>
-                        ))}
-                      </div>
-                    </details>
-                  )}
-                  <label className="filtertoggle">
-                    <input
-                      type="checkbox"
-                      checked={includeArchived}
-                      onChange={(e) => setIncludeArchived(e.target.checked)}
-                    />{" "}
-                    Include archived
-                  </label>
-                </div>
+                <FilterBar
+                  query={botQuery}
+                  onQueryChange={setBotQuery}
+                  statuses={statusSel}
+                  onStatusesChange={setStatusSel}
+                  roles={roles}
+                  roleIds={roleSel}
+                  onRoleIdsChange={setRoleSel}
+                  tags={tags}
+                  tagIds={tagSel}
+                  onTagIdsChange={setTagSel}
+                  includeArchived={includeArchived}
+                  onIncludeArchivedChange={setIncludeArchived}
+                />
                 <div className="cards">
                   {visibleBots.map((bot) => (
                     <BotCard
