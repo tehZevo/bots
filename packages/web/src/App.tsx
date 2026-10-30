@@ -127,6 +127,7 @@ export function applyOptimisticRunStates(
 interface GrantOption {
   id: string;
   name: string;
+  description?: string;
 }
 
 interface TemplateTrigger {
@@ -4613,6 +4614,109 @@ export function Multiselect({
   );
 }
 
+function GrantDualList({
+  label,
+  options,
+  selected,
+  onChange,
+  emptyText,
+}: {
+  label: string;
+  options: GrantOption[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+  emptyText: string;
+}) {
+  const [query, setQuery] = useState("");
+  const chosen = new Set(selected);
+  const q = query.trim().toLowerCase();
+  const available = options.filter(
+    (option) =>
+      !chosen.has(option.id) &&
+      (!q ||
+        `${option.name} ${option.description ?? ""}`.toLowerCase().includes(q)),
+  );
+  const granted = selected
+    .map((id) => options.find((option) => option.id === id))
+    .filter((option): option is GrantOption => Boolean(option));
+
+  return (
+    <div className="grantpicker">
+      <section
+        className="grantpane grantavailable"
+        aria-label={`Available ${label}`}
+      >
+        <h3>Available</h3>
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={`Search ${label.toLowerCase()}…`}
+          aria-label={`Search ${label}`}
+        />
+        <ul className="grantlist">
+          {available.map((option) => (
+            <li key={option.id}>
+              <button
+                type="button"
+                className="grantentry grantadd"
+                aria-label={`Add ${option.name}`}
+                onClick={() => onChange([...selected, option.id])}
+              >
+                <span className="grantname">{option.name}</span>
+                {option.description && (
+                  <span className="grantdesc">{option.description}</span>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+        {options.length === 0 && (
+          <p className="grantempty muted">{emptyText}</p>
+        )}
+        {options.length > 0 && available.length === 0 && (
+          <p className="grantempty muted">
+            {q
+              ? `No matches for “${query.trim()}”.`
+              : `All ${label.toLowerCase()} are granted.`}
+          </p>
+        )}
+      </section>
+
+      <section
+        className="grantpane grantselected"
+        aria-label={`Granted ${label}`}
+      >
+        <h3>Granted</h3>
+        <ul className="grantlist">
+          {granted.map((option) => (
+            <li key={option.id} className="grantentry grantselrow">
+              <span className="grantinfo">
+                <strong>{option.name}</strong>
+                {option.description && (
+                  <small className="grantdesc">{option.description}</small>
+                )}
+              </span>
+              <button
+                type="button"
+                className="grantremove"
+                aria-label={`Remove ${option.name}`}
+                onClick={() =>
+                  onChange(selected.filter((id) => id !== option.id))
+                }
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+        {granted.length === 0 && (
+          <p className="grantempty muted">Nothing granted yet.</p>
+        )}
+      </section>
+    </div>
+  );
+}
+
 export function teamHealth(members: TeamMember[], bots: Bot[]): Bot["health"] {
   const hs = members
     .map((m) => bots.find((b) => b.id === m.bot_id)?.health)
@@ -5428,22 +5532,38 @@ export function RoleFormModal({
   );
 
   useEffect(() => {
-    void api<GrantOption[]>("/api/mcp-servers")
-      .then(setMcpOptions)
+    void api<{ id: string; name: string; command?: unknown }[]>(
+      "/api/mcp-servers",
+    )
+      .then((servers) =>
+        setMcpOptions(
+          servers.map((server) => ({
+            id: server.id,
+            name: server.name,
+            description:
+              typeof server.command === "string" ? server.command : undefined,
+          })),
+        ),
+      )
       .catch(() => setMcpOptions([]));
-    void api<GrantOption[]>("/api/skills")
-      .then(setSkillOptions)
+    void api<{ id: string; name: string; description?: unknown }[]>(
+      "/api/skills",
+    )
+      .then((skills) =>
+        setSkillOptions(
+          skills.map((skill) => ({
+            id: skill.id,
+            name: skill.name,
+            description:
+              typeof skill.description === "string"
+                ? skill.description
+                : undefined,
+          })),
+        ),
+      )
       .catch(() => setSkillOptions([]));
   }, []);
 
-  const toggleId = (
-    id: string,
-    current: string[],
-    setter: (v: string[]) => void,
-  ) =>
-    setter(
-      current.includes(id) ? current.filter((x) => x !== id) : [...current, id],
-    );
   const nameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -5467,7 +5587,7 @@ export function RoleFormModal({
         onClick={attemptClose}
       />
       <form
-        className="dialog narrow"
+        className="dialog"
         role="dialog"
         aria-label={role ? "Edit role" : "Create role"}
         onSubmit={(e) => {
@@ -5549,38 +5669,22 @@ export function RoleFormModal({
           </>
         )}
         {roleTab === "mcp" && (
-          <div className="grantlist">
-            {mcpOptions.length === 0 && (
-              <p className="muted">No MCP servers — add one in Integrations.</p>
-            )}
-            {mcpOptions.map((opt) => (
-              <label key={opt.id} className="grantrow">
-                <input
-                  type="checkbox"
-                  checked={mcpIds.includes(opt.id)}
-                  onChange={() => toggleId(opt.id, mcpIds, setMcpIds)}
-                />
-                {opt.name}
-              </label>
-            ))}
-          </div>
+          <GrantDualList
+            label="MCP servers"
+            options={mcpOptions}
+            selected={mcpIds}
+            onChange={setMcpIds}
+            emptyText="No MCP servers — add one in Integrations."
+          />
         )}
         {roleTab === "skills" && (
-          <div className="grantlist">
-            {skillOptions.length === 0 && (
-              <p className="muted">No skills — add one in Skills.</p>
-            )}
-            {skillOptions.map((opt) => (
-              <label key={opt.id} className="grantrow">
-                <input
-                  type="checkbox"
-                  checked={skillIds.includes(opt.id)}
-                  onChange={() => toggleId(opt.id, skillIds, setSkillIds)}
-                />
-                {opt.name}
-              </label>
-            ))}
-          </div>
+          <GrantDualList
+            label="Skills"
+            options={skillOptions}
+            selected={skillIds}
+            onChange={setSkillIds}
+            emptyText="No skills — add one in Skills."
+          />
         )}
         <div className="actions">
           <button type="submit" disabled={busy}>
@@ -6138,22 +6242,18 @@ export function BotGeneral({
   };
 
   return (
-    <>
-      <div className="profile">
+    <div className="botgeneral">
+      <label className="field">
+        <span>Name</span>
         <input
           aria-label="Bot name"
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-        <textarea
-          aria-label="Instructions"
-          placeholder="instructions (optional)"
-          rows={3}
-          value={instructions}
-          onChange={(e) => setInstructions(e.target.value)}
-        />
-        <p className="rolepick">
-          Watchdog hours{" "}
+      </label>
+      <label className="field watchdog-field">
+        <span>Watchdog hours</span>
+        <div className="unit-control">
           <input
             type="number"
             aria-label="Watchdog hours"
@@ -6164,14 +6264,14 @@ export function BotGeneral({
             value={watchdogHours}
             onChange={(e) => setWatchdogHours(e.target.value)}
           />
+          <span>hours</span>
+        </div>
+      </label>
+      {parsedWatchdog === "invalid" && (
+        <p className="muted field-error">
+          Watchdog must be a whole number from 1 to 720 hours, or empty for off.
         </p>
-        {parsedWatchdog === "invalid" && (
-          <p className="muted">
-            Watchdog must be a whole number from 1 to 720 hours, or empty for
-            off.
-          </p>
-        )}
-      </div>
+      )}
       <p className="statusline">
         Status:{" "}
         <StatusDot
@@ -6185,80 +6285,96 @@ export function BotGeneral({
       <BotTags botId={bot.id} />
       <BotSecrets botId={bot.id} />
       <BotTeams botId={bot.id} />
-      <p className="rolepick">
-        Role{" "}
-        <select
-          value={roleId}
-          aria-label="Bot role"
-          onChange={(e) => setRoleId(e.target.value)}
-        >
-          <option value="">None</option>
-          {roles.map((role) => (
-            <option key={role.id} value={role.id}>
-              {role.name}
-            </option>
-          ))}
-        </select>
-      </p>
-      <p className="rolepick">
-        Machine{" "}
-        <select
-          value={machineId}
-          aria-label="Bot machine"
-          onChange={(e) => setMachineId(e.target.value)}
-        >
-          <option value="">Default</option>
-          {machines.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name}
-            </option>
-          ))}
-        </select>
-      </p>
-      <p className="rolepick">
-        Model{" "}
-        <select
-          value={modelId}
-          aria-label="Bot model"
-          onChange={(e) => setModelId(e.target.value)}
-        >
-          <option value="">Server default</option>
-          {modelOptions.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-      </p>
-      <p className="rolepick">
-        Sound{" "}
-        <select
-          value={bot.sound ?? ""}
-          aria-label="Bot notification sound"
-          onChange={(e) => {
-            const v = e.target.value;
-            patchBot({ sound: v === "" ? null : v })
-              .then(onChanged)
-              .catch((err) => alert(err.message));
-          }}
-        >
-          <option value="">Global default</option>
-          <option value="none">None</option>
-          {SOUND_LIBRARY.map(([id, label]) => (
-            <option key={id} value={id}>
-              {label}
-            </option>
-          ))}
-        </select>{" "}
-        <button
-          type="button"
-          onClick={() =>
-            playSound(bot.sound && bot.sound !== "none" ? bot.sound : "default")
-          }
-        >
-          Preview
-        </button>
-      </p>
+      <div className="picker-row">
+        <label className="field">
+          <span>Role</span>
+          <select
+            value={roleId}
+            aria-label="Bot role"
+            onChange={(e) => setRoleId(e.target.value)}
+          >
+            <option value="">None</option>
+            {roles.map((role) => (
+              <option key={role.id} value={role.id}>
+                {role.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Model</span>
+          <select
+            value={modelId}
+            aria-label="Bot model"
+            onChange={(e) => setModelId(e.target.value)}
+          >
+            <option value="">Server default</option>
+            {modelOptions.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Machine</span>
+          <select
+            value={machineId}
+            aria-label="Bot machine"
+            onChange={(e) => setMachineId(e.target.value)}
+          >
+            <option value="">Default</option>
+            {machines.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Sound</span>
+          <div className="sound-control">
+            <select
+              value={bot.sound ?? ""}
+              aria-label="Bot notification sound"
+              onChange={(e) => {
+                const v = e.target.value;
+                patchBot({ sound: v === "" ? null : v })
+                  .then(onChanged)
+                  .catch((err) => alert(err.message));
+              }}
+            >
+              <option value="">Global default</option>
+              <option value="none">None</option>
+              {SOUND_LIBRARY.map(([id, label]) => (
+                <option key={id} value={id}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() =>
+                playSound(
+                  bot.sound && bot.sound !== "none" ? bot.sound : "default",
+                )
+              }
+            >
+              Preview
+            </button>
+          </div>
+        </label>
+      </div>
+      <label className="field instructions-field">
+        <span>Instructions</span>
+        <textarea
+          aria-label="Instructions"
+          placeholder="instructions (optional)"
+          rows={3}
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
+        />
+      </label>
       <div className="botdetailactions">
         <UnsavedNote dirty={dirty} />
         <button
@@ -6381,7 +6497,7 @@ export function BotGeneral({
           }}
         />
       )}
-    </>
+    </div>
   );
 }
 
@@ -7469,6 +7585,23 @@ type ChatTurn = {
   source?: string;
 };
 
+export type OptimisticChatMessage = { id: string; text: string };
+
+export function mergeOptimisticChatTurns(
+  history: ChatTurn[],
+  pending: readonly OptimisticChatMessage[],
+): ChatTurn[] {
+  if (pending.length === 0) return history;
+  const optimistic = pending.map((turn) => ({ role: "user", text: turn.text }));
+  let insertAt = history.length;
+  while (insertAt > 0 && history[insertAt - 1].role !== "user") insertAt--;
+  return [
+    ...history.slice(0, insertAt),
+    ...optimistic,
+    ...history.slice(insertAt),
+  ];
+}
+
 const INJECT_LABELS: Record<string, string> = {
   schedule: "schedule",
   manual: "manual run",
@@ -7589,52 +7722,102 @@ export function Chat({
   working?: boolean;
   onRunAccepted?: () => void;
 }) {
-  const [turns, setTurns] = useState<ChatTurn[]>([]);
+  const [history, setHistory] = useState<ChatTurn[]>([]);
+  const [pendingMessages, setPendingMessages] = useState<
+    OptimisticChatMessage[]
+  >([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const pendingRef = useRef<string | null>(null);
+  const [liveWorking, setLiveWorking] = useState<boolean | null>(null);
+  const [streamActive, setStreamActive] = useState(false);
+  const optimisticSeq = useRef(0);
+
+  const applyIncomingTurns = useCallback((incoming: ChatTurn[]) => {
+    setHistory(incoming);
+    setPendingMessages((prev) =>
+      prev.length === 0
+        ? prev
+        : prev.filter(
+            (pending) =>
+              !incoming.some(
+                (t) => t.role === "user" && t.text === pending.text,
+              ),
+          ),
+    );
+  }, []);
 
   const loadChat = useCallback(async () => {
     try {
       const fresh = await api<ChatTurn[]>(`/api/bots/${botId}/messages`);
-      if (
-        pendingRef.current &&
-        fresh.some((t) => t.role === "user" && t.text === pendingRef.current)
-      )
-        pendingRef.current = null;
-      setTurns(() => {
-        const base = [...fresh];
-        if (
-          pendingRef.current &&
-          !base.some((t) => t.text === pendingRef.current)
-        )
-          base.push({ role: "user", text: pendingRef.current });
-        return base;
-      });
+      applyIncomingTurns(fresh);
     } catch {
       /* keep last */
     }
-  }, [botId]);
+  }, [applyIncomingTurns, botId]);
 
   useEffect(() => {
-    void loadChat();
-    const t = setInterval(loadChat, working ? 800 : 3000);
-    return () => clearInterval(t);
-  }, [loadChat, working]);
+    if (typeof EventSource === "undefined") return;
+    let source: EventSource;
+    try {
+      source = new EventSource(`/api/bots/${botId}/messages/stream`);
+    } catch {
+      return;
+    }
 
+    source.onopen = () => setStreamActive(true);
+    source.onerror = () => setStreamActive(false);
+    source.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data) as {
+          turns?: unknown;
+          working?: boolean;
+        };
+        if (Array.isArray(data.turns))
+          applyIncomingTurns(data.turns as ChatTurn[]);
+        if (typeof data.working === "boolean") setLiveWorking(data.working);
+      } catch {
+        /* ignore malformed events */
+      }
+    };
+
+    return () => {
+      source.close();
+      setStreamActive(false);
+    };
+  }, [applyIncomingTurns, botId]);
+
+  useEffect(() => {
+    if (streamActive) return;
+    void loadChat();
+    const t = setInterval(loadChat, working ? 800 : 5000);
+    return () => clearInterval(t);
+  }, [loadChat, streamActive, working]);
+
+  const turns = useMemo(
+    () => mergeOptimisticChatTurns(history, pendingMessages),
+    [history, pendingMessages],
+  );
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const scrollRevision = turns.reduce((total, turn) => {
+    let sum =
+      total + turns.length + turn.text.length + (turn.thinking?.length ?? 0);
+    for (const call of turn.tool_calls ?? []) {
+      sum += call.name.length + (call.output?.length ?? 0);
+    }
+    return sum;
+  }, 0);
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [turns.length]);
+  }, [scrollRevision]);
 
   const send = async () => {
     const text = draft.trim();
     if (!text || sending || !enabled) return;
     setSending(true);
     setErr(null);
-    pendingRef.current = text;
-    setTurns((prev) => [...prev, { role: "user", text }]);
+    const optimisticId = `${Date.now()}-${optimisticSeq.current++}`;
+    setPendingMessages((prev) => [...prev, { id: optimisticId, text }]);
     setDraft("");
     try {
       const result = await api<{ runId?: string | null }>(
@@ -7648,8 +7831,7 @@ export function Chat({
       if (result.runId) onRunAccepted?.();
       await loadChat();
     } catch (e) {
-      pendingRef.current = null;
-      setTurns((prev) => prev.filter((t) => t.text !== text));
+      setPendingMessages((prev) => prev.filter((p) => p.id !== optimisticId));
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setSending(false);
@@ -7669,7 +7851,7 @@ export function Chat({
         )}
         <div ref={bottomRef} />
       </div>
-      {working && (
+      {(working || liveWorking) && (
         <div className="chat-working" aria-label="bot is working">
           <span className="who">{botName}</span>
           <span className="dots">

@@ -1,6 +1,7 @@
 # Modal forms
 
 - Every field in a modal form stacks vertically: label on its own line above the control, the control spanning the full dialog width; no inline labels floating to the left of half-width inputs. Row spacing is uniform and buttons sit below the last field.
+- A related group of selectors may share one responsive grid or row, but each control keeps its own label above it, equal height, and consistent gaps with neighboring fields.
 - A composite value with a unit or mode word (e.g. `Watchdog hours` + number, sandbox timeout + `minutes`) renders as one bordered control with the unit inside its trailing edge; a bare label-plus-small-input row is never used.
 - Action rows align right: secondary actions (Cancel) in ghost styling left of the single solid primary (`Create`/`Save`); Delete/danger actions sit at the far right or bottom, never styled primary.
 - Every group of fields inside a dialog or detail tab carries its section label — `Projects`, `Tags`, etc. — with identical size and casing; no field group appears unlabeled while its neighbors are labeled.

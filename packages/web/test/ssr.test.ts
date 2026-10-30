@@ -65,6 +65,7 @@ const {
   BotCard,
   ChatTurnView,
   ChatBar,
+  mergeOptimisticChatTurns,
   Triggers,
   AddBotModal,
   TemplateEditorModal,
@@ -673,6 +674,35 @@ test("chat shows a working indicator bottom-left while the bot runs", () => {
     React.createElement(Chat, { botId: "b1", botName: "Alpha" }),
   );
   assert.doesNotMatch(off, /chat-working/);
+});
+
+test("optimistic chat messages stay before the live assistant response", () => {
+  const history = [
+    { role: "user", text: "old" },
+    { role: "assistant", text: "partial" },
+  ];
+  assert.deepEqual(
+    mergeOptimisticChatTurns(history, [
+      { id: "1", text: "queued one" },
+      { id: "2", text: "queued two" },
+    ]),
+    [
+      { role: "user", text: "old" },
+      { role: "user", text: "queued one" },
+      { role: "user", text: "queued two" },
+      { role: "assistant", text: "partial" },
+    ],
+  );
+  assert.deepEqual(
+    mergeOptimisticChatTurns(
+      [{ role: "user", text: "old" }],
+      [{ id: "1", text: "new" }],
+    ),
+    [
+      { role: "user", text: "old" },
+      { role: "user", text: "new" },
+    ],
+  );
 });
 
 test("formDirty compares saveable values against a snapshot", () => {

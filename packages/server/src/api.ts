@@ -6,6 +6,9 @@ import {
 } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import type { AgentEventStream } from "@earendil-works/pi-durable";
+import { watchEvents } from "@earendil-works/pi-durable";
 import { serveStatic } from "@hono/node-server/serve-static";
 import type { Context } from "hono";
 import { Hono } from "hono";
@@ -20,6 +23,9 @@ import {
   stopAllLoops,
 } from "./agent.ts";
 import { exportConfigBackup, importConfigBackup } from "./backup.ts";
+import type { ChatStreamState } from "./chat-stream.ts";
+import { ChatStreamReducer } from "./chat-stream.ts";
+import { chatTurnsFromMessages } from "./chat-transcript.ts";
 import { devFakeLlm, repoRoot } from "./config.ts";
 import {
   approveDeviceGrant,
@@ -56,6 +62,7 @@ import {
   findSecretByName,
   getApiKeyByHash,
   getBot,
+  getBotConversation,
   getDeviceGrantByDeviceHash,
   getHookDestination,
   getLiveDeviceGrantByUserCode,
@@ -163,6 +170,7 @@ import {
   upsertPushSubscription,
   verifyPassword,
 } from "./db.ts";
+import { loadBotConversationState } from "./durable-conversations.ts";
 import { FAKE_PROVIDER_ID, fakeProviderResponse } from "./fake-llm.ts";
 import { HOOK_EVENT_TYPES, sendHookTest } from "./hooks.ts";
 import { testMcpConnection } from "./mcp.ts";
@@ -213,6 +221,35 @@ import {
 } from "./workspace.ts";
 
 const DEFAULT_MANUAL_MESSAGE = "Continue with your current work.";
+const LLM_CHAT_ROLES = new Set(["user", "assistant", "toolResult"]);
+
+function appChatMessages(botId: string): unknown[] {
+  const messages: unknown[] = [];
+  for (const row of loadMessages(botId)) {
+    let message: Record<string, unknown>;
+    try {
+      const raw = JSON.parse(row.payload) as unknown;
+      message =
+        raw && typeof raw === "object"
+          ? { ...(raw as Record<string, unknown>) }
+          : { content: raw };
+    } catch {
+      continue;
+    }
+
+    const role = typeof message.role === "string" ? message.role : row.role;
+    message.role = role;
+    if (LLM_CHAT_ROLES.has(role)) messages.push(message);
+  }
+  return messages;
+}
+
+function fallbackChatState(botId: string): ChatStreamState {
+  return {
+    turns: chatTurnsFromMessages(appChatMessages(botId)),
+    working: isLoopActive(botId),
+  };
+}
 
 function workDisabled(bot: BotRow): boolean {
   return !bot.enabled || bot.archived === 1;
@@ -2500,76 +2537,154 @@ export function createApp() {
   app.get("/api/bots/:id/messages", (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
-    type ToolCallTurn = { name: string; input: unknown; output?: string };
-    type ChatTurn = {
-      role: string;
-      text: string;
-      thinking?: string;
-      tool_calls?: ToolCallTurn[];
-      injected?: boolean;
-      source?: string;
-    };
-    const turns: ChatTurn[] = [];
-    const callsById = new Map<string, ToolCallTurn>();
-    for (const row of loadMessages(bot.id)) {
-      let msg: Record<string, unknown>;
-      try {
-        msg = JSON.parse(row.payload) as Record<string, unknown>;
-      } catch {
-        continue;
-      }
-      const blocks: { type?: string; text?: string; thinking?: string }[] =
-        typeof msg.content === "string"
-          ? [{ type: "text", text: msg.content }]
-          : Array.isArray(msg.content)
-            ? (msg.content as typeof blocks)
-            : [];
-      if (row.role === "toolResult") {
-        const call = callsById.get(String(msg.toolCallId ?? ""));
-        if (call) {
-          const out = blocks
-            .filter((b) => b?.type === "text")
-            .map((b) => String(b.text ?? ""))
-            .join("");
-          call.output = msg.isError ? `error: ${out}` : out;
-        }
-        continue;
-      }
-      if (row.role === "assistant") {
-        const turn: ChatTurn = { role: "assistant", text: "" };
-        for (const b of blocks) {
-          if (b?.type === "text") turn.text += String(b.text ?? "");
-          else if (b?.type === "thinking")
-            turn.thinking = `${turn.thinking ?? ""}${String(b.thinking ?? "")}`;
-          else if (b?.type === "toolCall") {
-            const call: ToolCallTurn = {
-              name: String((b as Record<string, unknown>).name ?? "?"),
-              input: (b as Record<string, unknown>).arguments ?? {},
-            };
-            (turn.tool_calls ??= []).push(call);
-            callsById.set(String((b as Record<string, unknown>).id), call);
+    return c.json(chatTurnsFromMessages(appChatMessages(bot.id)));
+  });
+
+  app.get("/api/bots/:id/messages/stream", (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+
+    const botId = bot.id;
+    let cleanup = (): void => undefined;
+    return new Response(
+      new ReadableStream({
+        start(controller) {
+          const encoder = new TextEncoder();
+          let closed = false;
+          let pollTimer: ReturnType<typeof setInterval> | undefined;
+          let keepAliveTimer: ReturnType<typeof setInterval> | undefined;
+          let attaching = false;
+          let stream: AgentEventStream | undefined;
+          let reducer: ChatStreamReducer | undefined;
+
+          function close(): void {
+            if (closed) return;
+            closed = true;
+            if (pollTimer !== undefined) clearInterval(pollTimer);
+            if (keepAliveTimer !== undefined) clearInterval(keepAliveTimer);
+            void stream?.stop().catch(() => undefined);
           }
-        }
-        if (turn.text.trim() || turn.tool_calls) turns.push(turn);
-      } else {
-        const raw = blocks
-          .filter((b) => b?.type === "text")
-          .map((b) => String(b.text ?? ""))
-          .join("");
-        const inj = /^\[(schedule|manual|webhook) [^\]]*\]\n/.exec(raw);
-        const text = raw.replace(
-          /^\[(schedule|manual|chat|webhook) [^\]]*\]\n/,
-          "",
-        );
-        if (text.trim())
-          turns.push(
-            inj
-              ? { role: "user", text, injected: true, source: inj[1] }
-              : { role: "user", text },
-          );
-      }
-    }
-    return c.json(turns);
+          cleanup = close;
+
+          function send(state: ChatStreamState): void {
+            if (closed) return;
+            try {
+              controller.enqueue(
+                encoder.encode(`data:${JSON.stringify(state)}\n\n`),
+              );
+            } catch {
+              close();
+            }
+          }
+
+          async function attachDurable(): Promise<boolean> {
+            const loaded = await loadBotConversationState(botId);
+            if (!loaded) return false;
+
+            let nextStream: AgentEventStream | undefined;
+            try {
+              nextStream = await watchEvents(
+                loaded.harness,
+                loaded.conversation.id,
+                BACKGROUND_CONTEXT,
+              );
+              stream = nextStream;
+              if (closed) {
+                void nextStream.stop().catch(() => undefined);
+                return true;
+              }
+
+              const chatReducer = new ChatStreamReducer();
+              chatReducer.setEntries(loaded.entries);
+              chatReducer.applySnapshot(nextStream.snapshot);
+              reducer = chatReducer;
+              send(chatReducer.state());
+
+              let scheduled = false;
+              await nextStream.start(async (events) => {
+                if (closed || !reducer) return;
+                if (events.some((event) => event.type === "snapshot")) {
+                  const refreshed = await loadBotConversationState(botId);
+                  if (!refreshed) {
+                    close();
+                    return;
+                  }
+                  reducer.setEntries(refreshed.entries);
+                }
+                for (const event of events) reducer.applyEvent(event);
+
+                if (scheduled || closed) return;
+                scheduled = true;
+                queueMicrotask(() => {
+                  scheduled = false;
+                  if (!closed && reducer) send(reducer.state());
+                });
+              });
+
+              void nextStream.closed.then(close);
+              keepAliveTimer = setInterval(() => {
+                if (closed) return;
+                try {
+                  controller.enqueue(encoder.encode(": ping\n\n"));
+                } catch {
+                  close();
+                }
+              }, 25_000);
+              return true;
+            } catch {
+              void nextStream?.stop().catch(() => undefined);
+              if (stream === nextStream) stream = undefined;
+              return false;
+            }
+          }
+
+          function pollOnce(): void {
+            if (closed || attaching) return;
+            attaching = true;
+            void (async () => {
+              try {
+                if (await attachDurable()) {
+                  if (pollTimer !== undefined) clearInterval(pollTimer);
+                  pollTimer = undefined;
+                  return;
+                }
+                send(fallbackChatState(botId));
+              } catch {
+                send(fallbackChatState(botId));
+              } finally {
+                attaching = false;
+              }
+            })();
+          }
+
+          function startPolling(): void {
+            if (closed || pollTimer !== undefined) return;
+            pollOnce();
+            pollTimer = setInterval(pollOnce, 800);
+          }
+
+          send(fallbackChatState(botId));
+          void (async () => {
+            try {
+              if (!(await attachDurable())) startPolling();
+            } catch {
+              startPolling();
+            }
+          })();
+        },
+        cancel() {
+          cleanup();
+        },
+      }),
+      {
+        headers: {
+          "cache-control": "no-cache, no-transform",
+          "content-type": "text/event-stream; charset=utf-8",
+          connection: "keep-alive",
+          "x-accel-buffering": "no",
+        },
+      },
+    );
   });
 
   app.post("/api/bots/:id/messages", async (c) => {
@@ -2717,12 +2832,6 @@ export function createApp() {
       usage: getRunUsage(run.id),
       steps,
     });
-  });
-
-  app.get("/api/bots/:id/messages", (c) => {
-    const botId = c.req.param("id");
-    if (!getBot(botId)) return c.json({ error: "not found" }, 404);
-    return c.json(loadMessages(botId));
   });
 
   app.delete("/api/bots/:id/messages", (c) => {

@@ -453,6 +453,29 @@ export function openApiDoc(): Json {
   add("/api/bots/{id}/messages", "delete", "Clear conversation memory", {
     params: ["id"],
   });
+  paths["/api/bots/{id}/messages/stream"] = {
+    get: {
+      summary: "Stream chat turns and working state as Server-Sent Events",
+      parameters: [{ name: "id", in: "path", required: true, schema: str }],
+      responses: {
+        "200": {
+          description:
+            "event stream; each `data:` event carries `{ turns, working }`",
+          content: {
+            "text/event-stream": {
+              schema: {
+                type: "object",
+                properties: {
+                  turns: { type: "array", items: { type: "object" } },
+                  working: { type: "boolean" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
   add("/api/bots/{id}/triggers", "get", "List triggers (secrets hidden)", {
     params: ["id"],
   });

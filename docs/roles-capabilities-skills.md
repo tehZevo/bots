@@ -1,6 +1,6 @@
 # Roles, skills & capabilities
 
-A **role** is a reusable bundle: instructions appended to every assigned bot's prompt, plus granted capabilities. Assign bots to roles from their General tab; a bot with no role just uses its own prompt and the baseline tools (`shell`, `web_fetch`). Grant changes apply at the next loop start. In the role editor, servers are ticked on the **MCP** tab and skills on the **Skills** tab — never in one combined list. Grants reference registry ids; delete a skill or server and dangling grants simply stop taking effect. Unknown ids are rejected with `400` on save.
+A **role** is a reusable bundle: instructions appended to every assigned bot's prompt, plus granted capabilities. Assign bots to roles from their General tab; a bot with no role just uses its own prompt and the baseline tools (`shell`, `web_fetch`). Grant changes apply at the next loop start. In the role editor, the **MCP** and **Skills** tabs each use separate searchable dual-list selectors: filter available entries by name or description, then click or keyboard-activate one to move it into the granted list; its remove control returns it. Grants reference registry ids; delete a skill or server and dangling grants simply stop taking effect. Unknown ids are rejected with `400` on save.
 
 ## Skills
 
