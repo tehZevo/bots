@@ -4,7 +4,7 @@ import type {
   MessageChange,
   SnapshotEvent,
 } from "@earendil-works/pi-durable";
-import { chatTurnsFromMessages, type ChatTurn } from "./chat-transcript.ts";
+import { type ChatTurn, chatTurnsFromMessages } from "./chat-transcript.ts";
 
 const LLM_ROLES = new Set(["user", "assistant", "toolResult"]);
 
