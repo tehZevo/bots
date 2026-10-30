@@ -54,12 +54,18 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const method = init?.method ?? "GET";
   requests.push(`${method} ${url}`);
   if (url === "/api/mcp-servers") {
-    return json([{ id: "mcp-1", name: "Filesystem" }]);
+    return json([
+      {
+        id: "mcp-1",
+        name: "Filesystem",
+        command: "/srv/mcp/filesystem --root /local/data",
+      },
+    ]);
   }
   if (url === "/api/skills") {
     return json([
-      { id: "skill-1", name: "PDF" },
-      { id: "skill-2", name: "Deploy" },
+      { id: "skill-1", name: "PDF", description: "Work with PDFs" },
+      { id: "skill-2", name: "Deploy", description: "Run the deploy playbook" },
     ]);
   }
   if (url === "/api/roles/r1" && method === "PATCH") {
@@ -134,11 +140,25 @@ function tab(label: string): Element | null {
   );
 }
 
-function grantRows(): HTMLInputElement[] {
-  return [...window.document.querySelectorAll(".grantrow input")];
+function availableNames(): string[] {
+  return [
+    ...window.document.querySelectorAll(".grantavailable .grantname"),
+  ].map((item) => item.textContent?.trim() ?? "");
 }
 
-test("role edit modal separates general settings from MCP and skills grants", async () => {
+function grantedNames(): string[] {
+  return [...window.document.querySelectorAll(".grantselrow strong")].map(
+    (item) => item.textContent?.trim() ?? "",
+  );
+}
+
+function grantEmptyMessages(): string {
+  return [...window.document.querySelectorAll(".grantempty")].map(
+    (item) => item.textContent?.trim() ?? "",
+  );
+}
+
+test("role grants use searchable dual lists", async () => {
   let saved = false;
   const root = await mount(
     React.createElement(RoleFormModal, {
@@ -166,30 +186,60 @@ test("role edit modal separates general settings from MCP and skills grants", as
       ["General", "MCP", "Skills"],
     );
     assert.equal(tabs[0].className, "sel");
-    assert.equal(grantRows().length, 0);
+    assert.equal(window.document.querySelector(".grantpicker"), null);
 
     await click(tab("MCP"));
-    assert.deepEqual(
-      grantRows().map((input) => input.parentElement?.textContent?.trim()),
-      ["Filesystem"],
+    assert.deepEqual(grantedNames(), ["Filesystem"]);
+    assert.match(
+      grantEmptyMessages().join(" "),
+      /All mcp servers are granted\./i,
     );
-    const mcpCheckbox = grantRows()[0];
-    assert.equal(mcpCheckbox.checked, true);
-    await act(async () => {
-      mcpCheckbox.click();
-    });
-    await flush();
+
+    await click(
+      window.document.querySelector('[aria-label="Remove Filesystem"]'),
+    );
+    assert.deepEqual(availableNames(), ["Filesystem"]);
+    assert.ok(
+      window.document
+        .querySelector('[aria-label="Add Filesystem"]')
+        ?.textContent?.includes("/srv/mcp/filesystem --root /local/data"),
+    );
+    assert.equal(grantedNames().length, 0);
+
+    await typeInto(
+      window.document.querySelector('[aria-label="Search MCP servers"]'),
+      "local",
+    );
+    assert.deepEqual(availableNames(), ["Filesystem"]);
+    await typeInto(
+      window.document.querySelector('[aria-label="Search MCP servers"]'),
+      "zzz",
+    );
+    assert.equal(availableNames().length, 0);
+    assert.match(grantEmptyMessages().join(" "), /No matches for “zzz”/);
 
     await click(tab("Skills"));
-    assert.deepEqual(
-      grantRows().map((input) => input.parentElement?.textContent?.trim()),
-      ["PDF", "Deploy"],
+    assert.deepEqual(availableNames(), ["PDF", "Deploy"]);
+    assert.deepEqual(grantedNames(), []);
+    assert.match(grantEmptyMessages().join(" "), /Nothing granted yet\./);
+
+    await typeInto(
+      window.document.querySelector('[aria-label="Search Skills"]'),
+      "deploy",
     );
-    const deploy = grantRows()[1];
-    await act(async () => {
-      deploy.click();
-    });
-    await flush();
+    assert.deepEqual(availableNames(), ["Deploy"]);
+    const addDeploy = window.document.querySelector(
+      '[aria-label="Add Deploy"]',
+    );
+    assert.equal(addDeploy?.tagName, "BUTTON");
+    await click(addDeploy);
+
+    await typeInto(
+      window.document.querySelector('[aria-label="Search Skills"]'),
+      "",
+    );
+    await click(window.document.querySelector('[aria-label="Add PDF"]'));
+    assert.deepEqual(grantedNames(), ["Deploy", "PDF"]);
 
     await click(tab("General"));
     assert.equal(
@@ -213,7 +263,7 @@ test("role edit modal separates general settings from MCP and skills grants", as
       name: "Edited Ops",
       instructions: "updated instructions",
       mcp_server_ids: [],
-      skill_ids: ["skill-2"],
+      skill_ids: ["skill-2", "skill-1"],
     });
   } finally {
     await act(async () => {

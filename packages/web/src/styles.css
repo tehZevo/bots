@@ -1864,32 +1864,6 @@ button.shuffle {
   font-size: 18px;
   line-height: 1;
 }
-.grantlist {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 320px;
-  overflow-y: auto;
-}
-.grantlist h3 {
-  margin: 10px 0 2px;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-}
-.grantrow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 6px;
-  border-radius: 6px;
-  font-size: 13px;
-  cursor: pointer;
-}
-.grantrow:hover {
-  background: color-mix(in srgb, var(--fg) 6%, transparent);
-}
 
 .modal form > label {
   display: flex;
@@ -3099,6 +3073,34 @@ main.scr-active,
 .botgeneral .field > input,
 .botgeneral .field > select,
 .botgeneral .sound-control > select {
+
+.grantpicker {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gap-inner);
+}
+
+.grantpane {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 300px;
+  padding: 0.75rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.grantpane h3 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.grantpane > input {
   width: 100%;
   box-sizing: border-box;
   color: var(--text);
@@ -3168,5 +3170,86 @@ main.scr-active,
 
   .picker-row {
     grid-template-columns: minmax(0, 1fr);
+
+.grantlist {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-height: 220px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.grantentry {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem;
+  color: inherit;
+  font-size: 13px;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+}
+
+.grantadd {
+  cursor: pointer;
+}
+
+.grantadd:hover,
+.grantadd:focus-visible {
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  border-color: var(--border);
+}
+
+.grantname,
+.grantdesc,
+.grantinfo {
+  display: block;
+  min-width: 0;
+}
+
+.grantdesc {
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.grantselrow {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  border-color: var(--border);
+}
+
+.grantremove {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.grantempty {
+  margin: auto;
+  padding: 1rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+@media (max-width: 650px) {
+  .grantpicker {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .grantpane {
+    min-height: 260px;
   }
 }
