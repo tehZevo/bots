@@ -3,10 +3,12 @@ import type { Tab } from "../types.ts";
 export function Nav({
   tab,
   rail,
+  counts,
   onSelect,
 }: {
   tab: Tab;
   rail: boolean;
+  counts?: Partial<Record<Tab, number>>;
   onSelect: (tab: Tab) => void;
 }) {
   return (
@@ -18,18 +20,24 @@ export function Nav({
           aria-label={group.label}
         >
           <span className="navgrouplabel">{group.label}</span>
-          {group.items.map(({ id, label, Icon }) => (
-            <button
-              key={id}
-              type="button"
-              title={label}
-              className={tab === id ? "sel" : ""}
-              onClick={() => onSelect(id)}
-            >
-              <Icon size={rail ? 20 : 17} />
-              {!rail && label}
-            </button>
-          ))}
+          {group.items.map(({ id, label, Icon }) => {
+            const count = counts?.[id] ?? 0;
+            return (
+              <button
+                key={id}
+                type="button"
+                title={`${label}${count ? ` · ${count}` : ""}`}
+                className={tab === id ? "sel" : ""}
+                onClick={() => onSelect(id)}
+              >
+                <Icon size={rail ? 20 : 17} />
+                {!rail && label}
+                {count > 0 && (
+                  <span className="navcount">{count > 99 ? "99+" : count}</span>
+                )}
+              </button>
+            );
+          })}
         </section>
       ))}
     </nav>

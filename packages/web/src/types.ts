@@ -1,4 +1,5 @@
 export type Tab =
+  | "inbox"
   | "bots"
   | "teams"
   | "roles"

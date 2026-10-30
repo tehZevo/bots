@@ -111,6 +111,7 @@ import {
   listBots,
   listHookDeliveries,
   listHookDestinations,
+  listInboxItems,
   listMachines,
   listMcpServers,
   listMessagesForRun,
@@ -207,7 +208,6 @@ import {
   searchSkillsSh,
   storeBundle,
 } from "./skillimport.ts";
-import { HostNotAllowedError } from "./ssrf.ts";
 import {
   checkSkillUpdate,
   detachSkill,
@@ -216,6 +216,7 @@ import {
   refreshImportedModified,
   updateImportedSkill,
 } from "./skillupdates.ts";
+import { HostNotAllowedError } from "./ssrf.ts";
 import {
   listWorkspace,
   readWorkspaceFile,
@@ -1669,6 +1670,8 @@ export function createApp() {
       return c.json({ error: "not found" }, 404);
     return c.json({ ok: true });
   });
+
+  app.get("/api/inbox", (c) => c.json(listInboxItems()));
 
   app.get("/api/providers", (c) => {
     const providers = listProviders().map(({ api_key, ...rest }) => ({

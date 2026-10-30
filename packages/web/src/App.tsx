@@ -39,7 +39,6 @@ import {
   TemplateIcon,
 } from "./components/icons/index.ts";
 import { Multiselect } from "./components/Multiselect.tsx";
-import { NotificationPanel } from "./components/NotificationPanel.tsx";
 import { ReplayPanel } from "./components/ReplayPanel.tsx";
 import { ENTITY_TABS, SearchOverlay } from "./components/SearchOverlay.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
@@ -65,7 +64,6 @@ import { TAB_PATHS, tabFromPath, useTabRoute } from "./hooks/useTabRoute.ts";
 import { api } from "./lib/api.ts";
 import {
   BOT_MODAL_TABS,
-  notificationTargetPathFor,
   routeFromLocation,
   routeFromUrl,
   routeHref,
@@ -74,6 +72,7 @@ import { BOT_NAMES, pickBotName } from "./lib/botNames.ts";
 import { filterBots } from "./lib/filterBots.ts";
 import { fmt, fmtMs, fmtTokens, relTime, titleCase } from "./lib/format.ts";
 import { HEALTH_LABEL, STATUS_CHIPS } from "./lib/health.ts";
+import type { InboxItem } from "./lib/inbox.ts";
 import { NavItem } from "./lib/nav.ts";
 import {
   applyOptimisticRunStates,
@@ -82,6 +81,7 @@ import {
 import { playSound, SOUND_LIBRARY } from "./lib/sound.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { BotsPanel } from "./panels/BotsPanel.tsx";
+import { InboxPanel } from "./panels/InboxPanel.tsx";
 import { IntegrationsPanel } from "./panels/IntegrationsPanel.tsx";
 import { MachinesPanel } from "./panels/MachinesPanel.tsx";
 import { ProjectsPanel } from "./panels/ProjectsPanel.tsx";
@@ -278,7 +278,6 @@ export function App() {
   const [includeArchived, setIncludeArchived] = useState(false);
   const [runs, setRuns] = useState<Run[]>([]);
   const [replayRun, setReplayRun] = useState<string | null>(null);
-  const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [pendingEdit, setPendingEdit] = useState<PendingEntityEdit | null>(
     null,
@@ -298,9 +297,15 @@ export function App() {
   const replayRunRef = useRef(replayRun);
   replayRunRef.current = replayRun;
   const suppressPopEvent = useRef(false);
+  const previousInboxCount = useRef(0);
+  const [inbox, setInbox] = useState<InboxItem[]>([]);
+  const [lastInboxResolution, setLastInboxResolution] = useState(() => {
+    if (typeof localStorage === "undefined") return Date.now();
+    const stored = Number(localStorage.getItem("bots-inbox-last-resolved"));
+    return Number.isFinite(stored) && stored > 0 ? stored : Date.now();
+  });
 
   const {
-    notifications,
     unreadCount: unreadNotifications,
     markOne: markOneNotification,
     markAll: markAllRead,
@@ -313,7 +318,7 @@ export function App() {
 
   const load = useCallback(async () => {
     try {
-      const [botData, roleData, tagData, pauseData, breakerData] =
+      const [botData, roleData, tagData, pauseData, breakerData, inboxData] =
         await Promise.all([
           api<Bot[]>(`/api/bots${includeArchived ? "?archived=1" : ""}`),
           api<Role[]>("/api/roles"),
@@ -322,6 +327,7 @@ export function App() {
             () => ({ paused: false, reason: null }),
           ),
           api<Breaker>("/api/breaker").catch(() => null),
+          api<InboxItem[]>("/api/inbox").catch(() => [] as InboxItem[]),
         ]);
       const applied = applyOptimisticRunStates(botData, optimisticRuns.current);
       optimisticRuns.current = applied.overrides;
@@ -329,6 +335,7 @@ export function App() {
       setPausedState(pauseData.paused);
       setPauseReason(pauseData.reason ?? null);
       setBreaker(breakerData);
+      setInbox(inboxData);
       setRoles(roleData);
       setTags(tagData);
       setError(null);
@@ -341,6 +348,16 @@ export function App() {
     void ensurePushSubscription().catch(() => undefined);
   }, []);
   usePolling(load, 5000);
+
+  useEffect(() => {
+    if (previousInboxCount.current > 0 && inbox.length === 0) {
+      const resolvedAt = Date.now();
+      setLastInboxResolution(resolvedAt);
+      if (typeof localStorage !== "undefined")
+        localStorage.setItem("bots-inbox-last-resolved", String(resolvedAt));
+    }
+    previousInboxCount.current = inbox.length;
+  }, [inbox]);
 
   const loadRuns = useCallback(async () => {
     if (!openBot) return;
@@ -378,13 +395,12 @@ export function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      if (notificationPanelOpen) setNotificationPanelOpen(false);
-      else if (detailOpen) requestCloseDetails();
+      if (detailOpen) requestCloseDetails();
       else if (chatBot) setChatBot(null);
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [notificationPanelOpen, addOpen, detailOpen, chatBot]);
+  }, [addOpen, detailOpen, chatBot]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -590,15 +606,26 @@ export function App() {
     });
   };
 
-  function openNotification(notification: NotificationItem): void {
-    const target = notificationTargetPathFor(notification);
+  async function markInboxRead(id: string): Promise<void> {
+    await markOneNotification(id);
+    setInbox((rows) => rows.filter((row) => row.notification_id !== id));
+  }
+
+  async function markAllAndSync(): Promise<void> {
+    await markAllRead();
+    setInbox((rows) => rows.filter((row) => !row.notification_id));
+  }
+
+  function openInboxItem(item: InboxItem): void {
+    const target = item.target_path;
     if (!target) {
-      if (notification.read === 0) void markOneNotification(notification.id);
+      if (item.notification_id && !item.read)
+        void markInboxRead(item.notification_id);
       return;
     }
     discardGuard(() => {
-      setNotificationPanelOpen(false);
-      if (notification.read === 0) void markOneNotification(notification.id);
+      if (item.notification_id && !item.read)
+        void markInboxRead(item.notification_id);
       applyNotificationPath(target);
     });
   }
@@ -633,25 +660,16 @@ export function App() {
           }
           onStopAll={() => setStopAllConfirm(true)}
           onSearch={() => setSearchOpen(true)}
-        >
-          <NotificationPanel
-            items={notifications}
-            unreadCount={unreadNotifications}
-            open={notificationPanelOpen}
-            onToggle={() => setNotificationPanelOpen((open) => !open)}
-            onClose={() => setNotificationPanelOpen(false)}
-            onMarkOne={(id) => void markOneNotification(id)}
-            onMarkAll={() => void markAllRead()}
-            onOpenItem={openNotification}
-            targetFor={notificationTargetPathFor}
-          />
-        </StatusBar>
+          inboxCount={inbox.length}
+          onOpenInbox={() => navigateTab("inbox")}
+        />
         <div className="layout">
           <Sidebar
             tab={tab}
             rail={rail}
             error={error}
             navOpen={navOpen}
+            counts={{ inbox: inbox.length }}
             onSelectTab={(t) => {
               setTab(t);
               setDetailOpen(false);
@@ -662,6 +680,16 @@ export function App() {
             onCloseNav={() => setNavOpen(false)}
           />
           <main>
+            {tab === "inbox" && (
+              <InboxPanel
+                items={inbox}
+                unreadCount={unreadNotifications}
+                lastResolvedAt={lastInboxResolution}
+                onOpenItem={openInboxItem}
+                onMarkRead={(id) => void markInboxRead(id)}
+                onMarkAllRead={() => void markAllAndSync()}
+              />
+            )}
             {tab === "bots" && (
               <BotsPanel
                 bots={bots}

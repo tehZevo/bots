@@ -136,6 +136,7 @@ External agents drive the same surface over MCP at streamable HTTP `POST /mcp`, 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/api/notifications` | `{ items, unread_count }`, newest first; `?limit=` 1–250 (default 100) |
+| GET | `/api/inbox` | Live attention items newest first: run failures, blocked/watchdog bots and an armed spend breaker without duplicating unread notifications |
 | POST | `/api/notifications/:id/read` | Mark one read — 404 unknown id |
 | POST | `/api/notifications/read-all` | Mark everything read |
 

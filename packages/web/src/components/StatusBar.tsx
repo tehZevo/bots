@@ -1,8 +1,7 @@
-import type { ReactNode } from "react";
 import { fmtTokens } from "../lib/format.ts";
 import { STATUS_CHIPS } from "../lib/health.ts";
 import type { Bot, Breaker } from "../types.ts";
-import { PauseIcon, SearchIcon, StopIcon } from "./icons/index.ts";
+import { BellIcon, PauseIcon, SearchIcon, StopIcon } from "./icons/index.ts";
 
 export function StatusBar({
   bots,
@@ -12,7 +11,8 @@ export function StatusBar({
   onPauseToggle,
   onStopAll,
   onSearch,
-  children,
+  inboxCount = 0,
+  onOpenInbox,
 }: {
   bots: Bot[];
   paused: boolean;
@@ -21,7 +21,8 @@ export function StatusBar({
   onPauseToggle: () => void;
   onStopAll: () => void;
   onSearch: () => void;
-  children?: ReactNode;
+  inboxCount?: number;
+  onOpenInbox: () => void;
 }) {
   const statusCounts = bots.reduce(
     (counts, bot) => {
@@ -106,8 +107,25 @@ export function StatusBar({
             `
           </kbd>
         </button>
+        <button
+          type="button"
+          className="notiftoggle"
+          aria-label={`Inbox${inboxCount ? `, ${inboxCount} ${inboxCount === 1 ? "item" : "items"}` : ""}`}
+          title={
+            inboxCount
+              ? `${inboxCount} ${inboxCount === 1 ? "item" : "items"} ${inboxCount === 1 ? "needs" : "need"} attention`
+              : "Inbox"
+          }
+          onClick={onOpenInbox}
+        >
+          <BellIcon size={18} />
+          {inboxCount > 0 && (
+            <span className="notifbadge">
+              {inboxCount > 99 ? "99+" : inboxCount}
+            </span>
+          )}
+        </button>
       </div>
-      {children}
     </header>
   );
 }

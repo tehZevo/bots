@@ -528,13 +528,16 @@ test("app navigation, chat, and bot detail flows", async () => {
     await click(nav);
   }
 
-  await click(byLabel("Notifications, 1 unread"));
-  await click(button("Mark all read"));
-  await click(
-    window.document.querySelector(
-      ".notifpanel button[aria-label='Close notifications']",
-    ),
-  );
+  await click(byLabel("Inbox"));
+  assert.equal(window.location.pathname, "/inbox");
+  assert.ok(window.document.querySelector(".inboxempty"));
+
+  const botsNav = [
+    ...window.document.querySelectorAll(".sidetabs button"),
+  ].find((item) => item.textContent?.trim() === "Bots");
+  await click(botsNav);
+  assert.equal(window.location.pathname, "/bots");
+
   await click(window.document.querySelector(".railtoggle"));
   await click(window.document.querySelector(".hamburger"));
   await click(window.document.querySelector(".drawer .scrim"));

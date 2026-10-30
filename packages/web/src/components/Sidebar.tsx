@@ -7,6 +7,7 @@ export function Sidebar({
   rail,
   error,
   navOpen,
+  counts,
   onSelectTab,
   onToggleRail,
   onOpenNav,
@@ -16,6 +17,7 @@ export function Sidebar({
   rail: boolean;
   error: string | null;
   navOpen: boolean;
+  counts?: Partial<Record<Tab, number>>;
   onSelectTab: (tab: Tab) => void;
   onToggleRail: () => void;
   onOpenNav: () => void;
@@ -29,7 +31,7 @@ export function Sidebar({
           {!rail && <span>Bots</span>}
         </div>
         {error && <p className="error">{error}</p>}
-        <Nav tab={tab} rail={rail} onSelect={onSelectTab} />
+        <Nav tab={tab} rail={rail} counts={counts} onSelect={onSelectTab} />
         <button
           type="button"
           className="railtoggle"
@@ -67,7 +69,12 @@ export function Sidebar({
               </div>
             </div>
             {error && <p className="error">{error}</p>}
-            <Nav tab={tab} rail={false} onSelect={onSelectTab} />
+            <Nav
+              tab={tab}
+              rail={false}
+              counts={counts}
+              onSelect={onSelectTab}
+            />
           </div>
         </div>
       )}
