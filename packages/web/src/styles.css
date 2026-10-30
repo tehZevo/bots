@@ -2618,11 +2618,23 @@ button.danger.ghost {
   filter: grayscale(1) drop-shadow(0 0 4px transparent);
 }
 
+.card:hover .avatar-svg,
+.card:focus-within .avatar-svg {
+  transform: scale(1.08) translate(-2px, -3px);
+  transition: transform 150ms ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .avatar,
   .avatar-svg,
   .avatar .eye {
     animation: none !important;
+  }
+
+  .card:hover .avatar-svg,
+  .card:focus-within .avatar-svg {
+    transform: scale(1.08);
+    transition: none;
   }
 
   .avatar.anim-blue .eye,
