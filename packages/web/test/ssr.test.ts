@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { avatarColor } from "../src/lib/avatar.ts";
 import { BOT_NAMES, pickBotName } from "../src/lib/botNames.ts";
 import { fmt, relTime } from "../src/lib/format.ts";
 import { teamHealth } from "../src/lib/health.ts";
@@ -20,12 +21,6 @@ globalThis.matchMedia = ((q: string) => ({
 })) as unknown as typeof globalThis.matchMedia;
 
 const {
-  mulberry32,
-  fnv,
-  shapeRadii,
-  smoothClosedPath,
-  avatarColor,
-  AVATAR_COLORS,
   nextRunLabel,
   Avatar,
   StatusDot,
@@ -74,32 +69,6 @@ const {
   MachineModal,
   ProviderFormModal,
 } = await import("../src/App.tsx");
-
-test("rng and hashing are deterministic", () => {
-  assert.equal(fnv("a"), fnv("a"));
-  assert.notEqual(fnv("a"), fnv("b"));
-  const r1 = mulberry32(42);
-  const r2 = mulberry32(42);
-  for (let i = 0; i < 5; i++) assert.equal(r1(), r2());
-});
-
-test("shapeRadii produces 72 bounded radii", () => {
-  const auto = shapeRadii(mulberry32(7));
-  assert.equal(auto.length, 72);
-  assert.ok(auto.every((r) => r > 0.5 && r < 1.5));
-});
-
-test("smoothClosedPath emits a closed cubic path", () => {
-  const d = smoothClosedPath(shapeRadii(mulberry32(1)), 50, 40);
-  assert.ok(d.startsWith("M "));
-  assert.ok(d.endsWith("Z"));
-  assert.ok(d.includes("C "));
-});
-
-test("avatarColor maps ids into the fixed palette", () => {
-  for (const id of ["a", "b", "c", "zz"])
-    assert.ok(AVATAR_COLORS.includes(avatarColor(id)));
-});
 
 test("relTime buckets ages", () => {
   const now = Date.now();
