@@ -9,10 +9,14 @@ services:
   orchestrator:
     image: ghcr.io/tehzevo/bots:latest
     ports: ["8075:8075"]
+    environment:
+      - SECRETS_KEY=${SECRETS_KEY}   # encrypts secrets + provider keys at rest
     volumes:
       - ./data:/data            # database + bot workspaces — must be /data (DATA_DIR)
       - /var/run/docker.sock:/var/run/docker.sock   # to manage sandbox containers
 ```
+
+Compose substitutes `SECRETS_KEY` from a `.env` file next to the compose file; create one once and keep it out of git (`echo "SECRETS_KEY=$(openssl rand -hex 32)" > .env`). Only variables you list under `environment:` reach the container — `.env` itself never does.
 
 All state lives under `$DATA_DIR` (default `/data`) as `bots.db` plus a `workspaces/` folder per bot. Mount that exact path from your compose file; mounting somewhere else is ignored and the image falls back to container-local storage, so data appears to survive even after you delete the host directory. See [Operations](/operations) for Docker socket security, runtime variables and backup guidance.
 
