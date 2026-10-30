@@ -16,6 +16,8 @@ Opening an existing card lets you rename it or change its env-var key. The saved
 
 Values are encrypted in SQLite with AES-256-GCM using `SECRETS_KEY`; provider API keys and VAPID push credentials use the same protection. The database file alone yields no plaintext credentials. Set `SECRETS_KEY_OLD` beside a new key for one restart to rotate all stored material without a UI action.
 
+Without a key the app still boots: values written before encryption keep working unencrypted, and saving a secret or provider key answers an explicit error until you configure `SECRETS_KEY`. Add it once and the next boot encrypts everything stored — including legacy push credentials — in place. Once rows are encrypted the key is mandatory at startup; a missing or wrong one fails fast listing what cannot be decrypted, so keep it somewhere safe outside the data volume.
+
 ## Assignment and injection
 
 Once at least one secret exists, a bot’s General tab shows a checkbox for each one; toggling attaches or detaches it immediately. An assigned secret is passed to that bot’s sandbox as an environment variable named by its key. The value never enters the system prompt, trigger message or chat input — the agent sees only the environment variable when it runs shell commands.

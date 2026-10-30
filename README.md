@@ -23,7 +23,7 @@ cp .env.example .env   # optional server settings
 pnpm dev               # server on :8075, web UI on :5173 (pulls the sandbox image automatically)
 ```
 
-`.env` values — LLM providers are configured in the UI (Settings → Providers), not env. Optional: `PORT` (default `8075`), `DATA_DIR` (default repo `data/`), `DATABASE_PATH`, `SANDBOX_IMAGE` (default `ghcr.io/tehzevo/bots-sandbox:latest`, pulled automatically).
+`.env` values — LLM providers are configured in the UI (Settings → Providers), not env. Optional: `PORT` (default `8075`), `DATA_DIR` (default repo `data/`), `DATABASE_PATH`, `SANDBOX_IMAGE` (default `ghcr.io/tehzevo/bots-sandbox:latest`, pulled automatically). Recommended: `SECRETS_KEY` (32 random bytes as hex) encrypts secret values and provider API keys at rest — set it before your first secret; without it saving one errors. See [Operations](https://tehzevo.github.io/bots/operations/) for the full variable list.
 
 Production — serves the built UI and API together on `:8075`:
 
