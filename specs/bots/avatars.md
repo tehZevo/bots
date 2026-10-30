@@ -8,6 +8,8 @@ Every bot shows an avatar on its card — left, with the bot's name to its right
 
 # Motion
 
+- Hovering or focusing a card replies through its avatar: it grows ~1.08x and lifts up and to the left by a few pixels on a ~150 ms ease-out transform, leaving instantly on exit; layout never shifts and non-hovered cards stay in their current pose. `prefers-reduced-motion` swaps the move for a plain scale-in-place.
+
 - Sleeping (Idle): eyes closed as flat horizontal lines, slight vertical squash on a slow breathing beat, gentle up-and-down float near rest with a steady dim glow — no side-to-side drift, blinking or eye tracking. Disabled holds the same pose still and gray like the dot: no float, no glow.
 - Active with the loop running: it roams a wide area near the card corner at a faster pace than sleeping — larger travel radius, longer wander path — floating up/down together with side-to-side motion and a slightly stronger (still subtle) few-degree tilt into each move, glow gently pulsing; eyes open and looking around on a loose irregular cycle.
 - Blinking belongs to every awake animated state as a quick eyes-closed beat at a seeded 3–8 s cadence, never in lockstep across bots — and never while Sleeping, Blocked or Disabled. Issues layers an occasional worried flicker (brief opacity dip) over the awake motion; Blocked is still and desaturated with eyes open and glow off.
