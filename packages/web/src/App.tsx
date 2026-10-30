@@ -11,6 +11,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { PasswordSettings, SessionSettings } from "./auth.tsx";
+import { api } from "./lib/api.ts";
 import {
   AVATAR_COLORS,
   avatarColor,
@@ -463,13 +464,6 @@ function AvatarPicker({
       </div>
     </>
   );
-}
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, init);
-  const body = await res.json();
-  if (!res.ok) throw new Error(body.error ?? `${res.status}`);
-  return body as T;
 }
 
 const SOUND_LIBRARY: [string, string][] = [
