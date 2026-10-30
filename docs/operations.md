@@ -22,7 +22,7 @@ The orchestrator runs as one container bundling the API server and built web UI.
 | `COMPACTION_RATIO` | Fraction of the context window at which automatic compaction runs, default `0.75` |
 | `COMPACTION_KEEP_RECENT` | Most recent messages kept verbatim when compacting, default `16` |
 
-Model providers live in application settings, not environment variables; their API keys use the same encrypted at-rest protection as managed secrets. A database or volume copy without `SECRETS_KEY` yields no plaintext credentials.
+Model providers live in application settings, not environment variables; their API keys use the same encrypted at-rest protection as managed secrets. A database or volume copy without `SECRETS_KEY` yields no plaintext credentials. An install that predates encryption boots fine without a key and stores values in plaintext until one is set; from the first boot with `SECRETS_KEY` everything stored encrypts automatically. After that the key is required at every start.
 
 `GET /api/health` returns a minimal successful health response and is suitable for container health checks. Sandbox images are checked when first needed and pulled transparently if absent; a failed pull fails the affected bot run rather than stopping other bots.
 
