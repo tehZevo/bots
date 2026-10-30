@@ -21,7 +21,21 @@ export function resolveTheme(t: Theme): "light" | "dark" {
 }
 
 export function applyTheme(): void {
-  document.documentElement.dataset.theme = resolveTheme(readStoredTheme());
+  const resolved = resolveTheme(readStoredTheme());
+  document.documentElement.dataset.theme = resolved;
+  let canvas = "";
+  if (typeof getComputedStyle === "function") {
+    canvas = getComputedStyle(document.documentElement).getPropertyValue(
+      "--bg",
+    );
+  }
+  if (typeof document.querySelector !== "function") return;
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (!meta) return;
+  meta.setAttribute(
+    "content",
+    canvas.trim() || (resolved === "light" ? "#eef1f5" : "#0f141a"),
+  );
 }
 
 export function setStoredTheme(t: Theme): void {
