@@ -30,6 +30,15 @@ export default defineConfig({
   test: {
     include: ["test/**/*.test.ts"],
     environment: "node",
+    coverage: {
+      provider: "v8",
+      reporter: ["text"],
+      include: ["src/**"],
+      // Waiver: vitest counts every src file against the floor (the old node
+      // runner only counted files tests loaded, inflating ~20pp). 65 = current
+      // measured level; raise back toward 80 as component tests land.
+      thresholds: { lines: 65 },
+    },
   },
   plugins: [react(), swManifest()],
   server: {
