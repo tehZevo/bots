@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog.tsx";
 import { UnsavedNote, useDiscardGuard } from "../components/ui/discard.tsx";
 import { Modal } from "../components/ui/Modal.tsx";
+import { usePolling } from "../hooks/usePolling.ts";
 import { api } from "../lib/api.ts";
 import type { Machine } from "../types.ts";
 
@@ -32,11 +33,7 @@ export function MachinesPanel() {
       .finally(() => setRefreshing(null));
   };
 
-  useEffect(() => {
-    void reload();
-    const t = setInterval(reload, 4000);
-    return () => clearInterval(t);
-  }, [reload]);
+  usePolling(reload, 4000);
 
   return (
     <section>

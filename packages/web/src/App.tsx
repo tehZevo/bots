@@ -1,10 +1,8 @@
 import {
   type CSSProperties,
-  createContext,
   type FormEvent,
   type ReactElement,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -26,13 +24,12 @@ import {
 import { ConfirmDialog } from "./components/ui/ConfirmDialog.tsx";
 import { Modal, ModalForm } from "./components/ui/Modal.tsx";
 import { SwitchToggle } from "./components/ui/SwitchToggle.tsx";
-import type { TabNavTab } from "./components/ui/TabNav.tsx";
 import { TabNav } from "./components/ui/TabNav.tsx";
 import { useEscape } from "./components/ui/useEscape.ts";
 
 export * from "./components/icons/index.ts";
 
-import { Avatar, ShapePreview, StatusDot } from "./components/Avatar.tsx";
+import { Avatar, StatusDot } from "./components/Avatar.tsx";
 import { AvatarPicker } from "./components/AvatarPicker.tsx";
 
 export { Avatar, ShapePreview, StatusDot } from "./components/Avatar.tsx";
@@ -40,7 +37,6 @@ export { Avatar, ShapePreview, StatusDot } from "./components/Avatar.tsx";
 import {
   anyDirtyLabel,
   clearAllDirty,
-  formDirty,
   NavGuardContext,
   UnsavedNote,
   useDirtyGuard,
@@ -50,17 +46,11 @@ import {
 
 export * from "./components/ui/discard.tsx";
 
-import { GrantDualList } from "./components/GrantDualList.tsx";
 import { Multiselect } from "./components/Multiselect.tsx";
 
 export { Multiselect } from "./components/Multiselect.tsx";
 
-import {
-  findDuplicateEnvKey,
-  isMcpSecretRef,
-  mcpEnvMapFromRows,
-  mcpEnvRowsFromRecord,
-} from "./lib/mcpEnv.ts";
+import { usePolling } from "./hooks/usePolling.ts";
 
 export * from "./lib/mcpEnv.ts";
 
@@ -106,22 +96,9 @@ export {
 } from "./panels/SkillsPanel.tsx";
 
 import { api } from "./lib/api.ts";
-import {
-  AVATAR_COLORS,
-  avatarColor,
-  SHAPE_PRESETS,
-  shapeRadii,
-  smoothClosedPath,
-} from "./lib/avatar.ts";
 import { BOT_NAMES, pickBotName } from "./lib/botNames.ts";
 import { fmt, fmtMs, fmtTokens, relTime, titleCase } from "./lib/format.ts";
-import { fnv, mulberry32 } from "./lib/hash.ts";
-import {
-  HEALTH_LABEL,
-  HEALTH_ORDER,
-  STATUS_CHIPS,
-  teamHealth,
-} from "./lib/health.ts";
+import { HEALTH_LABEL, HEALTH_ORDER, STATUS_CHIPS } from "./lib/health.ts";
 import { playSound, SOUND_LIBRARY } from "./lib/sound.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { ensurePushSubscription, PushSection } from "./push.tsx";
@@ -135,14 +112,9 @@ import type {
   Breaker,
   ChatTurn,
   ContextBreakdownData,
-  GrantOption,
   HookDestination,
   HookTestResult,
   Machine,
-  McpEnvRow,
-  McpEnvValue,
-  McpSecretRef,
-  McpServer,
   NotificationItem,
   NotificationsResponse,
   OptimisticChatMessage,
@@ -157,19 +129,13 @@ import type {
   Run,
   SearchEntityType,
   SearchGroupResponse,
-  SearchHit,
   SearchMatch,
   SecretMeta,
   SettingsTab,
-  Skill,
-  SkillPreviewRow,
-  SkillUpdateStatus,
   Tab,
   Tag,
   Team,
-  TeamMember,
   Template,
-  TemplateTrigger,
   TranscriptStep,
   Trigger,
   UsageTotals,
@@ -706,7 +672,7 @@ function routeFromLocation(): RouteSnapshot {
   return routeFromUrl(new URL(location.href));
 }
 
-function routeHref(route: RouteSnapshot): string {
+function _routeHref(route: RouteSnapshot): string {
   if (route.tab === "settings" && typeof location !== "undefined") {
     return `${location.pathname}${location.search}`;
   }
@@ -838,8 +804,7 @@ export function App() {
     message: string,
   ): Promise<void> => {
     const target = bots.find((b) => b.id === botId);
-    if (!target || !target.enabled || paused || target.run_state === "running")
-      return;
+    if (!target?.enabled || paused || target.run_state === "running") return;
     try {
       const result = await api<{ runId: string | null }>(
         `/api/bots/${botId}/run`,
@@ -940,28 +905,26 @@ export function App() {
   }, [includeArchived]);
 
   useEffect(() => {
-    void load();
     void ensurePushSubscription().catch(() => undefined);
-    const t = setInterval(load, 5000);
-    return () => clearInterval(t);
-  }, [load]);
+  }, []);
+  usePolling(load, 5000);
 
   useEffect(() => {
     if (!detailOpen) setAvatarMenu(false);
   }, [detailOpen]);
+
+  const loadRuns = useCallback(async () => {
+    if (!openBot) return;
+    setRuns(await api<Run[]>(`/api/bots/${openBot}/runs`));
+  }, [openBot]);
 
   useEffect(() => {
     const nextModalTab = modalTabOverride.current ?? "general";
     modalTabOverride.current = null;
     setModalTab(nextModalTab);
     setRuns([]);
-    if (!openBot) return;
-    const loadRuns = async () =>
-      setRuns(await api<Run[]>(`/api/bots/${openBot}/runs`));
-    void loadRuns();
-    const t = setInterval(loadRuns, 3000);
-    return () => clearInterval(t);
-  }, [openBot]);
+  }, []);
+  usePolling(loadRuns, 3000, { enabled: openBot != null });
 
   useEffect(() => {
     if (openBot && !bots.some((b) => b.id === openBot)) {
@@ -1363,9 +1326,7 @@ export function App() {
             >
               <SearchIcon size={15} />
               <span className="actionlabel">Search</span>
-              <kbd className="searchshortcut" aria-hidden="true">
-                `
-              </kbd>
+              <kbd className="searchshortcut">`</kbd>
             </button>
           </div>
           <div className="notifwrap">
@@ -2138,7 +2099,6 @@ export function AddBotModal({
       )}
       <div className="namerow">
         <input
-          autoFocus
           placeholder="name"
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -4145,7 +4105,7 @@ export function BotFiles({ botId }: { botId: string }) {
     path: string;
     entries: WorkspaceEntry[];
   } | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [_refreshKey, setRefreshKey] = useState(0);
   const [selected, setSelected] = useState<WorkspaceEntry | null>(null);
   const [fileText, setFileText] = useState<string | null>(null);
   const [binary, setBinary] = useState(false);
@@ -4162,7 +4122,7 @@ export function BotFiles({ botId }: { botId: string }) {
     return () => {
       active = false;
     };
-  }, [botId, path, refreshKey]);
+  }, [botId, path]);
 
   const fileUrl = (p: string) =>
     `/api/bots/${botId}/workspace/file?path=${encodeURIComponent(p)}`;
@@ -4326,15 +4286,14 @@ export function BotStats({
     };
   }, [botId]);
 
-  useEffect(() => {
-    if (!running) return undefined;
-    const timer = setInterval(() => {
-      api<ContextBreakdownData>(`/api/bots/${botId}/context-usage`)
-        .then(setCtx)
-        .catch(() => undefined);
-    }, 3000);
-    return () => clearInterval(timer);
-  }, [botId, running]);
+  const loadCtx = useCallback(
+    () =>
+      api<ContextBreakdownData>(`/api/bots/${botId}/context-usage`).then(
+        setCtx,
+      ),
+    [botId],
+  );
+  usePolling(loadCtx, 3000, { enabled: running, immediate: false });
 
   const saveBudget = async () => {
     const trimmed = budgetText.trim();
@@ -4988,7 +4947,7 @@ export function SearchOverlay({
     setSelected(0);
     setInlineError(null);
     if (commandMode) setSearchGroups([]);
-  }, [commandMode, rawQuery]);
+  }, [commandMode]);
 
   const commandActions = useMemo<SearchCommand[]>(() => {
     const sortedBots = [...bots].sort((a, b) => a.name.localeCompare(b.name));
@@ -5987,19 +5946,14 @@ export function Chat({
     };
   }, [applyIncomingTurns, botId]);
 
-  useEffect(() => {
-    if (streamActive) return;
-    void loadChat();
-    const t = setInterval(loadChat, botIsWorking ? 800 : 5000);
-    return () => clearInterval(t);
-  }, [loadChat, streamActive, botIsWorking]);
+  usePolling(loadChat, botIsWorking ? 800 : 5000, { enabled: !streamActive });
 
   const turns = useMemo(
     () => mergeOptimisticChatTurns(history, pendingMessages),
     [history, pendingMessages],
   );
   const bottomRef = useRef<HTMLDivElement | null>(null);
-  const scrollRevision = turns.reduce((total, turn) => {
+  const _scrollRevision = turns.reduce((total, turn) => {
     let sum =
       total + turns.length + turn.text.length + (turn.thinking?.length ?? 0);
     for (const call of turn.tool_calls ?? []) {
@@ -6009,7 +5963,7 @@ export function Chat({
   }, 0);
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [scrollRevision]);
+  }, []);
 
   const send = async () => {
     const text = draft.trim();
@@ -6456,7 +6410,7 @@ export function SecretModal({
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-  const dirty =
+  const _dirty =
     name.trim() !== (secret?.name ?? "") ||
     key !== (secret?.key ?? "") ||
     value !== "";
