@@ -868,6 +868,36 @@ test("trigger-injected turns are flagged with their source", async () => {
   );
 });
 
+test("chat stream endpoint sends an event-stream snapshot", async () => {
+  const id = await makeBot("streambot");
+  appendMessages(id, null, [
+    { role: "user", payload: { content: "[chat 2026-10-29]\nhello" } },
+  ]);
+
+  const res = await authedRequest(`/api/bots/${id}/messages/stream`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type") ?? "", /text\/event-stream/);
+  assert.ok(res.body);
+
+  const reader = res.body.getReader();
+  try {
+    const first = await reader.read();
+    assert.equal(first.done, false);
+    assert.ok(first.value);
+
+    const raw = new TextDecoder().decode(first.value);
+    assert.match(raw, /^data:/);
+    const payload = JSON.parse(raw.slice(5).trim()) as {
+      turns: { role: string; text: string }[];
+      working: boolean;
+    };
+    assert.deepEqual(payload.turns, [{ role: "user", text: "hello" }]);
+    assert.equal(payload.working, false);
+  } finally {
+    await reader.cancel();
+  }
+});
+
 test("POST /api/stop-all interrupts nothing and arms the pause", async () => {
   const res = await authedRequest("/api/stop-all", { method: "POST" });
   assert.equal(res.status, 200);

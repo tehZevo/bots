@@ -7220,6 +7220,23 @@ type ChatTurn = {
   source?: string;
 };
 
+export type OptimisticChatMessage = { id: string; text: string };
+
+export function mergeOptimisticChatTurns(
+  history: ChatTurn[],
+  pending: readonly OptimisticChatMessage[],
+): ChatTurn[] {
+  if (pending.length === 0) return history;
+  const optimistic = pending.map((turn) => ({ role: "user", text: turn.text }));
+  let insertAt = history.length;
+  while (insertAt > 0 && history[insertAt - 1].role !== "user") insertAt--;
+  return [
+    ...history.slice(0, insertAt),
+    ...optimistic,
+    ...history.slice(insertAt),
+  ];
+}
+
 const INJECT_LABELS: Record<string, string> = {
   schedule: "schedule",
   manual: "manual run",
@@ -7340,52 +7357,102 @@ export function Chat({
   working?: boolean;
   onRunAccepted?: () => void;
 }) {
-  const [turns, setTurns] = useState<ChatTurn[]>([]);
+  const [history, setHistory] = useState<ChatTurn[]>([]);
+  const [pendingMessages, setPendingMessages] = useState<
+    OptimisticChatMessage[]
+  >([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const pendingRef = useRef<string | null>(null);
+  const [liveWorking, setLiveWorking] = useState<boolean | null>(null);
+  const [streamActive, setStreamActive] = useState(false);
+  const optimisticSeq = useRef(0);
+
+  const applyIncomingTurns = useCallback((incoming: ChatTurn[]) => {
+    setHistory(incoming);
+    setPendingMessages((prev) =>
+      prev.length === 0
+        ? prev
+        : prev.filter(
+            (pending) =>
+              !incoming.some(
+                (t) => t.role === "user" && t.text === pending.text,
+              ),
+          ),
+    );
+  }, []);
 
   const loadChat = useCallback(async () => {
     try {
       const fresh = await api<ChatTurn[]>(`/api/bots/${botId}/messages`);
-      if (
-        pendingRef.current &&
-        fresh.some((t) => t.role === "user" && t.text === pendingRef.current)
-      )
-        pendingRef.current = null;
-      setTurns(() => {
-        const base = [...fresh];
-        if (
-          pendingRef.current &&
-          !base.some((t) => t.text === pendingRef.current)
-        )
-          base.push({ role: "user", text: pendingRef.current });
-        return base;
-      });
+      applyIncomingTurns(fresh);
     } catch {
       /* keep last */
     }
-  }, [botId]);
+  }, [applyIncomingTurns, botId]);
 
   useEffect(() => {
-    void loadChat();
-    const t = setInterval(loadChat, working ? 800 : 3000);
-    return () => clearInterval(t);
-  }, [loadChat, working]);
+    if (typeof EventSource === "undefined") return;
+    let source: EventSource;
+    try {
+      source = new EventSource(`/api/bots/${botId}/messages/stream`);
+    } catch {
+      return;
+    }
 
+    source.onopen = () => setStreamActive(true);
+    source.onerror = () => setStreamActive(false);
+    source.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data) as {
+          turns?: unknown;
+          working?: boolean;
+        };
+        if (Array.isArray(data.turns))
+          applyIncomingTurns(data.turns as ChatTurn[]);
+        if (typeof data.working === "boolean") setLiveWorking(data.working);
+      } catch {
+        /* ignore malformed events */
+      }
+    };
+
+    return () => {
+      source.close();
+      setStreamActive(false);
+    };
+  }, [applyIncomingTurns, botId]);
+
+  useEffect(() => {
+    if (streamActive) return;
+    void loadChat();
+    const t = setInterval(loadChat, working ? 800 : 5000);
+    return () => clearInterval(t);
+  }, [loadChat, streamActive, working]);
+
+  const turns = useMemo(
+    () => mergeOptimisticChatTurns(history, pendingMessages),
+    [history, pendingMessages],
+  );
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const scrollRevision = turns.reduce((total, turn) => {
+    let sum =
+      total + turns.length + turn.text.length + (turn.thinking?.length ?? 0);
+    for (const call of turn.tool_calls ?? []) {
+      sum += call.name.length + (call.output?.length ?? 0);
+    }
+    return sum;
+  }, 0);
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [turns.length]);
+  }, [scrollRevision]);
 
   const send = async () => {
     const text = draft.trim();
     if (!text || sending || !enabled) return;
     setSending(true);
     setErr(null);
-    pendingRef.current = text;
-    setTurns((prev) => [...prev, { role: "user", text }]);
+    const optimisticId = `${Date.now()}-${optimisticSeq.current++}`;
+    setPendingMessages((prev) => [...prev, { id: optimisticId, text }]);
     setDraft("");
     try {
       const result = await api<{ runId?: string | null }>(
@@ -7399,8 +7466,7 @@ export function Chat({
       if (result.runId) onRunAccepted?.();
       await loadChat();
     } catch (e) {
-      pendingRef.current = null;
-      setTurns((prev) => prev.filter((t) => t.text !== text));
+      setPendingMessages((prev) => prev.filter((p) => p.id !== optimisticId));
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setSending(false);
@@ -7420,7 +7486,7 @@ export function Chat({
         )}
         <div ref={bottomRef} />
       </div>
-      {working && (
+      {(working || liveWorking) && (
         <div className="chat-working" aria-label="bot is working">
           <span className="who">{botName}</span>
           <span className="dots">
