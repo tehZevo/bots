@@ -3166,11 +3166,11 @@ main.scr-active,
   align-items: baseline;
   gap: 8px;
   padding: 8px 4px;
-  border-bottom: 1px solid var(--border, rgba(128, 128, 128, 0.2));
+  border-bottom: 1px solid var(--border);
 }
 .auditlist time {
   min-width: 90px;
-  color: var(--muted, #777);
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 .auditactor {
@@ -3179,16 +3179,16 @@ main.scr-active,
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  background: rgba(128, 128, 128, 0.15);
+  background: color-mix(in oklab, var(--muted) 15%, transparent);
 }
 .auditactor-user {
-  background: color-mix(in oklab, #3b82f6 18%, transparent);
+  background: color-mix(in oklab, var(--info) 18%, transparent);
 }
 .auditactor-bot {
-  background: color-mix(in oklab, #22c55e 18%, transparent);
+  background: color-mix(in oklab, var(--ok) 18%, transparent);
 }
 .auditactor-trigger {
-  background: color-mix(in oklab, #eab308 18%, transparent);
+  background: color-mix(in oklab, var(--warn) 18%, transparent);
 }
 
 .botgeneral {
