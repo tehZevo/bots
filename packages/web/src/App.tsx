@@ -15,30 +15,54 @@ import { renderMarkdown } from "./markdown.ts";
 import { ensurePushSubscription, PushSection } from "./push.tsx";
 import { ScheduleEditor } from "./schedule.tsx";
 import { readStoredTheme, setStoredTheme } from "./theme.ts";
-
-export interface ApiKey {
-  id: string;
-  name: string;
-  created_at: number;
-  last_used_at: number | null;
-}
-
-interface HookDestination {
-  id: string;
-  name: string;
-  url: string;
-  event_types: string[];
-  enabled: number;
-  created_at: number;
-  has_secret: boolean;
-}
-
-interface HookTestResult {
-  ok: boolean;
-  status: number | null;
-  duration_ms: number;
-  error: string | null;
-}
+import type {
+  ApiKey,
+  Bot,
+  BotGeneralSettings,
+  BotModalTab,
+  Breaker,
+  ChatTurn,
+  ContextBreakdownData,
+  GrantOption,
+  HookDestination,
+  HookTestResult,
+  Machine,
+  McpEnvRow,
+  McpEnvValue,
+  McpSecretRef,
+  McpServer,
+  NotificationItem,
+  NotificationsResponse,
+  OptimisticChatMessage,
+  OptimisticRunState,
+  OptimisticRunStates,
+  PendingEntityEdit,
+  PendingEntityEditType,
+  Project,
+  Provider,
+  Role,
+  RouteSnapshot,
+  Run,
+  SearchEntityType,
+  SearchGroupResponse,
+  SearchHit,
+  SearchMatch,
+  SecretMeta,
+  SettingsTab,
+  Skill,
+  SkillPreviewRow,
+  SkillUpdateStatus,
+  Tab,
+  Tag,
+  Team,
+  TeamMember,
+  Template,
+  TemplateTrigger,
+  TranscriptStep,
+  Trigger,
+  UsageTotals,
+  WorkspaceEntry,
+} from "./types.ts";
 
 const HOOK_EVENT_OPTIONS: [string, string][] = [
   ["run.finished", "Run finished"],
@@ -47,39 +71,6 @@ const HOOK_EVENT_OPTIONS: [string, string][] = [
   ["notification.created", "Notification created"],
   ["breaker.tripped", "Breaker tripped"],
 ];
-
-interface Bot {
-  id: string;
-  name: string;
-  instructions: string;
-  model_id: string | null;
-  role_id: string | null;
-  role_name?: string | null;
-  tag_ids?: string[];
-  machine_id: string | null;
-  avatar_shape: number | null;
-  avatar_color: number | null;
-  sound: string | null;
-  enabled: number;
-  archived: number;
-  created_at: number;
-  run_state: "running" | "enabled" | "disabled";
-  health: "green" | "blue" | "yellow" | "red" | "gray";
-  status: string | null;
-  status_level: "ok" | "issue" | "blocked" | null;
-  current_task: string | null;
-  current_task_updated_at: number | null;
-  watchdog_hours?: number | null;
-}
-
-export interface OptimisticRunState {
-  run_state: "running" | "enabled";
-  health: "green" | "blue";
-  authoritativeAt: number;
-  expiresAt: number;
-}
-
-export type OptimisticRunStates = Record<string, OptimisticRunState>;
 
 const OPTIMISTIC_RUN_GRACE_MS = 2000;
 const OPTIMISTIC_RUN_MAX_MS = 60000;
@@ -122,87 +113,6 @@ export function applyOptimisticRunStates(
     ),
     overrides: kept,
   };
-}
-
-interface GrantOption {
-  id: string;
-  name: string;
-  description?: string;
-}
-
-interface TemplateTrigger {
-  message: string;
-  schedule: string;
-}
-
-interface Template {
-  id: string;
-  name: string;
-  description: string;
-  instructions: string;
-  machine_id: string | null;
-  role_id: string | null;
-  triggers: TemplateTrigger[];
-  created_at: number;
-}
-
-interface Role {
-  id: string;
-  name: string;
-  instructions: string;
-  created_at: number;
-  mcp_server_ids: string[];
-  skill_ids: string[];
-}
-
-interface TeamMember {
-  bot_id: string;
-  name: string;
-  leader: boolean;
-}
-
-interface Team {
-  id: string;
-  name: string;
-  created_at: number;
-  members: TeamMember[];
-  project_ids: string[];
-}
-
-interface Project {
-  id: string;
-  name: string;
-  description: string;
-  body: string;
-  created_at: number;
-}
-
-interface Tag {
-  id: string;
-  name: string;
-  created_at: number;
-  bot_count: number;
-}
-
-interface Run {
-  id: string;
-  status: "running" | "ok" | "error";
-  trigger: "schedule" | "manual" | "chat" | "webhook" | "dm" | "continuous";
-  started_at: number;
-  finished_at: number | null;
-  output: string | null;
-  error: string | null;
-}
-
-// specs/runs/drill-down.md — inline transcript replay under a Logs row.
-interface TranscriptStep {
-  kind: "user" | "assistant" | "tool_call" | "tool_result";
-  name?: string;
-  text?: string;
-  args?: string;
-  duration_ms?: number | null;
-  is_error?: boolean;
-  retry_wait_ms?: number;
 }
 
 function fmtMs(ms: number): string {
@@ -377,43 +287,6 @@ function ReplayPanel({
       )}
     </div>
   );
-}
-
-interface NotificationItem {
-  id: string;
-  kind: string;
-  title: string;
-  body: string;
-  bot_id: string | null;
-  run_id?: string | null;
-  target_path?: string | null;
-  read: number;
-  created_at: number;
-}
-
-interface NotificationsResponse {
-  items: NotificationItem[];
-  unread_count: number;
-}
-
-interface Trigger {
-  id: string;
-  kind: "schedule" | "webhook" | "continuous";
-  name: string | null;
-  message: string;
-  schedule: string;
-  next_run_at: number | null;
-  enabled: number;
-}
-
-interface Machine {
-  id: string;
-  name: string;
-  description: string;
-  dockerfile: string;
-  image: string | null;
-  build_error: string | null;
-  builtin: boolean;
 }
 
 export const AVATAR_COLORS = [
@@ -762,12 +635,6 @@ export function fmtTokens(n: number): string {
   return String(n);
 }
 
-export interface Breaker {
-  limit_tokens: number;
-  tokens_30d: number;
-  exceeded: boolean;
-}
-
 export function fmt(ts: number | null): string {
   return ts ? new Date(ts).toLocaleString() : "—";
 }
@@ -1052,8 +919,6 @@ async function waitFirstAction(botId: string, runId: string): Promise<void> {
   }
 }
 
-type BotModalTab = "general" | "triggers" | "logs" | "stats" | "files";
-
 const BOT_MODAL_TABS: readonly string[] = [
   "general",
   "triggers",
@@ -1061,15 +926,6 @@ const BOT_MODAL_TABS: readonly string[] = [
   "stats",
   "files",
 ];
-
-interface RouteSnapshot {
-  tab: Tab;
-  chatBotId: string | null;
-  detailOpen: boolean;
-  openBotId: string | null;
-  modalTab: BotModalTab;
-  replayRunId: string | null;
-}
 
 function routeFromUrl(url: URL): RouteSnapshot {
   const tab = tabFromPath(url.pathname);
@@ -3022,19 +2878,6 @@ export function MachineIcon({ size = 18 }: { size?: number }) {
   );
 }
 
-type Tab =
-  | "bots"
-  | "teams"
-  | "roles"
-  | "machines"
-  | "integrations"
-  | "skills"
-  | "templates"
-  | "projects"
-  | "tags"
-  | "secrets"
-  | "settings";
-
 const TAB_PATHS: Record<Tab, string> = {
   bots: "/bots",
   teams: "/teams",
@@ -3209,22 +3052,6 @@ function Nav({
 
 const THEMES = ["light", "dark", "system"] as const;
 type Theme = (typeof THEMES)[number];
-
-interface Provider {
-  id: string;
-  name: string;
-  base_url: string;
-  models: string[];
-  has_key: boolean;
-  builtin?: boolean;
-}
-
-interface BotGeneralSettings {
-  default_provider_id: string | null;
-  default_model: string | null;
-}
-
-type SettingsTab = "general" | "providers" | "system";
 
 const SETTINGS_TABS: readonly { id: SettingsTab; label: string }[] = [
   { id: "general", label: "General" },
@@ -5730,14 +5557,6 @@ export function RoleFormModal({
   );
 }
 
-interface UsageTotals {
-  input: number;
-  output: number;
-  cache_read: number;
-  cache_write: number;
-  total: number;
-}
-
 function pctOf(tokens: number, window: number): number {
   if (!window || window <= 0) return 0;
   return Math.min(100, Math.round((tokens / window) * 100));
@@ -5754,25 +5573,7 @@ const CTX_ROWS: [
   ["Free space", "free", "free"],
 ];
 
-interface ContextBreakdownData {
-  context_window: number | null;
-  categories: {
-    system_prompt: number;
-    tools: number;
-    conversation: number;
-  };
-  used: number;
-  free: number | null;
-}
-
 const FILE_PREVIEW_LIMIT = 256 * 1024;
-
-interface WorkspaceEntry {
-  name: string;
-  type: "dir" | "file";
-  size_bytes: number;
-  modified_at: number;
-}
 
 export function fmtBytes(n: number): string {
   if (n >= 1e9) return `${(n / 1073741824).toFixed(1)} GB`;
@@ -6564,39 +6365,6 @@ export function useDiscardGuard(
   const guard = useNavGuard();
   useDirtyGuard(label, dirty);
   return () => guard(close);
-}
-
-type SearchEntityType =
-  | "bots"
-  | "archived_bots"
-  | "roles"
-  | "skills"
-  | "projects"
-  | "tags"
-  | "teams"
-  | "templates";
-
-interface SearchMatch {
-  type: SearchEntityType;
-  id: string;
-  name: string;
-  subtitle: string | null;
-}
-
-interface SearchGroupResponse {
-  type: SearchEntityType;
-  total: number;
-  matches: SearchMatch[];
-}
-
-type PendingEntityEditType = Exclude<
-  SearchEntityType,
-  "bots" | "archived_bots"
->;
-
-interface PendingEntityEdit {
-  type: PendingEntityEditType;
-  id: string;
 }
 
 const SEARCH_LABELS: Record<SearchEntityType, string> = {
@@ -7575,18 +7343,6 @@ function TriggerEditor({
   );
 }
 
-type ToolCallTurn = { name: string; input: unknown; output?: string };
-type ChatTurn = {
-  role: string;
-  text: string;
-  thinking?: string;
-  tool_calls?: ToolCallTurn[];
-  injected?: boolean;
-  source?: string;
-};
-
-export type OptimisticChatMessage = { id: string; text: string };
-
 export function mergeOptimisticChatTurns(
   history: ChatTurn[],
   pending: readonly OptimisticChatMessage[],
@@ -7883,52 +7639,6 @@ export function Chat({
       </form>
     </section>
   );
-}
-
-type SkillUpdateStatus =
-  | "up_to_date"
-  | "update_available"
-  | "source_unavailable";
-
-interface SkillUpdateState {
-  status: SkillUpdateStatus | null;
-  checked_at: number | null;
-  modified: boolean;
-  pinned: boolean;
-}
-
-interface Skill {
-  id: string;
-  name: string;
-  description: string;
-  instructions: string;
-  created_at: number;
-  import_info?: string | null;
-  update_state?: SkillUpdateState | null;
-}
-
-export type McpEnvMode = "literal" | "secret";
-
-interface McpSecretRef {
-  secret: string;
-}
-
-export type McpEnvValue = string | McpSecretRef;
-
-interface McpServer {
-  id: string;
-  name: string;
-  transport: "stdio";
-  command: string;
-  args: string[];
-  env: Record<string, McpEnvValue>;
-  enabled: number;
-}
-
-interface McpEnvRow {
-  key: string;
-  mode: McpEnvMode;
-  value: string;
 }
 
 function isMcpSecretRef(value: unknown): value is McpSecretRef {
@@ -9666,13 +9376,6 @@ function KeyIcon({ size = 18 }: { size?: number }) {
   );
 }
 
-interface SecretMeta {
-  id: string;
-  name: string;
-  key: string;
-  created_at: number;
-}
-
 export function SecretsPanel() {
   const [secrets, setSecrets] = useState<SecretMeta[]>([]);
   const navGuard = useNavGuard();
@@ -9948,24 +9651,6 @@ function safeImportOrigin(raw: string): string | null {
   } catch {
     return null;
   }
-}
-
-interface SearchHit {
-  id: string;
-  source: string;
-  skill_id: string;
-  name: string;
-  installs: number | null;
-}
-
-interface SkillPreviewRow {
-  folder: string;
-  name: string;
-  description: string;
-  license: string | null;
-  file_count: number;
-  total_size: number;
-  content_hash: string;
 }
 
 function ImportSkillsPane({ onImported }: { onImported: () => void }) {
