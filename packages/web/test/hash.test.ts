@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { it as test } from "vitest";
 import { fnv, mulberry32 } from "../src/lib/hash.ts";
 
 test("fnv is deterministic and separates inputs", () => {

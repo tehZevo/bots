@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
 import { JSDOM } from "jsdom";
+import { it as test } from "vitest";
 
 const dom = new JSDOM(
   '<!doctype html><html><body><div id="root"></div></body></html>',
@@ -106,7 +106,9 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 
 const React = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { AddSkillModal, SkillsPanel } = await import("../src/panels/SkillsPanel.tsx");
+const { AddSkillModal, SkillsPanel } = await import(
+  "../src/panels/SkillsPanel.tsx"
+);
 const { NavGuardContext } = await import("../src/components/ui/discard.tsx");
 const act = React.act;
 

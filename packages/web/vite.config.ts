@@ -1,7 +1,7 @@
 import { readdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import react from "@vitejs/plugin-react";
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, type Plugin } from "vitest/config";
 
 const swManifest = (): Plugin => ({
   name: "sw-manifest",
@@ -27,6 +27,10 @@ function readdirUrls(dir: string): string[] {
 }
 
 export default defineConfig({
+  test: {
+    include: ["test/**/*.test.ts"],
+    environment: "node",
+  },
   plugins: [react(), swManifest()],
   server: {
     port: 5173,

@@ -17,7 +17,7 @@
     "format": "biome format --write .",
     "test": "pnpm test:server && pnpm test:web",
     "test:server": "SECRETS_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef node --import ./packages/server/node_modules/tsx/dist/loader.mjs --test packages/server/test/*.test.ts",
-    "test:web": "cd packages/web && node --import ../../packages/server/node_modules/tsx/dist/loader.mjs --test test/*.test.ts",
+    "test:web": "pnpm --filter @bots/web exec vitest run",
     "coverage": "pnpm coverage:server && pnpm coverage:web",
     "coverage:server": "SECRETS_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef node --import ./packages/server/node_modules/tsx/dist/loader.mjs --experimental-test-coverage --test-coverage-include='packages/server/src/**' --test-coverage-lines=80 --test packages/server/test/*.test.ts",
     "coverage:web": "cd packages/web && node --import ../../packages/server/node_modules/tsx/dist/loader.mjs --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-lines=80 --test test/*.test.ts",

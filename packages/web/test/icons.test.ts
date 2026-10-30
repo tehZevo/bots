@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { it as test } from "vitest";
 import { BookIcon } from "../src/components/icons/BookIcon.tsx";
 import { BotIcon } from "../src/components/icons/BotIcon.tsx";
 import { GearIcon } from "../src/components/icons/GearIcon.tsx";

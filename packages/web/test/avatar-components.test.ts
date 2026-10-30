@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { it as test } from "vitest";
 import { Avatar, ShapePreview, StatusDot } from "../src/components/Avatar.tsx";
 
 function avatarPath(markup: string): string {

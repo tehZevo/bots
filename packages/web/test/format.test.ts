@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { afterEach, it as test, vi } from "vitest";
 import {
   fmt,
   fmtMs,
@@ -8,9 +8,11 @@ import {
   titleCase,
 } from "../src/lib/format.ts";
 
-test("relTime buckets ages against a fixed clock", (t) => {
+afterEach(() => vi.restoreAllMocks());
+
+test("relTime buckets ages against a fixed clock", () => {
   const now = Date.now();
-  t.mock.method(Date, "now", () => now);
+  vi.spyOn(Date, "now").mockReturnValue(now);
   assert.equal(relTime(now - 10_400), "10s ago");
   assert.equal(relTime(now - 120_000), "2m ago");
   assert.equal(relTime(now - 5 * 3_600_000), "5h ago");
