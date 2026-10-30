@@ -56,3 +56,7 @@ export type NavItem = {
   label: string;
   Icon: (p: { size?: number }) => ReactElement;
 };
+
+export function navItemForTab(tab: Tab): NavItem {
+  return NAV_ITEMS.find((item) => item.id === tab) ?? NAV_ITEMS[0];
+}

@@ -633,6 +633,11 @@ export function App() {
           }
           onStopAll={() => setStopAllConfirm(true)}
           onSearch={() => setSearchOpen(true)}
+          tab={tab}
+          onBrandClick={() => {
+            setTab("bots");
+            setNavOpen(false);
+          }}
         >
           <NotificationPanel
             items={notifications}

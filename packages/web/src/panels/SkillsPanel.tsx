@@ -117,7 +117,6 @@ export function SkillsPanel({
   return (
     <section>
       <div className="viewhead">
-        <h2>Skills</h2>
         <button
           type="button"
           disabled={checkingAll}

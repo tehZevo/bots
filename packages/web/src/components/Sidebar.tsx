@@ -1,5 +1,5 @@
 import type { Tab } from "../types.ts";
-import { BotIcon, MenuIcon, SidebarToggleIcon } from "./icons/index.ts";
+import { MenuIcon, SidebarToggleIcon } from "./icons/index.ts";
 import { Nav } from "./Nav.tsx";
 
 export function Sidebar({
@@ -24,10 +24,6 @@ export function Sidebar({
   return (
     <>
       <aside className={rail ? "rail" : ""}>
-        <div className="brand">
-          <BotIcon size={24} />
-          {!rail && <span>Bots</span>}
-        </div>
         {error && <p className="error">{error}</p>}
         <Nav tab={tab} rail={rail} onSelect={onSelectTab} />
         <button
@@ -60,12 +56,6 @@ export function Sidebar({
             onClick={onCloseNav}
           />
           <div className="panel">
-            <div className="hdr">
-              <div className="brand">
-                <BotIcon size={24} />
-                <span>Bots</span>
-              </div>
-            </div>
             {error && <p className="error">{error}</p>}
             <Nav tab={tab} rail={false} onSelect={onSelectTab} />
           </div>
