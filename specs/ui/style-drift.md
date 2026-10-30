@@ -1,5 +1,8 @@
 # Style — Drift
 
+This spec is the presentation authority: where it differs from `visual-style.md`, this wins; shared rules (icon set, focus-visible rings, one primary per action row) stay inherited.
+
+
 Cool airy system: soft blue-gray canvas, borderless white cards floating on layered shadows, pill controls, blue accent; selection reads as elevation. Light mode ships first; dark derives from the same tokens per `theme.md`.
 
 - Tokens (light): canvas `#eef1f5`, surface pure white, text slate near-black `#17212e`, muted steel gray, cool hairline border `#dfe6ee`, input well `#f8fafc`, accent blue `#2563eb`; semantic status hues tuned for light. No raw hex outside tokens (`visual-style.md`).
