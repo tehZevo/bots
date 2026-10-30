@@ -1307,7 +1307,9 @@ export function App() {
             >
               <SearchIcon size={15} />
               <span className="actionlabel">Search</span>
-              <kbd className="searchshortcut">`</kbd>
+              <kbd className="searchshortcut" aria-hidden="true">
+                `
+              </kbd>
             </button>
           </div>
           <NotificationPanel
