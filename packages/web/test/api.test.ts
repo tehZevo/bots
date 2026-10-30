@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { it as test } from "vitest";
 import { api } from "../src/lib/api.ts";
 
 test("api passes method, headers, and serialized body through to fetch", async () => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
 import { JSDOM } from "jsdom";
+import { it as test } from "vitest";
 import type { ScheduleMode } from "../src/schedule.tsx";
 
 const dom = new JSDOM(
@@ -58,11 +58,8 @@ const { ConfigBackupSection } = await import(
   "../src/panels/settings/ConfigBackupSection.tsx"
 );
 const { BotTags } = await import("../src/components/botTabs/BotTags.tsx");
-const {
-  findDuplicateEnvKey,
-  mcpEnvMapFromRows,
-  mcpEnvRowsFromRecord,
-} = await import("../src/lib/mcpEnv.ts");
+const { findDuplicateEnvKey, mcpEnvMapFromRows, mcpEnvRowsFromRecord } =
+  await import("../src/lib/mcpEnv.ts");
 const { McpServerModal } = await import("../src/panels/IntegrationsPanel.tsx");
 const { ProviderFormModal } = await import(
   "../src/panels/settings/ProvidersSection.tsx"

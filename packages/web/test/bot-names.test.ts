@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { it as test } from "vitest";
 import { BOT_NAMES, pickBotName } from "../src/lib/botNames.ts";
 
 test("pickBotName returns a name from the pool", () => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
 import { JSDOM } from "jsdom";
+import { it as test } from "vitest";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/bots",

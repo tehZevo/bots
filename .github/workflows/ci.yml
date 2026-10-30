@@ -88,12 +88,13 @@ jobs:
         run: |
           PCT=$(grep "all files" cov.log | grep -oE "[0-9]+\.[0-9]+" | head -1)
           echo "measured line coverage (server): ${PCT:-unknown}%" >> "$GITHUB_STEP_SUMMARY"
-      # Web floor 80% lines (specs/testing/ci.md); run inside packages/web so tsx picks up its jsx config.
+      # Web floor enforced by vitest thresholds in packages/web/vite.config.ts
+      # (65% lines waiver — vitest counts every src file; specs/testing/ci.md).
       - name: Web tests with V8 coverage
         if: always()
         run: |
           pnpm coverage:web 2>&1 | tee "$GITHUB_WORKSPACE/cov-web.log"
-          PCT=$(grep "all files" "$GITHUB_WORKSPACE/cov-web.log" | grep -oE "[0-9]+\.[0-9]+" | head -1)
+          PCT=$(grep -i "all files" "$GITHUB_WORKSPACE/cov-web.log" | grep -oE "[0-9]+\.[0-9]+" | head -1)
           echo "measured line coverage (web): ${PCT:-unknown}%" >> "$GITHUB_STEP_SUMMARY"
 
   build:
