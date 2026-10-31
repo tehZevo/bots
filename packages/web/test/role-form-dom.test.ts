@@ -183,7 +183,7 @@ test("role grants use searchable dual lists", async () => {
     const tabs = [...window.document.querySelectorAll(".mtabs button")];
     assert.deepEqual(
       tabs.map((item) => item.textContent?.trim()),
-      ["General", "MCP", "Skills"],
+      ["General", "MCP", "Skills", "Approvals"],
     );
     assert.equal(tabs[0].className, "sel");
     assert.equal(window.document.querySelector(".grantpicker"), null);
@@ -264,6 +264,7 @@ test("role grants use searchable dual lists", async () => {
       instructions: "updated instructions",
       mcp_server_ids: [],
       skill_ids: ["skill-2", "skill-1"],
+      approvals: [],
     });
   } finally {
     await act(async () => {

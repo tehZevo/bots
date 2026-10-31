@@ -520,6 +520,20 @@ export function openApiDoc(): Json {
     body: ref("Role"),
   });
   add("/api/roles/{roleId}", "delete", "Delete a role", { params: ["roleId"] });
+
+  // specs/tools/approvals.md
+  add("/api/approvals", "get", "List tool approvals (query: bot, status)", {
+    res: { type: "array", items: ref("Approval") },
+  });
+  add("/api/approvals/{id}/decide", "post", "Approve or deny a pending call", {
+    params: ["id"],
+    body: { type: "object", properties: { approve: { type: "boolean" } } },
+  });
+  decorate("/api/approvals/{id}/decide", "post", {
+    "404": error4xx("unknown approval"),
+    "409": error4xx("already decided"),
+  });
+
   add("/api/teams", "get", "List teams with members", {
     res: { type: "array", items: ref("Team") },
   });
@@ -1227,6 +1241,19 @@ export function openApiDoc(): Json {
             instructions: str,
             mcp_server_ids: { type: "array", items: str },
             skill_ids: { type: "array", items: str },
+            approvals: { type: "array", items: str },
+          },
+        },
+        Approval: {
+          type: "object",
+          properties: {
+            id: str,
+            bot_id: str,
+            created_at: { type: "integer" },
+            decided_at: numOrNone,
+            tool_name: str,
+            args_summary: strOrNone,
+            status: { enum: ["pending", "approved", "denied"] },
           },
         },
         Skill: {

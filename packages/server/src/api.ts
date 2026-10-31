@@ -23,6 +23,7 @@ import {
   resumePendingInjections,
   stopAllLoops,
 } from "./agent.ts";
+import { resolveApproval } from "./approvals.ts";
 import { exportConfigBackup, importConfigBackup } from "./backup.ts";
 import type { ChatStreamState } from "./chat-stream.ts";
 import { ChatStreamReducer } from "./chat-stream.ts";
@@ -62,6 +63,7 @@ import {
   denyDeviceGrant,
   findSecretByName,
   getApiKeyByHash,
+  getApproval,
   getBot,
   getBotConversation,
   getDeviceGrantByDeviceHash,
@@ -108,6 +110,7 @@ import {
   isPaused,
   latestErrorBotIds,
   listApiKeys,
+  listApprovals,
   listBots,
   listHookDeliveries,
   listHookDestinations,
@@ -117,6 +120,7 @@ import {
   listNotifications,
   listProjects,
   listProviders,
+  listRoleApprovals,
   listRoles,
   listRuns,
   listSecret,
@@ -144,6 +148,7 @@ import {
   setBreakerLimit,
   setMachineBuild,
   setPaused,
+  setRoleApprovals,
   setSetting,
   setTeamMember,
   setTeamProjects,
@@ -207,7 +212,6 @@ import {
   searchSkillsSh,
   storeBundle,
 } from "./skillimport.ts";
-import { HostNotAllowedError } from "./ssrf.ts";
 import {
   checkSkillUpdate,
   detachSkill,
@@ -216,6 +220,7 @@ import {
   refreshImportedModified,
   updateImportedSkill,
 } from "./skillupdates.ts";
+import { HostNotAllowedError } from "./ssrf.ts";
 import {
   listWorkspace,
   readWorkspaceFile,
@@ -387,12 +392,27 @@ interface RoleInput {
   instructions?: unknown;
   mcp_server_ids?: unknown;
   skill_ids?: unknown;
+
+  approvals?: unknown;
 }
+
+const BUILTIN_TOOL_NAMES = [
+  "shell",
+  "web_fetch",
+  "set_current_task",
+  "set_status",
+  "read_skill_file",
+  "send_message",
+];
 
 function toRolePayload(
   input: RoleInput,
   knownMcpIds: Set<string>,
   knownSkillIds: Set<string>,
+  knownApprovalCaps: Set<string> = new Set([
+    ...BUILTIN_TOOL_NAMES,
+    ...knownMcpIds,
+  ]),
 ) {
   if (typeof input.name !== "string" || !input.name.trim())
     return { error: "name is required" };
@@ -414,11 +434,25 @@ function toRolePayload(
   if ("error" in mcp) return mcp;
   const skills = parseIds(input.skill_ids, knownSkillIds, "skill");
   if ("error" in skills) return skills;
+  // specs/tools/approvals.md — flagged capabilities: built-in tool names or MCP ids.
+  let approvals: string[] = [];
+  if (input.approvals !== undefined) {
+    if (
+      !Array.isArray(input.approvals) ||
+      input.approvals.some((v) => typeof v !== "string")
+    )
+      return { error: "approvals must be an array of capability ids" };
+    for (const cap of input.approvals as string[])
+      if (!knownApprovalCaps.has(cap))
+        return { error: `unknown approval capability: ${cap}` };
+    approvals = [...new Set(input.approvals as string[])];
+  }
   return {
     name: input.name.trim(),
     instructions: input.instructions,
     mcp_server_ids: mcp,
     skill_ids: skills,
+    approvals,
   };
 }
 
@@ -1020,6 +1054,32 @@ export function createApp() {
     const stopped = stopAllLoops();
     setPaused(true);
     return c.json({ stopped });
+  });
+
+  // specs/tools/approvals.md — pending tool approvals for the inbox/chat.
+  app.get("/api/approvals", (c) => {
+    const status = c.req.query("status");
+    return c.json(
+      listApprovals({
+        botId: c.req.query("bot") || undefined,
+        status:
+          status === "pending" || status === "decided" ? status : undefined,
+      }),
+    );
+  });
+
+  app.post("/api/approvals/:id/decide", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      approve?: unknown;
+    } | null;
+    if (typeof body?.approve !== "boolean")
+      return c.json({ error: "approve must be a boolean" }, 400);
+    const outcome = resolveApproval(c.req.param("id"), body.approve);
+    if (outcome === "unknown") return c.json({ error: "not found" }, 404);
+    if (outcome === "already-decided")
+      return c.json({ error: "already decided" }, 409);
+    const row = getApproval(c.req.param("id"));
+    return c.json({ ok: true, status: row?.status ?? null });
   });
 
   app.put("/api/settings", async (c) => {
@@ -2044,7 +2104,14 @@ export function createApp() {
     }
   });
 
-  app.get("/api/roles", (c) => c.json(listRoles()));
+  app.get("/api/roles", (c) =>
+    c.json(
+      listRoles().map((role) => ({
+        ...role,
+        approvals: listRoleApprovals(role.id),
+      })),
+    ),
+  );
 
   app.get("/api/projects", (c) => c.json(listProjects()));
 
@@ -2148,15 +2215,17 @@ export function createApp() {
       new Set(listSkills().map((sk) => sk.id)),
     );
     if ("error" in payload) return c.json({ error: payload.error }, 400);
-    const role = { id: randomUUID(), ...payload, created_at: Date.now() };
+    const { approvals, ...roleFields } = payload;
+    const role = { id: randomUUID(), ...roleFields, created_at: Date.now() };
     insertRole(role);
-    return c.json(role, 201);
+    setRoleApprovals(role.id, approvals);
+    return c.json({ ...role, approvals }, 201);
   });
 
   app.get("/api/roles/:roleId", (c) => {
     const role = getRole(c.req.param("roleId"));
     if (!role) return c.json({ error: "not found" }, 404);
-    return c.json(role);
+    return c.json({ ...role, approvals: listRoleApprovals(role.id) });
   });
 
   app.patch("/api/roles/:roleId", async (c) => {
@@ -2165,14 +2234,19 @@ export function createApp() {
     const payload = toRolePayload(
       {
         ...role,
+        approvals: listRoleApprovals(role.id),
         ...(await c.req.json<RoleInput>()),
       },
       new Set(listMcpServers().map((m) => m.id)),
       new Set(listSkills().map((sk) => sk.id)),
     );
     if ("error" in payload) return c.json({ error: payload.error }, 400);
-    updateRole(role.id, payload);
-    return c.json(getRole(role.id));
+    const { approvals, ...roleFields } = payload;
+    updateRole(role.id, roleFields);
+    setRoleApprovals(role.id, approvals);
+    const fresh = getRole(role.id);
+    if (!fresh) return c.json({ error: "not found" }, 404);
+    return c.json({ ...fresh, approvals });
   });
 
   app.delete("/api/roles/:roleId", (c) => {

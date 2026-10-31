@@ -4,6 +4,7 @@ import type {
   ToolExecutionResult,
   ToolRegistration,
 } from "@earendil-works/pi-durable";
+import { requestToolApproval } from "./approvals.ts";
 import type { SkillRow } from "./db.ts";
 import { fakeToolResultOverride } from "./fake-llm.ts";
 import { redactText } from "./redact.ts";
@@ -65,7 +66,26 @@ export function toolRedactionHooks(botId: string): HookRegistration[] {
   ];
 }
 
-export function wrapLegacyTools(tools: readonly unknown[]): ToolRegistration[] {
+// specs/tools/approvals.md — gate called before a tool's side effect. It
+// resolves true to run the call, false to answer the model with a denial.
+export type ApprovalGate = (
+  name: string,
+  argsSummary: string,
+) => Promise<boolean>;
+
+function summarizeArgs(args: unknown): string {
+  try {
+    const json = JSON.stringify(args ?? {});
+    return json === "{}" ? "" : json.slice(0, 200);
+  } catch {
+    return "";
+  }
+}
+
+export function wrapLegacyTools(
+  tools: readonly unknown[],
+  gate?: ApprovalGate,
+): ToolRegistration[] {
   return tools.map((value) => {
     const base = value as Omit<ToolRegistration, "execute">;
     const legacy = value as { execute(...args: never[]): Promise<unknown> };
@@ -77,16 +97,52 @@ export function wrapLegacyTools(tools: readonly unknown[]): ToolRegistration[] {
         args: never,
         api: ToolExecutionApi,
       ): Promise<ToolExecutionResult> {
+        if (gate && !(await gate(String(base.name), summarizeArgs(args))))
+          return deniedResult(String(base.name));
         return mapToolResult(await executeLegacy(api.callId as never, args));
       },
     } as ToolRegistration;
   });
 }
 
+function deniedResult(name: string): ToolExecutionResult {
+  return {
+    output: [
+      { type: "text", text: `tool ${name} was denied by user` },
+    ] as never,
+    details: { denied: true },
+  } satisfies ToolExecutionResult;
+}
+
 export function baseHarnessTools(
   botId: string,
   deliverDm?: (recipientBotId: string, text: string) => string,
   grantedSkills: SkillRow[] = [],
+  gate?: ApprovalGate,
 ): ToolRegistration[] {
-  return wrapLegacyTools(buildTools(botId, deliverDm, grantedSkills));
+  return wrapLegacyTools(buildTools(botId, deliverDm, grantedSkills), gate);
+}
+
+/**
+ * Builds the per-bot approval matcher from its role's flagged capabilities.
+ * Built-in tools match by exact name; a flagged MCP server matches every tool
+ * it exposes, which are namespaced `<server>_<tool>` (specs/roles/capabilities.md).
+ */
+export function makeApprovalGate(
+  botId: string,
+  required: Set<string>,
+  mcpServers: Iterable<{ id: string; name: string }>,
+): ApprovalGate | undefined {
+  if (required.size === 0) return undefined;
+  const prefixes = [...mcpServers]
+    .filter((server) => required.has(server.id))
+    .map((server) => `${server.name.replace(/[^a-zA-Z0-9_-]/g, "_")}_`);
+  return async (toolName, argsSummary) => {
+    if (
+      !required.has(toolName) &&
+      !prefixes.some((p) => toolName.startsWith(p))
+    )
+      return true;
+    return requestToolApproval(botId, toolName, argsSummary);
+  };
 }
