@@ -1013,7 +1013,10 @@ mark {
   height: 32px;
   border: 1px solid var(--border);
   border-radius: var(--radius-field);
-  background: var(--surface-soft, color-mix(in srgb, var(--panel) 80%, transparent));
+  background: var(
+    --surface-soft,
+    color-mix(in srgb, var(--panel) 80%, transparent)
+  );
   color: var(--muted);
 }
 
@@ -2137,7 +2140,6 @@ button.shuffle {
   font-size: 18px;
   line-height: 1;
 }
-
 
 .modal form > label {
   display: flex;
@@ -3492,6 +3494,8 @@ main.scr-active,
 
   .picker-row {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
 
 .grantlist {
   display: flex;
@@ -3573,6 +3577,8 @@ main.scr-active,
 
   .grantpane {
     min-height: 260px;
+  }
+}
 
 /* ---- Drift sweep (specs/ui/style-drift.md) ---- */
 
@@ -3807,4 +3813,3 @@ button:not(.sidetabs button):not(.card) {
     font-size: 1.25rem;
   }
 }
-
