@@ -1,6 +1,8 @@
 export type Tab =
+  | "inbox"
   | "bots"
   | "teams"
+  | "activity"
   | "roles"
   | "machines"
   | "integrations"

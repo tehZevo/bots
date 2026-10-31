@@ -48,7 +48,6 @@ export function IntegrationsPanel() {
   return (
     <section>
       <div className="viewhead">
-        <h2>Integrations</h2>
         <button type="button" onClick={() => setForm("new")}>
           Add MCP server
         </button>

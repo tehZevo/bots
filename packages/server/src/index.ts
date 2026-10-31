@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { serve } from "@hono/node-server";
 import { createApp } from "./api.ts";
+import { startAuditRetention } from "./audit.ts";
 import { config, dataDir } from "./config.ts";
 import { clearDeviceGrants, sweepInterruptedRuns } from "./db.ts";
 import {

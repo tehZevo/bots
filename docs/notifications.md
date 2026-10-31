@@ -1,12 +1,10 @@
 # Notifications
 
-The bell in the status bar collects events that need attention, including run failures and server alerts such as a tripped spend circuit breaker ([what the breaker does](/bots#lifecycle)).
+The **Inbox** tab is the app's attention view. Its sidebar label and the status-bar bell shortcut carry a badge while items need attention; clicking either opens `/inbox`.
 
-Opening the bell shows notifications newest first, each with the bot and error details plus when it happened.
+Items are derived live rather than stored separately: latest failed runs, blocked or watchdog-tripped bots, an armed spend circuit breaker ([what the breaker does](/bots#lifecycle)), and unread notifications. A notification linked to one of those conditions does not appear twice. Rows are newest first with a kind icon, bot name where applicable, a one-line detail, and relative time. Clicking routes run problems to that bot's chat with Logs expanded and breaker alerts to Settings → System.
 
-Clicking an unread item in the panel marks it read; a browser push click closes that notification and focuses an open app window (or opens the app root if none exists). Individual items can be marked read, or use **Mark all read**. Read state persists server-side, so refreshing the page does not bring it back.
-
-The open UI receives new notifications through its normal polling refresh; no separate push connection is required for the in-app list.
+Unread rows can be marked individually or with **Mark all read**; reading removes the linked notification row. Other items clear when their source resolves — for example, after a new successful run, once a blocked state clears, or when the spend cap is raised or cleared. There is no arbitrary dismiss: an item that would immediately reappear stays put. When nothing remains, Inbox reads **All clear** and remembers this browser's last resolved time. The action row filters items by kind and bot.
 
 ## Sounds
 

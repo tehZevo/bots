@@ -44,7 +44,6 @@ export function BotsPanel({
   return (
     <>
       <div className="mainhead">
-        <h2>Bots</h2>
         <button type="button" onClick={onAddBot}>
           Add bot
         </button>

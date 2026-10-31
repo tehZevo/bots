@@ -38,7 +38,6 @@ export function MachinesPanel() {
   return (
     <section>
       <div className="viewhead">
-        <h2>Machines</h2>
         <button type="button" onClick={() => setForm("new")}>
           Add machine
         </button>

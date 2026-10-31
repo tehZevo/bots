@@ -1,8 +1,15 @@
 import type { ReactNode } from "react";
 import { fmtTokens } from "../lib/format.ts";
 import { STATUS_CHIPS } from "../lib/health.ts";
-import type { Bot, Breaker } from "../types.ts";
-import { PauseIcon, SearchIcon, StopIcon } from "./icons/index.ts";
+import { navItemForTab } from "../lib/nav.ts";
+import type { Bot, Breaker, Tab } from "../types.ts";
+import {
+  BellIcon,
+  BotIcon,
+  PauseIcon,
+  SearchIcon,
+  StopIcon,
+} from "./icons/index.ts";
 
 export function StatusBar({
   bots,
@@ -12,6 +19,10 @@ export function StatusBar({
   onPauseToggle,
   onStopAll,
   onSearch,
+  inboxCount = 0,
+  onOpenInbox,
+  onBrandClick,
+  tab,
   children,
 }: {
   bots: Bot[];
@@ -21,6 +32,10 @@ export function StatusBar({
   onPauseToggle: () => void;
   onStopAll: () => void;
   onSearch: () => void;
+  inboxCount?: number;
+  onOpenInbox: () => void;
+  onBrandClick: () => void;
+  tab: Tab;
   children?: ReactNode;
 }) {
   const statusCounts = bots.reduce(
@@ -36,6 +51,21 @@ export function StatusBar({
   const runningCount = bots.filter((b) => b.run_state === "running").length;
   return (
     <header className="statusbar">
+      <button type="button" className="brandlink" onClick={onBrandClick}>
+        <BotIcon size={20} />
+        <span>Bots</span>
+      </button>
+      <span className="screentitle">
+        {(() => {
+          const screen = navItemForTab(tab);
+          return (
+            <>
+              <screen.Icon size={18} />
+              {screen.label}
+            </>
+          );
+        })()}
+      </span>
       <div className="statuschips" role="status">
         {runningCount > 0 && (
           <span className="statuschip running">
@@ -105,6 +135,24 @@ export function StatusBar({
           <kbd className="searchshortcut" aria-hidden="true">
             `
           </kbd>
+        </button>
+        <button
+          type="button"
+          className="notiftoggle"
+          aria-label={`Inbox${inboxCount ? `, ${inboxCount} ${inboxCount === 1 ? "item" : "items"}` : ""}`}
+          title={
+            inboxCount
+              ? `${inboxCount} ${inboxCount === 1 ? "item" : "items"} ${inboxCount === 1 ? "needs" : "need"} attention`
+              : "Inbox"
+          }
+          onClick={onOpenInbox}
+        >
+          <BellIcon size={18} />
+          {inboxCount > 0 && (
+            <span className="notifbadge">
+              {inboxCount > 99 ? "99+" : inboxCount}
+            </span>
+          )}
         </button>
       </div>
       {children}
