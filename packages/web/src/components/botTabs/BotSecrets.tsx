@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Multiselect } from "../../components/Multiselect.tsx";
 import { api } from "../../lib/api.ts";
 import type { SecretMeta } from "../../types.ts";
 export function BotSecrets({ botId }: { botId: string }) {
@@ -17,13 +18,11 @@ export function BotSecrets({ botId }: { botId: string }) {
 
   if (all.length === 0) return null;
 
-  const toggle = (id: string) => {
-    const next = attached.includes(id)
-      ? attached.filter((x) => x !== id)
-      : [...attached, id];
+  const change = (next: string[]) => {
     setBusy(true);
     api(`/api/bots/${botId}`, {
       method: "PATCH",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ secret_ids: next }),
     })
       .then(() => setAttached(next))
@@ -32,18 +31,13 @@ export function BotSecrets({ botId }: { botId: string }) {
   };
 
   return (
-    <div className="botsecrets">
-      {all.map((s) => (
-        <label key={s.id}>
-          <input
-            type="checkbox"
-            disabled={busy}
-            checked={attached.includes(s.id)}
-            onChange={() => toggle(s.id)}
-          />{" "}
-          {s.name} <code>{s.key}</code>
-        </label>
-      ))}
-    </div>
+    <Multiselect
+      label="Secrets"
+      options={all.map((s) => ({ id: s.id, name: `${s.name} (${s.key})` }))}
+      selected={attached}
+      onChange={change}
+      busy={busy}
+      placeholder="Search secrets…"
+    />
   );
 }

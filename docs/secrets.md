@@ -20,7 +20,7 @@ Without a key the app still boots: values written before encryption keep working
 
 ## Assignment and injection
 
-Once at least one secret exists, a bot’s General tab shows a checkbox for each one; toggling attaches or detaches it immediately. An assigned secret is passed to that bot’s sandbox as an environment variable named by its key. The value never enters the system prompt, trigger message or chat input — the agent sees only the environment variable when it runs shell commands.
+Once at least one secret exists, a bot’s General tab shows a searchable **Secrets** multiselect — the same control used for teams — listing every secret by name and env-var key; ticking one attaches or detaches it immediately. An assigned secret is passed to that bot’s sandbox as an environment variable named by its key. The value never enters the system prompt, trigger message or chat input — the agent sees only the environment variable when it runs shell commands.
 
 A bot also inherits secrets attached to teams it belongs to. If both a team and the bot attach values for the same env-var key, the bot’s own assignment wins. Existing containers keep their original environment until they are restarted; **Restart machine** recreates them with the current assignments.
 
