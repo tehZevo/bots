@@ -513,7 +513,7 @@ button.danger:hover:not(:disabled) {
 }
 
 main {
-  padding: 1rem 1.5rem;
+  padding: 1rem 1.5rem 2.5rem;
   overflow-y: auto;
   min-height: 0;
 }
@@ -1599,7 +1599,7 @@ pre {
   }
 
   main {
-    padding: 0.8rem;
+    padding: 0.8rem 0.8rem 2rem;
     overflow-x: hidden;
   }
 
@@ -1775,7 +1775,7 @@ aside.rail .brand {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding-right: 4px;
+  padding: 2px 8px 16px;
 }
 .chat-turn {
   display: flex;
@@ -3756,7 +3756,6 @@ button:not(.sidetabs button):not(.card) {
 
 .chat-log {
   gap: 0.75rem;
-  padding-right: 2px;
 }
 
 .chat-turn pre,
