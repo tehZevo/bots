@@ -3444,8 +3444,9 @@ main.scr-active,
   flex: 1 1 auto;
 }
 
-.botgeneral > .statusline {
-  margin-bottom: 0;
+.detailhealth {
+  margin: 0 0 0.25rem;
+  font-size: 12px;
 }
 
 .botgeneral .field {

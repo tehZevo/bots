@@ -14,6 +14,6 @@
 - The header's enable toggle and Stop act immediately; Restart machine, Delete and Clear memory ask for confirmation first (see `../ui/confirm.md`); Archive retires without deletion (`archive.md`).
 - The modal closes via its close button, Escape, or tapping outside; a dirty General tab, trigger editor or Stats budget asks first (`../ui/unsaved-changes.md`), and closing never changes the bot.
 - On phones the modal spans the full screen.
-- The header shows the bot's task and status per `task-and-status.md`.
+- The header shows the bot's health (colored status dot plus label) above its task and status line per `task-and-status.md`; the `General` tab does not repeat it.
 
 See also: `interrupt.md` (Stop), `../triggers/model.md`, `dashboard.md`.

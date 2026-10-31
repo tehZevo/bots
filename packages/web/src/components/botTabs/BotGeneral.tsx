@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
-import { StatusDot } from "../../components/Avatar.tsx";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog.tsx";
 import { UnsavedNote, useDirtyGuard } from "../../components/ui/discard.tsx";
 import { api } from "../../lib/api.ts";
-import { HEALTH_LABEL } from "../../lib/health.ts";
 import { playSound, SOUND_LIBRARY } from "../../lib/sound.ts";
 import { TemplateEditorModal } from "../../panels/TemplatesPanel.tsx";
 import type {
@@ -161,15 +159,6 @@ export function BotGeneral({
           Watchdog must be a whole number from 1 to 720 hours, or empty for off.
         </p>
       )}
-      <p className="statusline">
-        Status:{" "}
-        <StatusDot
-          id={bot.id}
-          health={bot.health}
-          active={bot.run_state === "running"}
-        />{" "}
-        {HEALTH_LABEL[bot.health]}
-      </p>
       <BotProjects botId={bot.id} />
       <BotTags botId={bot.id} />
       <BotSecrets botId={bot.id} />
