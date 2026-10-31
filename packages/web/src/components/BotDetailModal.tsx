@@ -105,7 +105,7 @@ export function BotDetailModal({
         <div className="detailhead-actions">
           <SwitchToggle
             ariaLabel="Bot enabled"
-            checked={bot.enabled !== 0}
+            checked={!bot.archived && bot.enabled !== 0}
             disabled={headerBusy || Boolean(bot.archived)}
             onChange={() => {
               setHeaderBusy(true);

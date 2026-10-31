@@ -8,7 +8,7 @@
   - `Stats` — lifetime and trailing-30-day token usage plus an optional trailing-30-day token budget field with Save (`../usage/tokens.md`).
   - `Files` — browse, view and download the bot's `/workspace` (`../machines/workspace-browser.md`).
   - `Prompt` — the assembled effective system prompt for this bot (`../context/prompt-inspector.md`).
-- The modal's header bar carries the enable toggle switch (`Disabled` when off, `Enabled` when on; accessible checkbox-role slider with a sliding knob) and Stop while running, beside the close button.
+- The modal's header bar carries the enable toggle switch (`Disabled` when off, `Enabled` when on; accessible checkbox-role slider with a sliding knob) and Stop while running, beside the close button. While the bot is archived the toggle reads `Disabled`, renders grayed out with the default cursor, and cannot be flipped — archiving is what disables it (`archive.md`).
 - The active tab is marked; switching tabs with a dirty General tab, trigger editor or Stats budget asks to discard first (`../ui/unsaved-changes.md`), and changes nothing about the bot. Newly opened modals start on `General`.
 - The modal keeps the same size regardless of which tab is active or how much content it holds; tab content scrolls inside it.
 - The header's enable toggle and Stop act immediately; Restart machine, Delete and Clear memory ask for confirmation first (see `../ui/confirm.md`); Archive retires without deletion (`archive.md`).

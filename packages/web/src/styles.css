@@ -2370,6 +2370,10 @@ button.danger.ghost {
   outline: 3px solid var(--focus-ring);
   outline-offset: 2px;
 }
+.switch:has(input:disabled) {
+  cursor: default;
+  opacity: 0.55;
+}
 .trigger.off {
   opacity: 0.55;
 }
