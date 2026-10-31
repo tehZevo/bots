@@ -68,9 +68,7 @@ export function SettingsPanel() {
 
   return (
     <section>
-      <div className="mainhead">
-        <h2>Settings</h2>
-      </div>
+      <div className="mainhead"></div>
       <TabNav
         tabs={SETTINGS_TABS}
         selected={sub}

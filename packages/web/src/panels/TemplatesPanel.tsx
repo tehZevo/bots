@@ -249,7 +249,6 @@ export function TemplatesPanel({
   return (
     <section>
       <div className="viewhead">
-        <h2>Templates</h2>
         <button
           type="button"
           onClick={() =>

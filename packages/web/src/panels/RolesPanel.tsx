@@ -67,7 +67,6 @@ export function RolesPanel({
   return (
     <section>
       <div className="viewhead">
-        <h2>Roles</h2>
         <button type="button" onClick={() => setCreating(true)}>
           Create role
         </button>

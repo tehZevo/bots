@@ -40,7 +40,6 @@ export function TagsPanel({
   return (
     <section>
       <div className="viewhead">
-        <h2>Tags</h2>
         <button type="button" onClick={() => setCreating(true)}>
           Add tag
         </button>
