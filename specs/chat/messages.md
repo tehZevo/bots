@@ -13,4 +13,5 @@
 - Send is unavailable while the bot is disabled; API errors surface inline in the sidebar without closing it.
 - Chat turns are ordinary context: they appear in Logs and participate in compaction like any message.
 - Trigger-injected messages render in the chat as a full-width system bar spanning the conversation — source label plus humanized time (e.g. `Scheduled run · 7:00 AM`) — visually distinct from user and bot turns; the raw `[schedule …]`/`[webhook …]` prefix text never appears in any bubble.
+- Opening a chat lands on its newest turn. New turns keep the view pinned to the bottom only while the reader is already there; scrolling up to read history stops the follow until they return to the bottom.
 - The log separates days with centered date separators, and every turn reveals its timestamp on hover (or focus); timestamps use relative time for today and an absolute date otherwise.
