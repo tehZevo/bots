@@ -13,6 +13,7 @@ import type {
   UsageState,
 } from "@earendil-works/pi-durable";
 import { watchEvents } from "@earendil-works/pi-durable";
+import { denyPendingForBot } from "./approvals.ts";
 import {
   type BotRow,
   checkSpendBreaker,
@@ -710,6 +711,8 @@ function abortActive(botId: string, interrupted: boolean): boolean {
 
 export function interruptBot(botId: string): boolean {
   return abortActive(botId, true);
+
+  denyPendingForBot(botId);
 }
 
 export function stopAllLoops(): number {

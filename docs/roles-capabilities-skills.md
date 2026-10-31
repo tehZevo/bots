@@ -29,3 +29,9 @@ When an update is available, **Update** replaces the skill's metadata, instructi
 ## Capabilities (MCP servers)
 
 Anything beyond the baseline tools comes from [MCP integrations](/integrations-mcp). Granted servers' tools appear to the agent namespaced as `<server>_<tool>`; if one server is unreachable at loop start it's skipped without breaking the run, and failing tool calls return an error string instead of killing the loop. `web_fetch` accepts only absolute http(s) URLs and refuses hosts that resolve to loopback, private or link-local ranges (including cloud metadata); every redirect hop is revalidated under the same guard, up to five hops.
+
+## Tool approvals
+
+A role can require a human to approve a tool call before it runs. In the role form's **Approvals** tab, tick baseline tools (`shell`, `web_fetch`, `send_message`) or any granted MCP server (which gates all of that server's `<server>_<tool>` calls). Nothing is flagged by default; flagging takes effect at the next loop start.
+
+When a gated call is reached, execution pauses before its side effect and the run stays *running*. The pending request shows the tool name and an argument summary in the bot's chat sidebar with **Approve** and **Deny**, and as an item in the [notification bell](/notifications). Approving runs that one call; denying returns a "denied by user" result so the model continues without the effect. Interrupting the bot or clearing its memory denies anything still pending.

@@ -112,6 +112,25 @@ export interface Role {
   created_at: number;
   mcp_server_ids: string[];
   skill_ids: string[];
+  approvals?: string[];
+}
+
+// specs/tools/approvals.md — built-in tools the role form offers for gating.
+// The server also accepts MCP server ids and other built-in names.
+export const APPROVABLE_TOOLS: readonly { id: string; label: string }[] = [
+  { id: "shell", label: "Run shell commands" },
+  { id: "web_fetch", label: "Fetch web pages" },
+  { id: "send_message", label: "Send messages to teammates" },
+];
+
+export interface Approval {
+  id: string;
+  bot_id: string;
+  created_at: number;
+  decided_at: number | null;
+  tool_name: string;
+  args_summary: string | null;
+  status: "pending" | "approved" | "denied";
 }
 
 export interface TeamMember {

@@ -18,6 +18,7 @@ import { usePolling } from "../hooks/usePolling.ts";
 import { api } from "../lib/api.ts";
 import { renderMarkdown } from "../markdown.ts";
 import type { Bot, ChatTurn, OptimisticChatMessage } from "../types.ts";
+import { ApprovalStrip } from "./ApprovalStrip.tsx";
 export function ChatBar({ turn }: { turn: ChatTurn }) {
   return (
     <div className={`chat-bar ${turn.source ?? "trigger"}`}>
@@ -246,6 +247,7 @@ export function Chat({
 
   return (
     <section className="chat">
+      <ApprovalStrip botId={botId} />
       <div className="chat-log">
         {turns.length === 0 && <p>No conversation yet. Say something below.</p>}
         {turns.map((t, i) =>

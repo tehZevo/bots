@@ -337,6 +337,21 @@ db.exec(`
     cache_write INTEGER NOT NULL DEFAULT 0
   );
 
+  CREATE TABLE IF NOT EXISTS approvals (
+    id TEXT PRIMARY KEY,
+    bot_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    decided_at INTEGER,
+    tool_name TEXT NOT NULL,
+    args_summary TEXT,
+    status TEXT NOT NULL DEFAULT 'pending'
+  );
+
+  CREATE TABLE IF NOT EXISTS role_approvals (
+    role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    capability TEXT NOT NULL,
+    PRIMARY KEY (role_id, capability)
+  );
   CREATE TABLE IF NOT EXISTS audit (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at INTEGER NOT NULL,
@@ -3505,6 +3520,117 @@ export function deleteSessionsForUser(
       "DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?",
     ).run(userId, keepTokenHash);
   else db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId);
+}
+
+// --- tool approvals (specs/tools/approvals.md) ------------------------------
+
+export interface ApprovalRow {
+  id: string;
+  bot_id: string;
+  created_at: number;
+  decided_at: number | null;
+  tool_name: string;
+  args_summary: string | null;
+  status: "pending" | "approved" | "denied";
+}
+
+export function insertApproval(row: {
+  id: string;
+  bot_id: string;
+  created_at: number;
+  tool_name: string;
+  args_summary?: string;
+}): void {
+  db.prepare(
+    `INSERT INTO approvals (id, bot_id, created_at, tool_name, args_summary)
+     VALUES (@id, @bot_id, @created_at, @tool_name, @args_summary)`,
+  ).run({ ...row, args_summary: row.args_summary ?? null });
+}
+
+export function decideApproval(
+  id: string,
+  approve: boolean,
+  now = Date.now(),
+): boolean {
+  const res = db
+    .prepare(
+      `UPDATE approvals SET status = ?, decided_at = ? WHERE id = ? AND status = 'pending'`,
+    )
+    .run(approve ? "approved" : "denied", now, id);
+  return Number(res.changes ?? 0) > 0;
+}
+
+export function listApprovals(filter: {
+  botId?: string;
+  status?: "pending" | "decided";
+  limit?: number;
+}): ApprovalRow[] {
+  const where: string[] = [];
+  const params: Record<string, unknown> = {};
+  if (filter.botId) {
+    where.push("bot_id = @bot");
+    params.bot = filter.botId;
+  }
+  if (filter.status === "pending") where.push("status = 'pending'");
+  if (filter.status === "decided") where.push("status != 'pending'");
+  params.limit = Math.min(Math.max(filter.limit ?? 100, 1), 500);
+  return db
+    .prepare(
+      `SELECT * FROM approvals ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+       ORDER BY created_at DESC LIMIT @limit`,
+    )
+    .all(params) as ApprovalRow[];
+}
+
+/** Capabilities flagged require-approval for a bot: its role's set, plus the
+ *  baseline tool names ("the first flagged capability wins" — membership is all). */
+export function approvalRequiredFor(botId: string): Set<string> {
+  const bot = getBot(botId);
+  if (!bot?.role_id) return new Set();
+  const rows = db
+    .prepare("SELECT capability FROM role_approvals WHERE role_id = ?")
+    .all(bot.role_id) as { capability: string }[];
+  return new Set(rows.map((r) => r.capability));
+}
+
+export function setRoleApprovals(roleId: string, capabilities: string[]): void {
+  runInTransaction(() => {
+    db.prepare("DELETE FROM role_approvals WHERE role_id = ?").run(roleId);
+    const ins = db.prepare(
+      "INSERT OR IGNORE INTO role_approvals (role_id, capability) VALUES (?, ?)",
+    );
+    for (const c of new Set(capabilities)) ins.run(roleId, c);
+  });
+}
+
+export function listRoleApprovals(roleId: string): string[] {
+  return (
+    db
+      .prepare(
+        "SELECT capability FROM role_approvals WHERE role_id = ? ORDER BY capability",
+      )
+      .all(roleId) as { capability: string }[]
+  ).map((r) => r.capability);
+}
+
+export function denyPendingApprovalsForBot(
+  botId: string,
+  now = Date.now(),
+): string[] {
+  const rows = db
+    .prepare("SELECT id FROM approvals WHERE bot_id = ? AND status = 'pending'")
+    .all(botId) as { id: string }[];
+  if (!rows.length) return [];
+  db.prepare(
+    `UPDATE approvals SET status = 'denied', decided_at = ? WHERE bot_id = ? AND status = 'pending'`,
+  ).run(now, botId);
+  return rows.map((r) => r.id);
+}
+
+export function getApproval(id: string): ApprovalRow | undefined {
+  return db.prepare("SELECT * FROM approvals WHERE id = ?").get(id) as
+    | ApprovalRow
+    | undefined;
 }
 
 export interface AuditRow {

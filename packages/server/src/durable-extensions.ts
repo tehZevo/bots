@@ -3,9 +3,16 @@ import type {
   Registry,
   ToolRegistration,
 } from "@earendil-works/pi-durable";
-import { type BotRow, teammatesOf } from "./db.ts";
+import {
+  approvalRequiredFor,
+  type BotRow,
+  getRole,
+  listMcpServers,
+  teammatesOf,
+} from "./db.ts";
 import {
   baseHarnessTools,
+  makeApprovalGate,
   toolRedactionHooks,
   wrapLegacyTools,
 } from "./durable-tools.ts";
@@ -29,6 +36,18 @@ export function selectExtensions(
   );
 }
 
+// specs/tools/approvals.md — flags come from the bot's role grants and are
+// read when the loop installs its extensions (capability-change rule).
+function approvalGateFor(bot: BotRow) {
+  const required = approvalRequiredFor(bot.id);
+  if (required.size === 0) return undefined;
+  const role = bot.role_id ? getRole(bot.role_id) : undefined;
+  const granted = listMcpServers().filter((server) =>
+    (role?.mcp_server_ids ?? []).includes(server.id),
+  );
+  return makeApprovalGate(bot.id, required, granted);
+}
+
 export function installBotExtension(
   registry: Registry<ToolRegistration>,
   bot: BotRow,
@@ -41,7 +60,12 @@ export function installBotExtension(
       : undefined);
   const extension: Extension<ToolRegistration> = {
     name: botExtensionName(bot.id),
-    tools: baseHarnessTools(bot.id, dm, grantedSkills(bot)),
+    tools: baseHarnessTools(
+      bot.id,
+      dm,
+      grantedSkills(bot),
+      approvalGateFor(bot),
+    ),
     hooks: toolRedactionHooks(bot.id),
     sections: [
       {
@@ -62,7 +86,7 @@ export async function installMcpExtension(
   const mcp = await connectRoleTools(bot);
   const extension: Extension<ToolRegistration> = {
     name: mcpExtensionName(bot.id),
-    tools: wrapLegacyTools(mcp.tools),
+    tools: wrapLegacyTools(mcp.tools, approvalGateFor(bot)),
     hooks: toolRedactionHooks(bot.id),
   };
   registry.install(extension);

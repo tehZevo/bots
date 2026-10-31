@@ -18,12 +18,13 @@ import type { TabNavTab } from "../components/ui/TabNav.tsx";
 import { TabNav } from "../components/ui/TabNav.tsx";
 import { useEscape } from "../components/ui/useEscape.ts";
 import { api } from "../lib/api.ts";
-import type { GrantOption, Role } from "../types.ts";
+import { APPROVABLE_TOOLS, type GrantOption, type Role } from "../types.ts";
 
 const ROLE_FORM_TABS: readonly TabNavTab[] = [
   { id: "general", label: "General" },
   { id: "mcp", label: "MCP" },
   { id: "skills", label: "Skills" },
+  { id: "approvals", label: "Approvals" },
 ];
 
 export function RolesPanel({
@@ -126,18 +127,33 @@ export function RoleFormModal({
   const [instructions, setInstructions] = useState(role?.instructions ?? "");
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
-  const [roleTab, setRoleTab] = useState<"general" | "mcp" | "skills">(
-    "general",
-  );
+  const [roleTab, setRoleTab] = useState<
+    "general" | "mcp" | "skills" | "approvals"
+  >("general");
   const [mcpOptions, setMcpOptions] = useState<GrantOption[]>([]);
   const [skillOptions, setSkillOptions] = useState<GrantOption[]>([]);
   const [mcpIds, setMcpIds] = useState<string[]>(role?.mcp_server_ids ?? []);
   const [skillIds, setSkillIds] = useState<string[]>(role?.skill_ids ?? []);
+  const [approvals, setApprovals] = useState<string[]>(role?.approvals ?? []);
+
+  function toggleApproval(cap: string) {
+    setApprovals((prev) =>
+      prev.includes(cap) ? prev.filter((c) => c !== cap) : [...prev, cap],
+    );
+  }
+  // specs/tools/approvals.md — a granted MCP server can be gated as a whole.
+  const approvalOptions = [
+    ...APPROVABLE_TOOLS,
+    ...mcpOptions
+      .filter((o) => mcpIds.includes(o.id))
+      .map((o) => ({ id: o.id, label: `All ${o.name} tools` })),
+  ];
   const dirty =
     name !== (role?.name ?? "") ||
     instructions !== (role?.instructions ?? "") ||
     mcpIds.join(",") !== (role?.mcp_server_ids ?? []).join(",") ||
-    skillIds.join(",") !== (role?.skill_ids ?? []).join(",");
+    skillIds.join(",") !== (role?.skill_ids ?? []).join(",") ||
+    approvals.join(",") !== (role?.approvals ?? []).join(",");
   const attemptClose = useDiscardGuard(
     role ? `role ${role.name}` : "this new role",
     dirty,
@@ -196,6 +212,7 @@ export function RoleFormModal({
         instructions,
         mcp_server_ids: mcpIds,
         skill_ids: skillIds,
+        approvals,
       });
       if (role)
         await api(`/api/roles/${role.id}`, {
@@ -239,7 +256,9 @@ export function RoleFormModal({
         <TabNav
           tabs={ROLE_FORM_TABS}
           selected={roleTab}
-          onSelect={(id) => setRoleTab(id as "general" | "mcp" | "skills")}
+          onSelect={(id) =>
+            setRoleTab(id as "general" | "mcp" | "skills" | "approvals")
+          }
         />
         {roleTab === "general" && (
           <>
@@ -276,6 +295,24 @@ export function RoleFormModal({
             onChange={setSkillIds}
             emptyText="No skills — add one in Skills."
           />
+        )}
+        {roleTab === "approvals" && (
+          <fieldset className="approvalopts">
+            <legend>Require approval before these run</legend>
+            {approvalOptions.length === 0 && (
+              <p className="muted">Nothing to gate yet.</p>
+            )}
+            {approvalOptions.map((opt) => (
+              <label key={opt.id}>
+                <input
+                  type="checkbox"
+                  checked={approvals.includes(opt.id)}
+                  onChange={() => toggleApproval(opt.id)}
+                />
+                {opt.label}
+              </label>
+            ))}
+          </fieldset>
         )}
         <div className="actions">
           <button type="submit" disabled={busy}>
