@@ -25,7 +25,7 @@ Both affect only *future* sandbox creations — running containers keep their cu
 
 ## Choosing a machine for a bot
 
-Pick a machine when creating a bot, or switch it later in the bot's **General** tab (Machine select). Switching takes effect on the next sandbox — after the idle reap, or immediately via **Restart machine** in the same tab — not mid-run. Per-bot CPU/memory limits are unrelated to machine selection and apply either way.
+Pick a machine when creating a bot, or switch it later in the bot's **General** tab (Machine select). Switching takes effect on the next sandbox — after the idle reap, or immediately via **Restart machine** in the same tab — not mid-run. Server-wide sandbox resource caps (Settings → **General**) are unrelated to machine selection and apply either way — there are no per-bot overrides ([details](/operations#sandbox-hardening-and-resource-caps)).
 
 ## Workspace files
 

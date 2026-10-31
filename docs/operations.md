@@ -29,9 +29,13 @@ Model providers live in application settings, not environment variables; their A
 
 ## Docker socket security
 
-To create and reuse per-bot sandbox containers, the orchestrator needs access to the host’s Docker daemon — conventionally by mounting `/var/run/docker.sock`. Treat that mount as an administrative capability: the server can start, stop and remove containers on the host through its built-in Docker client.
+To create and reuse per-bot sandbox containers, the orchestrator needs access to the host’s Docker daemon. The shipped compose file does **not** hand it the raw socket: a `docker-socket-proxy` companion container (`ghcr.io/tecnativa/docker-socket-proxy`) fronts `/var/run/docker.sock` read-only and allows only the endpoints sandbox management requires — containers (create/start/stop/remove/inspect), exec, images (pull/build) — with everything else refused. Point the orchestrator at it with `DOCKER_HOST=tcp://docker-socket-proxy:2375`. Mounting the socket directly still works but grants full daemon control; treat that as an administrative capability.
 
 Keep the orchestrator on a trusted network or behind an authenticated reverse proxy. Do not expose port `8075` directly to the public internet without TLS and access control; API keys and login sessions protect application actions but do not replace network hardening for the deployment itself. If bot shell execution is unavailable, check first that the socket mount exists and is accessible to the container runtime.
+
+## Sandbox hardening and resource caps
+
+Every bot container starts with a hardened runtime: non-root uid (the workspace owner), `--cap-drop=ALL`, `no-new-privileges`, a 256-process ceiling, plus server-wide memory (default **1 GiB**) and CPU caps. All sandboxes share one knob set — Settings → **General** → *Sandbox resource caps* — with no per-bot overrides; machine images cannot re-add dropped capabilities, so an image that needs more runs on a dedicated machine.
 
 ## Backup and restore
 

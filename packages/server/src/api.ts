@@ -195,6 +195,8 @@ import {
   removeContainer,
   repullDefaultImage,
   restartSandbox,
+  sandboxCpu,
+  sandboxMemoryMb,
 } from "./sandbox.ts";
 import { nextRunAt, previewSchedule } from "./scheduler.ts";
 import { buildSearchResults, SEARCH_TYPES, type SearchType } from "./search.ts";
@@ -983,6 +985,8 @@ export function createApp() {
   app.get("/api/settings", (c) =>
     c.json({
       sandbox_idle_minutes: idleMinutes(),
+      sandbox_memory_mb: sandboxMemoryMb(),
+      sandbox_cpu: sandboxCpu(),
       audit_retention_days: Number(getSetting("audit_retention_days") ?? 0),
       default_provider_id: getSetting("default_provider_id") ?? null,
       default_model: getSetting("default_model") ?? null,
@@ -1079,6 +1083,8 @@ export function createApp() {
   app.put("/api/settings", async (c) => {
     const body = (await c.req.json().catch(() => null)) as {
       sandbox_idle_minutes?: unknown;
+      sandbox_memory_mb?: unknown;
+      sandbox_cpu?: unknown;
       audit_retention_days?: unknown;
       default_provider_id?: unknown;
       default_model?: unknown;
@@ -1107,6 +1113,31 @@ export function createApp() {
         );
       setSetting("sandbox_idle_minutes", String(raw));
       out.sandbox_idle_minutes = raw;
+    }
+    if (body.sandbox_memory_mb !== undefined) {
+      const raw = body.sandbox_memory_mb;
+      if (
+        typeof raw !== "number" ||
+        !Number.isInteger(raw) ||
+        raw < 64 ||
+        raw > 131_072
+      )
+        return c.json(
+          { error: "sandbox_memory_mb must be an integer 64-131072" },
+          400,
+        );
+      setSetting("sandbox_memory_mb", String(raw));
+      out.sandbox_memory_mb = raw;
+    }
+    if (body.sandbox_cpu !== undefined) {
+      const raw = body.sandbox_cpu;
+      if (typeof raw !== "number" || !(raw > 0) || raw > 32)
+        return c.json(
+          { error: "sandbox_cpu must be a number greater than 0 up to 32" },
+          400,
+        );
+      setSetting("sandbox_cpu", String(Math.round(raw * 10) / 10));
+      out.sandbox_cpu = Math.round(raw * 10) / 10;
     }
     if (body.audit_retention_days !== undefined) {
       const raw = body.audit_retention_days;

@@ -32,6 +32,7 @@ import { AuditRetentionSection } from "./AuditRetentionSection.tsx";
 import { ConfigBackupSection } from "./ConfigBackupSection.tsx";
 import { ControlMcpSection } from "./ControlMcpSection.tsx";
 import { EventDestinationsSection } from "./EventDestinationsSection.tsx";
+import { SandboxCapsSection } from "./SandboxCapsSection.tsx";
 import { SandboxIdleSection } from "./SandboxIdleSection.tsx";
 import { SoundsSection } from "./SoundsSection.tsx";
 import { ThemeSection } from "./ThemeSection.tsx";
@@ -95,6 +96,7 @@ export function SettingsGeneral() {
       <PasswordSettings />
       <ThemeSection />
       <SandboxIdleSection />
+      <SandboxCapsSection />
       <AuditRetentionSection />
       <SpendCapSection />
       <SoundsSection />

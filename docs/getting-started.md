@@ -6,14 +6,20 @@
 
 ```yaml
 services:
+  docker-socket-proxy:          # scoped Docker API proxy (see Operations)
+    image: ghcr.io/tecnativa/docker-socket-proxy:latest
+    environment: { CONTAINERS: 1, EXEC: 1, IMAGES: 1, BUILD: 1, POST: 1 }
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
   orchestrator:
     image: ghcr.io/tehzevo/bots:latest
     ports: ["8075:8075"]
     environment:
       - SECRETS_KEY=<your-secret-key>   # openssl rand -hex 32
+      - DOCKER_HOST=tcp://docker-socket-proxy:2375
     volumes:
       - ./data:/data            # database + bot workspaces — must be /data (DATA_DIR)
-      - /var/run/docker.sock:/var/run/docker.sock   # to manage sandbox containers
 ```
 
 All state lives under `$DATA_DIR` (default `/data`) as `bots.db` plus a `workspaces/` folder per bot. Mount that exact path from your compose file; mounting somewhere else is ignored and the image falls back to container-local storage, so data appears to survive even after you delete the host directory. See [Operations](/operations) for Docker socket security, runtime variables and backup guidance.
