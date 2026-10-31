@@ -943,6 +943,7 @@ export function openApiDoc(): Json {
   add("/api/notifications/{id}/read", "post", "Mark one notification read", {
     params: ["id"],
   });
+  add("/api/inbox", "get", "List live attention items");
   add(
     "/api/api-keys",
     "get",

@@ -3,6 +3,7 @@ export { BookIcon } from "./BookIcon.tsx";
 export { BotIcon } from "./BotIcon.tsx";
 export { CloseIcon } from "./CloseIcon.tsx";
 export { GearIcon } from "./GearIcon.tsx";
+export { InboxIcon } from "./InboxIcon.tsx";
 export { KebabIcon } from "./KebabIcon.tsx";
 export { KeyIcon } from "./KeyIcon.tsx";
 export { MachineIcon } from "./MachineIcon.tsx";

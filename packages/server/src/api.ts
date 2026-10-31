@@ -113,6 +113,7 @@ import {
   listBots,
   listHookDeliveries,
   listHookDestinations,
+  listInboxItems,
   listMachines,
   listMcpServers,
   listMessagesForRun,
@@ -1754,6 +1755,8 @@ export function createApp() {
       return c.json({ error: "not found" }, 404);
     return c.json({ ok: true });
   });
+
+  app.get("/api/inbox", (c) => c.json(listInboxItems()));
 
   app.get("/api/providers", (c) => {
     const providers = listProviders().map(({ api_key, ...rest }) => ({

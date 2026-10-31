@@ -3,7 +3,13 @@ import { fmtTokens } from "../lib/format.ts";
 import { STATUS_CHIPS } from "../lib/health.ts";
 import { navItemForTab } from "../lib/nav.ts";
 import type { Bot, Breaker, Tab } from "../types.ts";
-import { BotIcon, PauseIcon, SearchIcon, StopIcon } from "./icons/index.ts";
+import {
+  BellIcon,
+  BotIcon,
+  PauseIcon,
+  SearchIcon,
+  StopIcon,
+} from "./icons/index.ts";
 
 export function StatusBar({
   bots,
@@ -13,6 +19,8 @@ export function StatusBar({
   onPauseToggle,
   onStopAll,
   onSearch,
+  inboxCount = 0,
+  onOpenInbox,
   onBrandClick,
   tab,
   children,
@@ -24,6 +32,8 @@ export function StatusBar({
   onPauseToggle: () => void;
   onStopAll: () => void;
   onSearch: () => void;
+  inboxCount?: number;
+  onOpenInbox: () => void;
   onBrandClick: () => void;
   tab: Tab;
   children?: ReactNode;
@@ -125,6 +135,24 @@ export function StatusBar({
           <kbd className="searchshortcut" aria-hidden="true">
             `
           </kbd>
+        </button>
+        <button
+          type="button"
+          className="notiftoggle"
+          aria-label={`Inbox${inboxCount ? `, ${inboxCount} ${inboxCount === 1 ? "item" : "items"}` : ""}`}
+          title={
+            inboxCount
+              ? `${inboxCount} ${inboxCount === 1 ? "item" : "items"} ${inboxCount === 1 ? "needs" : "need"} attention`
+              : "Inbox"
+          }
+          onClick={onOpenInbox}
+        >
+          <BellIcon size={18} />
+          {inboxCount > 0 && (
+            <span className="notifbadge">
+              {inboxCount > 99 ? "99+" : inboxCount}
+            </span>
+          )}
         </button>
       </div>
       {children}

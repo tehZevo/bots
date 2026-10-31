@@ -3,6 +3,7 @@ import { ActivityIcon } from "../components/icons/ActivityIcon.tsx";
 import { BookIcon } from "../components/icons/BookIcon.tsx";
 import { BotIcon } from "../components/icons/BotIcon.tsx";
 import { GearIcon } from "../components/icons/GearIcon.tsx";
+import { InboxIcon } from "../components/icons/InboxIcon.tsx";
 import { KeyIcon } from "../components/icons/KeyIcon.tsx";
 import { MachineIcon } from "../components/icons/MachineIcon.tsx";
 import { PlugIcon } from "../components/icons/PlugIcon.tsx";
@@ -13,6 +14,7 @@ import { TeamIcon } from "../components/icons/TeamIcon.tsx";
 import { TemplateIcon } from "../components/icons/TemplateIcon.tsx";
 
 const NAV_ITEMS: NavItem[] = [
+  { id: "inbox", label: "Inbox", Icon: InboxIcon },
   { id: "bots", label: "Bots", Icon: BotIcon },
   { id: "teams", label: "Teams", Icon: TeamIcon },
   { id: "activity", label: "Activity", Icon: ActivityIcon },
@@ -28,7 +30,7 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
-  { label: "Operate", ids: ["bots", "teams", "activity"] },
+  { label: "Operate", ids: ["inbox", "bots", "teams", "activity"] },
   {
     label: "Library",
     ids: ["roles", "skills", "templates", "projects", "tags"],
