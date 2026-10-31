@@ -8,3 +8,6 @@ docs/.vitepress/dist/
 
 .playwright-cli/
 packages/**/*.tsbuildinfo
+
+# scratch output from agent/dev sessions
+*.log
