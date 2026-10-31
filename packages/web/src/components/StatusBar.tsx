@@ -1,7 +1,15 @@
+import type { ReactNode } from "react";
 import { fmtTokens } from "../lib/format.ts";
 import { STATUS_CHIPS } from "../lib/health.ts";
-import type { Bot, Breaker } from "../types.ts";
-import { BellIcon, PauseIcon, SearchIcon, StopIcon } from "./icons/index.ts";
+import { navItemForTab } from "../lib/nav.ts";
+import type { Bot, Breaker, Tab } from "../types.ts";
+import {
+  BellIcon,
+  BotIcon,
+  PauseIcon,
+  SearchIcon,
+  StopIcon,
+} from "./icons/index.ts";
 
 export function StatusBar({
   bots,
@@ -13,6 +21,9 @@ export function StatusBar({
   onSearch,
   inboxCount = 0,
   onOpenInbox,
+  onBrandClick,
+  tab,
+  children,
 }: {
   bots: Bot[];
   paused: boolean;
@@ -23,6 +34,9 @@ export function StatusBar({
   onSearch: () => void;
   inboxCount?: number;
   onOpenInbox: () => void;
+  onBrandClick: () => void;
+  tab: Tab;
+  children?: ReactNode;
 }) {
   const statusCounts = bots.reduce(
     (counts, bot) => {
@@ -37,6 +51,21 @@ export function StatusBar({
   const runningCount = bots.filter((b) => b.run_state === "running").length;
   return (
     <header className="statusbar">
+      <button type="button" className="brandlink" onClick={onBrandClick}>
+        <BotIcon size={20} />
+        <span>Bots</span>
+      </button>
+      <span className="screentitle">
+        {(() => {
+          const screen = navItemForTab(tab);
+          return (
+            <>
+              <screen.Icon size={18} />
+              {screen.label}
+            </>
+          );
+        })()}
+      </span>
       <div className="statuschips" role="status">
         {runningCount > 0 && (
           <span className="statuschip running">
@@ -126,6 +155,7 @@ export function StatusBar({
           )}
         </button>
       </div>
+      {children}
     </header>
   );
 }

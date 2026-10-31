@@ -11,6 +11,7 @@ export const TAB_PATHS: Record<Tab, string> = {
   inbox: "/inbox",
   bots: "/bots",
   teams: "/teams",
+  activity: "/activity",
   roles: "/roles",
   machines: "/machines",
   integrations: "/integrations",

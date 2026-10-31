@@ -142,6 +142,14 @@ External agents drive the same surface over MCP at streamable HTTP `POST /mcp`, 
 
 Created automatically when a run ends `error` (deduped per run). Each item carries its resolved click destination in `target_path`. See [Notifications](/notifications).
 
+## Audit log
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/audit` | Append-only activity feed, newest first; `?actor=user\|bot\|trigger\|system`, `?type=<action prefix>` (e.g. `bot`), `?q=` target/summary text, `?since=&until=` (ISO or epoch ms), `?limit=` 1–1000 (default 200) |
+
+Read-only for any authenticated principal — there is no edit or delete API; only the retention sweep removes rows. See [Activity](/activity).
+
 ## Event destinations
 
 | Method | Path | Purpose |

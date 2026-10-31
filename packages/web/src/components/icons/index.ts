@@ -22,3 +22,4 @@ export { StopIcon } from "./StopIcon.tsx";
 export { TagIcon } from "./TagIcon.tsx";
 export { TeamIcon } from "./TeamIcon.tsx";
 export { TemplateIcon } from "./TemplateIcon.tsx";
+export { WarnIcon } from "./WarnIcon.tsx";
