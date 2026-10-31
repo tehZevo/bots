@@ -158,7 +158,6 @@ export function TeamsPanel({
   return (
     <section>
       <div className="viewhead">
-        <h2>Teams</h2>
         <button type="button" onClick={() => setCreating(true)}>
           Create team
         </button>

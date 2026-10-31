@@ -338,7 +338,7 @@ test("templates panel and editor render", () => {
       headers: { "content-type": "application/json" },
     })) as typeof fetch;
   const panel = renderToStaticMarkup(React.createElement(TemplatesPanel));
-  assert.match(panel, /Templates/);
+  assert.match(panel, /Add template/);
   const editor = renderToStaticMarkup(
     React.createElement(TemplateEditorModal, {
       initial: {

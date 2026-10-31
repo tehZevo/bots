@@ -139,6 +139,9 @@ export function publishAppEvent(type: AppEventType, data: unknown): void {
 }
 
 mkdirSync(dirname(config.databasePath), { recursive: true });
+
+import { logAudit } from "./audit.ts";
+
 const db = new Database(config.databasePath);
 db.pragma("journal_mode = WAL");
 
@@ -349,6 +352,20 @@ db.exec(`
     capability TEXT NOT NULL,
     PRIMARY KEY (role_id, capability)
   );
+  CREATE TABLE IF NOT EXISTS audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at INTEGER NOT NULL,
+    actor_kind TEXT NOT NULL,
+    actor_id TEXT,
+    actor_name TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target_kind TEXT NOT NULL,
+    target_id TEXT,
+    target_name TEXT,
+    summary TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_audit_created ON audit (created_at DESC);
 
   CREATE INDEX IF NOT EXISTS idx_messages_bot ON messages (bot_id, id);
   CREATE INDEX IF NOT EXISTS idx_runs_bot ON runs (bot_id, started_at DESC);
@@ -1710,6 +1727,19 @@ export function removePushSubscriptionOwned(
   );
 }
 
+function auditRunStart(run: RunRow): void {
+  const bot = getBot(run.bot_id);
+  logAudit({
+    actor: bot
+      ? { kind: "bot", id: bot.id, name: bot.name }
+      : { kind: "system" },
+    action: "run.start",
+    targetKind: "run",
+    targetId: run.id,
+    summary: `trigger=${run.trigger ?? "manual"} bot=${bot?.name ?? run.bot_id}`,
+  });
+}
+
 export function finishRun(
   id: string,
   status: "ok" | "error",
@@ -1768,6 +1798,31 @@ export function finishRun(
     });
   }
   if (info?.bot_id) armContinuousTriggers(info.bot_id);
+  {
+    const info = db
+      .prepare(
+        `SELECT r.bot_id, r.trigger, b.name FROM runs r
+         LEFT JOIN bots b ON b.id = r.bot_id WHERE r.id = ?`,
+      )
+      .get(id) as
+      | { bot_id: string; trigger: string | null; name: string | null }
+      | undefined;
+    const action =
+      status === "ok"
+        ? "run.finish"
+        : error && /interrupt/i.test(error)
+          ? "run.interrupt"
+          : "run.error";
+    logAudit({
+      actor: info
+        ? { kind: "bot", id: info.bot_id, name: info.name ?? info.bot_id }
+        : { kind: "system" },
+      action,
+      targetKind: "run",
+      targetId: id,
+      summary: error ?? output?.slice(0, 160) ?? status,
+    });
+  }
 }
 
 export function tripWatchdog(
@@ -1778,6 +1833,14 @@ export function tripWatchdog(
 ): void {
   const runId = randomUUID();
   const message = `watchdog: no completed run in ${hours}h`;
+  logAudit({
+    actor: { kind: "system" },
+    action: "watchdog.trip",
+    targetKind: "bot",
+    targetId: botId,
+    targetName: name,
+    summary: message,
+  });
   insertRun({
     id: runId,
     bot_id: botId,
@@ -2663,8 +2726,14 @@ export function isBreakerArmed(): boolean {
 }
 
 export function setBreakerArmed(armed: boolean): void {
-  if (armed) setSetting("breaker_tripped", "1");
-  else deleteSetting("breaker_tripped");
+  if (armed) {
+    setSetting("breaker_tripped", "1");
+    if (!getSetting("breaker_tripped_at"))
+      setSetting("breaker_tripped_at", String(Date.now()));
+  } else {
+    deleteSetting("breaker_tripped");
+    deleteSetting("breaker_tripped_at");
+  }
 }
 
 export function breakerState(): {
@@ -2688,19 +2757,211 @@ export function setBreakerLimit(limit: number): void {
   if (!state.exceeded) setBreakerArmed(false);
 }
 
+export interface InboxItem {
+  id: string;
+  kind: "run_error" | "blocked" | "watchdog" | "breaker" | "notification";
+  bot_id: string | null;
+  bot_name: string | null;
+  title: string;
+  detail: string;
+  target_path: string | null;
+  created_at: number;
+  notification_id?: string | null;
+  read?: number | null;
+}
+
+function inboxDetail(
+  value: string | null,
+  fallback = "Needs attention",
+): string {
+  const text = value?.replace(/\s+/g, " ").trim() ?? "";
+  if (!text) return fallback;
+  return text.length > 220 ? `${text.slice(0, 219)}…` : text;
+}
+
+export function listInboxItems(): InboxItem[] {
+  const itemsByBot = new Map<string, InboxItem>();
+
+  const erroredRuns = db
+    .prepare(
+      `SELECT r.id AS run_id, r.bot_id, b.name AS bot_name,
+              COALESCE(r.finished_at, r.started_at) AS created_at, r.error
+         FROM runs r JOIN bots b ON b.id = r.bot_id
+        WHERE r.status = 'error' AND r.superseded = 0 AND b.archived = 0
+          AND r.started_at = (
+            SELECT MAX(started_at) FROM runs
+             WHERE bot_id = r.bot_id AND status != 'running' AND superseded = 0
+          )`,
+    )
+    .all() as {
+    run_id: string;
+    bot_id: string;
+    bot_name: string;
+    created_at: number;
+    error: string | null;
+  }[];
+
+  for (const row of erroredRuns) {
+    itemsByBot.set(row.bot_id, {
+      id: `run-error:${row.run_id}`,
+      kind: "run_error",
+      bot_id: row.bot_id,
+      bot_name: row.bot_name,
+      title: `${row.bot_name}: run failed`,
+      detail: inboxDetail(row.error, "The latest run ended with an error."),
+      target_path: notificationTargetPath({
+        kind: "run_error",
+        botId: row.bot_id,
+        runId: row.run_id,
+      }),
+      created_at: row.created_at ?? Date.now(),
+    });
+  }
+
+  const blockedBots = db
+    .prepare(
+      `SELECT b.id AS bot_id, b.name AS bot_name, b.watchdog_tripped,
+              b.status, b.status_level, b.current_task_updated_at,
+              (SELECT id FROM runs WHERE bot_id = b.id AND trigger = 'watchdog'
+                ORDER BY started_at DESC LIMIT 1) AS watchdog_run_id,
+              (SELECT COALESCE(finished_at, started_at) FROM runs
+                WHERE bot_id = b.id AND trigger = 'watchdog'
+                ORDER BY started_at DESC LIMIT 1) AS watchdog_created_at,
+              (SELECT id FROM runs WHERE bot_id = b.id AND status != 'running'
+                ORDER BY started_at DESC LIMIT 1) AS run_id,
+              (SELECT MAX(created_at) FROM notifications
+                WHERE bot_id = b.id AND kind IN ('watchdog', 'blocked')) AS notified_at
+         FROM bots b
+        WHERE b.archived = 0
+          AND (b.watchdog_tripped = 1 OR b.status_level = 'blocked')`,
+    )
+    .all() as {
+    bot_id: string;
+    bot_name: string;
+    watchdog_tripped: number;
+    status: string | null;
+    status_level: "ok" | "issue" | "blocked" | null;
+    current_task_updated_at: number | null;
+    watchdog_run_id: string | null;
+    watchdog_created_at: number | null;
+    run_id: string | null;
+    notified_at: number | null;
+  }[];
+
+  for (const row of blockedBots) {
+    if (itemsByBot.has(row.bot_id)) continue;
+    const kind: "watchdog" | "blocked" = row.watchdog_tripped
+      ? "watchdog"
+      : "blocked";
+    itemsByBot.set(row.bot_id, {
+      id: `${kind}:${row.bot_id}`,
+      kind,
+      bot_id: row.bot_id,
+      bot_name: row.bot_name,
+      title:
+        kind === "watchdog"
+          ? `${row.bot_name}: watchdog tripped`
+          : `${row.bot_name} is blocked`,
+      detail: inboxDetail(row.status, "The bot reported itself blocked."),
+      target_path: notificationTargetPath({
+        kind,
+        botId: row.bot_id,
+        runId: kind === "watchdog" ? row.watchdog_run_id : row.run_id,
+      }),
+      created_at:
+        (kind === "watchdog"
+          ? (row.watchdog_created_at ?? row.notified_at)
+          : null) ??
+        row.current_task_updated_at ??
+        row.notified_at ??
+        Date.now(),
+    });
+  }
+
+  if (isBreakerArmed()) {
+    const state = breakerState();
+    const created = Number(getSetting("breaker_tripped_at"));
+    itemsByBot.set("__breaker", {
+      id: "breaker",
+      kind: "breaker",
+      bot_id: null,
+      bot_name: null,
+      title: "Spend circuit breaker tripped",
+      detail: `Trailing 30-day usage of ${state.tokens_30d.toLocaleString()} tokens passed the cap of ${state.limit_tokens.toLocaleString()}.`,
+      target_path: "/settings?tab=system",
+      created_at:
+        Number.isFinite(created) && created > 0 ? created : Date.now(),
+    });
+  }
+
+  const items = [...itemsByBot.values()];
+  const activeSources = new Set(
+    items.map((item) => `${item.kind}:${item.bot_id ?? ""}`),
+  );
+  const unreadNotifications = db
+    .prepare(
+      `SELECT n.*, b.name AS bot_name FROM notifications n
+         LEFT JOIN bots b ON b.id = n.bot_id
+        WHERE n.read = 0 ORDER BY n.created_at DESC LIMIT 250`,
+    )
+    .all() as (NotificationRow & { bot_name: string | null })[];
+
+  for (const notification of unreadNotifications) {
+    const sourceKind =
+      notification.kind === "run_error" ||
+      notification.kind === "watchdog" ||
+      notification.kind === "blocked" ||
+      notification.kind === "breaker"
+        ? notification.kind
+        : null;
+    if (
+      sourceKind &&
+      activeSources.has(`${sourceKind}:${notification.bot_id ?? ""}`)
+    )
+      continue;
+    items.push({
+      id: `notification:${notification.id}`,
+      kind: "notification",
+      bot_id: notification.bot_id,
+      bot_name: notification.bot_name,
+      title: notification.title,
+      detail: inboxDetail(notification.body),
+      target_path:
+        notification.target_path ??
+        notificationTargetPath({
+          kind: notification.kind,
+          botId: notification.bot_id,
+          runId: notification.run_id,
+        }),
+      created_at: notification.created_at,
+      notification_id: notification.id,
+      read: notification.read,
+    });
+  }
+
+  return items.sort((a, b) => b.created_at - a.created_at);
+}
+
 export function checkSpendBreaker(): boolean {
   const state = breakerState();
   if (!state.exceeded) return false;
   const wasArmed = isBreakerArmed();
   setBreakerArmed(true);
   setPaused(true);
-  if (!wasArmed)
+  if (!wasArmed) {
+    logAudit({
+      actor: { kind: "system" },
+      action: "breaker.trip",
+      targetKind: "global",
+      summary: `trailing-30d spend ${state.tokens_30d} passed cap ${state.limit_tokens}; all bots paused`,
+    });
     createNotification({
       kind: "breaker",
       title: "Spend circuit breaker tripped",
       body: `Trailing 30-day usage of ${state.tokens_30d.toLocaleString()} tokens passed the cap of ${state.limit_tokens.toLocaleString()}. All bots are paused; raise or clear the cap to resume.`,
       dedupeKey: `breaker:${Date.now()}`,
     });
+  }
   return true;
 }
 
@@ -3370,4 +3631,92 @@ export function getApproval(id: string): ApprovalRow | undefined {
   return db.prepare("SELECT * FROM approvals WHERE id = ?").get(id) as
     | ApprovalRow
     | undefined;
+}
+
+export interface AuditRow {
+  id: number;
+  created_at: number;
+  actor_kind: string;
+  actor_id: string | null;
+  actor_name: string;
+  action: string;
+  target_kind: string;
+  target_id: string | null;
+  target_name: string | null;
+  summary: string | null;
+}
+
+export function insertAuditRow(row: {
+  created_at: number;
+  actor_kind: string;
+  actor_id?: string | null;
+  actor_name: string;
+  action: string;
+  target_kind: string;
+  target_id?: string | null;
+  target_name?: string | null;
+  summary?: string | null;
+}): void {
+  db.prepare(
+    `INSERT INTO audit (created_at, actor_kind, actor_id, actor_name, action, target_kind, target_id, target_name, summary)
+     VALUES (@created_at, @actor_kind, @actor_id, @actor_name, @action, @target_kind, @target_id, @target_name, @summary)`,
+  ).run({
+    created_at: row.created_at,
+    actor_kind: row.actor_kind,
+    actor_id: row.actor_id ?? null,
+    actor_name: row.actor_name,
+    action: row.action,
+    target_kind: row.target_kind,
+    target_id: row.target_id ?? null,
+    target_name: row.target_name ?? null,
+    summary: (row.summary ?? "").slice(0, 200),
+  });
+}
+
+export interface AuditQuery {
+  actor?: string;
+  type?: string;
+  q?: string;
+  since?: number;
+  until?: number;
+  limit?: number;
+}
+
+export function queryAuditRows(query: AuditQuery): AuditRow[] {
+  const where: string[] = [];
+  const params: Record<string, unknown> = {};
+  if (query.actor) {
+    where.push("actor_kind = @actor");
+    params.actor = query.actor;
+  }
+  if (query.type) {
+    where.push("action LIKE @type || '.%'");
+    params.type = query.type;
+  }
+  if (query.q) {
+    where.push(
+      "(target_name LIKE '%' || @q || '%' OR target_id = @q OR summary LIKE '%' || @q || '%')",
+    );
+    params.q = query.q;
+  }
+  if (typeof query.since === "number") {
+    where.push("created_at >= @since");
+    params.since = query.since;
+  }
+  if (typeof query.until === "number") {
+    where.push("created_at <= @until");
+    params.until = query.until;
+  }
+  const limit = Math.min(Math.max(query.limit ?? 200, 1), 1000);
+  params.limit = limit;
+  return db
+    .prepare(
+      `SELECT * FROM audit ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY id DESC LIMIT @limit`,
+    )
+    .all(params) as AuditRow[];
+}
+
+export function purgeAuditBefore(ts: number): number {
+  const res = db.prepare("DELETE FROM audit WHERE created_at < ?").run(ts);
+  return Number(res.changes ?? 0);
 }

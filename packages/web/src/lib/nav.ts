@@ -1,7 +1,9 @@
 import type { ReactElement } from "react";
+import { ActivityIcon } from "../components/icons/ActivityIcon.tsx";
 import { BookIcon } from "../components/icons/BookIcon.tsx";
 import { BotIcon } from "../components/icons/BotIcon.tsx";
 import { GearIcon } from "../components/icons/GearIcon.tsx";
+import { InboxIcon } from "../components/icons/InboxIcon.tsx";
 import { KeyIcon } from "../components/icons/KeyIcon.tsx";
 import { MachineIcon } from "../components/icons/MachineIcon.tsx";
 import { PlugIcon } from "../components/icons/PlugIcon.tsx";
@@ -12,8 +14,10 @@ import { TeamIcon } from "../components/icons/TeamIcon.tsx";
 import { TemplateIcon } from "../components/icons/TemplateIcon.tsx";
 
 const NAV_ITEMS: NavItem[] = [
+  { id: "inbox", label: "Inbox", Icon: InboxIcon },
   { id: "bots", label: "Bots", Icon: BotIcon },
   { id: "teams", label: "Teams", Icon: TeamIcon },
+  { id: "activity", label: "Activity", Icon: ActivityIcon },
   { id: "roles", label: "Roles", Icon: RoleIcon },
   { id: "skills", label: "Skills", Icon: BookIcon },
   { id: "templates", label: "Templates", Icon: TemplateIcon },
@@ -26,7 +30,7 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
-  { label: "Operate", ids: ["bots", "teams"] },
+  { label: "Operate", ids: ["inbox", "bots", "teams", "activity"] },
   {
     label: "Library",
     ids: ["roles", "skills", "templates", "projects", "tags"],
@@ -56,3 +60,7 @@ export type NavItem = {
   label: string;
   Icon: (p: { size?: number }) => ReactElement;
 };
+
+export function navItemForTab(tab: Tab): NavItem {
+  return NAV_ITEMS.find((item) => item.id === tab) ?? NAV_ITEMS[0];
+}

@@ -40,7 +40,6 @@ export function ProjectsPanel({
   return (
     <section>
       <div className="viewhead">
-        <h2>Projects</h2>
         <button type="button" onClick={() => setCreating(true)}>
           Add project
         </button>

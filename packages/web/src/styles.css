@@ -277,9 +277,15 @@ button.primary:hover:not(:disabled),
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
+  border-radius: 0;
   color: var(--muted);
   padding: 0.45rem 0.7rem;
   cursor: pointer;
+}
+
+.mtabs button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
 }
 
 .mtabs button:hover {
@@ -589,6 +595,27 @@ article header {
   margin: 0;
 }
 
+.brandlink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.screentitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-weight: 600;
+  border-left: 1px solid var(--border);
+  padding-left: 0.75rem;
+}
+
 .statuschips {
   display: flex;
   align-items: center;
@@ -852,6 +879,7 @@ mark {
 }
 
 .notifscrim {
+  border-radius: 0;
   position: fixed;
   inset: 0;
   z-index: 19;
@@ -947,6 +975,126 @@ mark {
   justify-content: flex-end;
 }
 
+.inboxlist {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--border);
+}
+
+.inboxlist li {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.inboxlist li.unread {
+  padding-left: 0.6rem;
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+
+.inboxrow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  width: 100%;
+  align-items: start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  text-align: start;
+}
+
+.inboxicon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(
+    --surface-soft,
+    color-mix(in srgb, var(--panel) 80%, transparent)
+  );
+  color: var(--muted);
+}
+
+.inboxicon.run_error,
+.inboxicon.blocked {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  color: var(--danger);
+}
+
+.inboxicon.watchdog,
+.inboxicon.breaker {
+  border-color: color-mix(in srgb, var(--warn, #f0b13b) 50%, var(--border));
+  color: var(--warn, #e9762c);
+}
+
+.inboxcopy {
+  min-width: 0;
+}
+
+.inboxcopy strong,
+.inboxcopy p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inboxcopy p {
+  margin: 0.2rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.inboxrow time,
+.inboxempty span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.inboxempty {
+  display: grid;
+  gap: 0.25rem;
+  padding: 3rem 1rem;
+  place-items: center;
+  text-align: center;
+}
+
+.sidetabs button {
+  position: relative;
+}
+
+.navcount {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  padding-inline: 5px;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  background: var(--danger);
+  color: var(--surface);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .inboxrow {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.5rem;
+  }
+
+  .inboxrow time {
+    grid-column: 2;
+    justify-self: end;
+  }
+}
+
 .sidetabs.wide button {
   max-width: 240px;
 }
@@ -982,6 +1130,7 @@ mark {
 }
 
 .mscrim {
+  border-radius: 0;
   position: absolute;
   inset: 0;
   background: var(--scrim);
@@ -1284,6 +1433,7 @@ pre {
 }
 
 .drawer .scrim {
+  border-radius: 0;
   position: fixed;
   inset: 0;
   z-index: 20;
@@ -1991,7 +2141,6 @@ button.shuffle {
   line-height: 1;
 }
 
-
 .modal form > label {
   display: flex;
   flex-direction: column;
@@ -2379,6 +2528,7 @@ button.danger.ghost {
   position: relative;
 }
 .pickscrim {
+  border-radius: 0;
   position: fixed;
   inset: 0;
   z-index: 19;
@@ -2618,11 +2768,23 @@ button.danger.ghost {
   filter: grayscale(1) drop-shadow(0 0 4px transparent);
 }
 
+.card:hover .avatar-svg,
+.card:focus-within .avatar-svg {
+  transform: scale(1.08) translate(-2px, -3px);
+  transition: transform 150ms ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .avatar,
   .avatar-svg,
   .avatar .eye {
     animation: none !important;
+  }
+
+  .card:hover .avatar-svg,
+  .card:focus-within .avatar-svg {
+    transform: scale(1.08);
+    transition: none;
   }
 
   .avatar.anim-blue .eye,
@@ -2682,9 +2844,18 @@ button.danger.ghost {
 }
 
 .warnline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 0.25rem 0;
   color: var(--err);
   font-size: 0.85rem;
+}
+
+/* specs/ui/visual-style.md — settings-style forms keep a readable column */
+.botgeneral,
+.settingstab {
+  max-width: 560px;
 }
 
 .themegroup {
@@ -3205,6 +3376,45 @@ main.scr-active,
   gap: 0.5rem;
 }
 
+/* specs/audit/log.md — Activity feed */
+.auditlist {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.auditlist li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.auditlist time {
+  min-width: 90px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.auditactor {
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: color-mix(in oklab, var(--muted) 15%, transparent);
+}
+.auditactor-user {
+  background: color-mix(in oklab, var(--info) 18%, transparent);
+}
+.auditactor-bot {
+  background: color-mix(in oklab, var(--ok) 18%, transparent);
+}
+.auditactor-trigger {
+  background: color-mix(in oklab, var(--warn) 18%, transparent);
+}
+
 .botgeneral {
   display: flex;
   flex-direction: column;
@@ -3235,6 +3445,11 @@ main.scr-active,
 .botgeneral .field > input,
 .botgeneral .field > select,
 .botgeneral .sound-control > select {
+  width: 100%;
+  box-sizing: border-box;
+  color: var(--text);
+  font-size: inherit;
+}
 
 .grantpicker {
   display: grid;
@@ -3332,6 +3547,8 @@ main.scr-active,
 
   .picker-row {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
 
 .grantlist {
   display: flex;
@@ -3413,6 +3630,8 @@ main.scr-active,
 
   .grantpane {
     min-height: 260px;
+  }
+}
 
 /* ---- Drift sweep (specs/ui/style-drift.md) ---- */
 
@@ -3498,9 +3717,10 @@ button:not(.sidetabs button):not(.card) {
   background: var(--scrim);
 }
 
-button.mscrim,
-.drawer button.scrim,
-.notifscrim {
+.mscrim,
+.notifscrim,
+.pickscrim,
+.drawer .scrim {
   border-radius: 0;
 }
 

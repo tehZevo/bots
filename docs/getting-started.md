@@ -6,21 +6,27 @@
 
 ```yaml
 services:
+  docker-socket-proxy:          # scoped Docker API proxy (see Operations)
+    image: ghcr.io/tecnativa/docker-socket-proxy:latest
+    environment: { CONTAINERS: 1, EXEC: 1, IMAGES: 1, BUILD: 1, POST: 1 }
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
   orchestrator:
     image: ghcr.io/tehzevo/bots:latest
     ports: ["8075:8075"]
     environment:
       - SECRETS_KEY=<your-secret-key>   # openssl rand -hex 32
+      - DOCKER_HOST=tcp://docker-socket-proxy:2375
     volumes:
       - ./data:/data            # database + bot workspaces — must be /data (DATA_DIR)
-      - /var/run/docker.sock:/var/run/docker.sock   # to manage sandbox containers
 ```
 
 All state lives under `$DATA_DIR` (default `/data`) as `bots.db` plus a `workspaces/` folder per bot. Mount that exact path from your compose file; mounting somewhere else is ignored and the image falls back to container-local storage, so data appears to survive even after you delete the host directory. See [Operations](/operations) for Docker socket security, runtime variables and backup guidance.
 
 ## The console
 
-Open the web UI (default `http://localhost:8075`) and sign in — [Accounts & access](/authentication) covers sessions and creating the first account, while [Operations](/operations#runtime-configuration) explains the development seed. The status bar up top shows totals at a glance, opens [Search & commands](/search), carries **Pause**/**Resume** for every bot, and offers **Stop all** ([details](/bots#lifecycle)). The sidebar switches between **Bots**, **Teams**, **Roles**, **Machines**, **Integrations**, **Skills**, **Templates**, **Projects**, **Tags**, **Secrets** and **Settings**; each tab owns a URL (e.g. `/bots`, `/teams`), so links open it directly, reloads keep it, and Back/Forward walk between tabs. Inside Settings, the **General**, **Providers**, and **System** sections use query deep links (`?tab=providers`, `?tab=system`; General is `/settings`).
+Open the web UI (default `http://localhost:8075`) and sign in — [Accounts & access](/authentication) covers sessions and creating the first account, while [Operations](/operations#runtime-configuration) explains the development seed. The status bar up top shows totals at a glance, opens [Search & commands](/search), carries **Pause**/**Resume** for every bot, and offers **Stop all** ([details](/bots#lifecycle)). The status-bar bell opens [Inbox](/notifications), whose badge counts open items. The sidebar switches between **Inbox**, **Bots**, **Teams**, **Activity**, **Roles**, **Machines**, **Integrations**, **Skills**, **Templates**, **Projects**, **Tags**, **Secrets** and **Settings**; each tab owns a URL (e.g. `/bots`, `/teams`), so links open it directly, reloads keep it, and Back/Forward walk between tabs. Inside Settings, the **General**, **Providers**, and **System** sections use query deep links (`?tab=providers`, `?tab=system`; General is `/settings`).
 
 1. **Configure a model first** — Settings → **Providers**: add an OpenAI-compatible provider (base URL + API key) and pick a default model. Replacing a saved API key asks you to confirm the rotation before saving; leave the field empty to keep the existing key. Bots without their own model use the default; with none configured they show **Blocked**. For local development, enable the fake-provider setting described in [runtime configuration](/operations#runtime-configuration); Settings → **Providers** then shows a built-in read-only **Fake** provider you can set as the default without an API key. A plain fake-model message replies `FAKE OK (<bot name>)`; a message can also script replies, thinking, tool calls and failures with a directive only fake models parse:
 

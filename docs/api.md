@@ -136,10 +136,19 @@ External agents drive the same surface over MCP at streamable HTTP `POST /mcp`, 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/api/notifications` | `{ items, unread_count }`, newest first; `?limit=` 1–250 (default 100) |
+| GET | `/api/inbox` | Live attention items newest first: run failures, blocked/watchdog bots and an armed spend breaker without duplicating unread notifications |
 | POST | `/api/notifications/:id/read` | Mark one read — 404 unknown id |
 | POST | `/api/notifications/read-all` | Mark everything read |
 
 Created automatically when a run ends `error` (deduped per run). Each item carries its resolved click destination in `target_path`. See [Notifications](/notifications).
+
+## Audit log
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/audit` | Append-only activity feed, newest first; `?actor=user\|bot\|trigger\|system`, `?type=<action prefix>` (e.g. `bot`), `?q=` target/summary text, `?since=&until=` (ISO or epoch ms), `?limit=` 1–1000 (default 200) |
+
+Read-only for any authenticated principal — there is no edit or delete API; only the retention sweep removes rows. See [Activity](/activity).
 
 ## Event destinations
 

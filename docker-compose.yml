@@ -1,12 +1,29 @@
 services:
+  # specs/machines/sandbox.md — scoped Docker API proxy: the orchestrator can
+  # only reach sandbox lifecycle + build/pull endpoints, never the raw socket.
+  docker-socket-proxy:
+    image: ghcr.io/tecnativa/docker-socket-proxy:latest
+    environment:
+      CONTAINERS: 1
+      EXEC: 1
+      IMAGES: 1
+      BUILD: 1
+      POST: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
   orchestrator:
     build: .
     ports:
       - "8075:8075"
     env_file: .env
+    environment:
+      DOCKER_HOST: tcp://docker-socket-proxy:2375
     volumes:
       - bots-data:/data
-      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - docker-socket-proxy
     restart: unless-stopped
 
 volumes:

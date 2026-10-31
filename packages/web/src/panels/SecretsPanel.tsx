@@ -21,7 +21,6 @@ export function SecretsPanel() {
   return (
     <section>
       <div className="viewhead">
-        <h2>Secrets</h2>
         <button type="button" onClick={() => setCreating(true)}>
           Add secret
         </button>

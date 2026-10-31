@@ -28,9 +28,11 @@ import { PasswordSettings, SessionSettings } from "../../auth.tsx";
 import { PushSection } from "../../push.tsx";
 
 import { ApiKeysSection } from "./ApiKeysSection.tsx";
+import { AuditRetentionSection } from "./AuditRetentionSection.tsx";
 import { ConfigBackupSection } from "./ConfigBackupSection.tsx";
 import { ControlMcpSection } from "./ControlMcpSection.tsx";
 import { EventDestinationsSection } from "./EventDestinationsSection.tsx";
+import { SandboxCapsSection } from "./SandboxCapsSection.tsx";
 import { SandboxIdleSection } from "./SandboxIdleSection.tsx";
 import { SoundsSection } from "./SoundsSection.tsx";
 import { ThemeSection } from "./ThemeSection.tsx";
@@ -68,9 +70,7 @@ export function SettingsPanel() {
 
   return (
     <section>
-      <div className="mainhead">
-        <h2>Settings</h2>
-      </div>
+      <div className="mainhead"></div>
       <TabNav
         tabs={SETTINGS_TABS}
         selected={sub}
@@ -96,6 +96,8 @@ export function SettingsGeneral() {
       <PasswordSettings />
       <ThemeSection />
       <SandboxIdleSection />
+      <SandboxCapsSection />
+      <AuditRetentionSection />
       <SpendCapSection />
       <SoundsSection />
       <PushSection />

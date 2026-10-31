@@ -4,8 +4,8 @@
 import { randomUUID } from "node:crypto";
 import {
   createNotification,
-  denyPendingApprovalsForBot,
   decideApproval,
+  denyPendingApprovalsForBot,
   getApproval,
   insertApproval,
 } from "./db.ts";

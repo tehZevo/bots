@@ -83,6 +83,22 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       unread_count: notificationItems.filter((item) => item.read === 0).length,
     });
   }
+  if (url === "/api/inbox") {
+    return json(
+      notificationItems.map((item) => ({
+        id: `notification:${String(item.id)}`,
+        kind: String(item.kind),
+        bot_id: item.bot_id,
+        bot_name: "Sable",
+        title: item.title,
+        detail: item.body,
+        target_path: item.target_path,
+        created_at: item.created_at,
+        notification_id: item.id,
+        read: item.read,
+      })),
+    );
+  }
   const readMatch = /^\/api\/notifications\/([^/]+)\/read$/.exec(url);
   if (readMatch && method === "POST") {
     notificationItems = notificationItems.map((item) =>
@@ -198,10 +214,11 @@ test("clicking a notification routes to its source and Back returns home", async
   currentRunId = "run-target2";
   const root = await mountApp("/bots");
   try {
-    await click(byLabel("Notifications, 1 unread"));
-    const bodyButton = window.document.querySelector(".notifbody");
-    assert.equal(bodyButton?.getAttribute("title"), "Open source");
-    await click(bodyButton);
+    await click(byLabel("Inbox, 1 item"));
+    const row = window.document.querySelector(".inboxrow");
+    assert.ok(row);
+    assert.match(row.textContent ?? "", /Sable: run failed/);
+    await click(row);
 
     assert.equal(window.location.pathname, "/bots");
     assert.ok(

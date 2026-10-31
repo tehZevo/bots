@@ -1,6 +1,12 @@
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { dataDir } from "./config.ts";
@@ -168,6 +174,35 @@ export async function imageForBot(botId: string): Promise<string> {
 
 const EXEC_TIMEOUT_MS = 60_000;
 const IDLE_SETTING_KEY = "sandbox_idle_minutes";
+
+// specs/machines/sandbox.md — server-wide resource caps for every sandbox.
+const MEM_SETTING_KEY = "sandbox_memory_mb";
+const CPU_SETTING_KEY = "sandbox_cpu";
+
+export function sandboxMemoryMb(): number {
+  const raw = Number.parseInt(getSetting(MEM_SETTING_KEY) ?? "", 10);
+  return Number.isFinite(raw) && raw >= 64 ? raw : 1024;
+}
+
+export function sandboxCpu(): number {
+  const raw = Number(getSetting(CPU_SETTING_KEY));
+  if (!Number.isFinite(raw) || raw <= 0) return 1;
+  return Math.min(Math.round(raw * 10) / 10, 32);
+}
+
+export function hardeningArgs(owner: { uid: number; gid: number }): string[] {
+  return [
+    "--user",
+    `${owner.uid}:${owner.gid}`,
+    "--cap-drop=ALL",
+    "--security-opt=no-new-privileges",
+    "--pids-limit=256",
+    "--memory",
+    `${sandboxMemoryMb()}m`,
+    "--cpus",
+    String(sandboxCpu()),
+  ];
+}
 export const DEFAULT_IDLE_MINUTES = 5;
 
 const lastActivity = new Map<string, number>();
@@ -236,6 +271,15 @@ async function spawnCapture(
   return result;
 }
 
+function workspaceOwner(dir: string): { uid: number; gid: number } {
+  try {
+    const st = statSync(dir);
+    return { uid: st.uid, gid: st.gid };
+  } catch {
+    return { uid: 0, gid: 0 };
+  }
+}
+
 export async function ensureContainer(
   botId: string,
   workspaceDir: string,
@@ -267,6 +311,7 @@ export async function ensureContainer(
     name,
     "--label",
     "bots-sandbox=1",
+    ...hardeningArgs(workspaceOwner(workspaceDir)),
     "-v",
     `${workspaceDir}:/workspace`,
     "-w",
