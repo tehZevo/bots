@@ -47,6 +47,7 @@ async function render(props?: Partial<Parameters<typeof InboxPanel>[0]>) {
         onOpenItem: () => undefined,
         onMarkRead: () => undefined,
         onMarkAllRead: () => undefined,
+        onDecideApproval: () => undefined,
         ...props,
       }),
     ),
@@ -77,8 +78,8 @@ test("rows show title, detail and kind icon; unread rows get Mark read", async (
   assert.equal(rows.length, 2);
   assert.ok(window.document.querySelector(".inboxicon.notification"));
   assert.match(
-    window.document.querySelector(".unread .notifactions button")?.textContent ??
-      "",
+    window.document.querySelector(".unread .notifactions button")
+      ?.textContent ?? "",
     /Mark read/,
   );
   const markBtn = window.document.querySelector(
@@ -120,4 +121,50 @@ test("kind filter narrows rows through the dropdown checkboxes", async () => {
   });
   assert.deepEqual(kinds, ["run_error"]);
   await act(async () => root.unmount());
+});
+
+test("approval rows decide inline", async () => {
+  const calls: [string, boolean][] = [];
+  const root = await render({
+    items: [
+      item({
+        id: "approval:a1",
+        kind: "approval",
+        title: "Sable: approve shell?",
+        detail: '{"command":"rm -rf /tmp/x"}',
+        approval_id: "a1",
+      }),
+    ],
+    onDecideApproval: (id: string, approve: boolean) =>
+      calls.push([id, approve]),
+  });
+  const row = window.document.querySelector(".inboxrow");
+  assert.ok(row?.textContent?.includes("approve shell?"));
+  assert.ok(row?.textContent?.includes("rm -rf /tmp/x"));
+  const buttons = [
+    ...window.document.querySelectorAll<HTMLButtonElement>(
+      ".notifactions button",
+    ),
+  ];
+  const approve = buttons.find((b) => b.textContent === "Approve");
+  const deny = buttons.find((b) => b.textContent === "Deny");
+  assert.ok(approve && deny);
+  await act(async () => approve.click());
+  await act(async () => deny.click());
+  assert.deepEqual(calls, [
+    ["a1", true],
+    ["a1", false],
+  ]);
+  root.unmount();
+});
+
+test("plain rows keep only mark-read", async () => {
+  const root = await render({
+    items: [item({ notification_id: "n1", read: 0 })],
+  });
+  const labels = [
+    ...window.document.querySelectorAll(".notifactions button"),
+  ].map((b) => b.textContent);
+  assert.deepEqual(labels, ["Mark read"]);
+  root.unmount();
 });

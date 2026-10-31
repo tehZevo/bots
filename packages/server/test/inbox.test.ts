@@ -165,3 +165,47 @@ test("inbox includes an armed spend breaker without a notification duplicate", a
   items = await inboxItems();
   assert.deepEqual(items, []);
 });
+
+test("pending tool approvals appear once and can be decided away", async () => {
+  const botId = randomUUID();
+  db.insertBot({
+    id: botId,
+    name: "Warden",
+    instructions: "",
+    enabled: 1,
+    created_at: Date.now(),
+  } as never);
+  const approvals = await import("../src/approvals.ts");
+  approvals.requestToolApproval(botId, "shell", '{"command":"rm -rf /tmp/x"}');
+
+  let items = await inboxItems();
+  const rows = items.filter((item) => item.kind === "approval");
+  assert.equal(rows.length, 1, "one row, not duplicated by its notification");
+  assert.equal(rows[0].bot_id, botId);
+  assert.ok(rows[0].approval_id);
+  assert.match(rows[0].id, /^approval:/);
+
+  // A waiting call outranks that bot's older run failure for the single row.
+  db.insertRun({
+    id: randomUUID(),
+    bot_id: botId,
+    status: "error",
+    trigger: "manual",
+    started_at: Date.now() - 60_000,
+    finished_at: Date.now() - 59_000,
+    output: "",
+    error: "boom",
+  } as never);
+  items = await inboxItems();
+  assert.equal(
+    items.filter((item) => item.bot_id === botId)[0]?.kind,
+    "approval",
+  );
+
+  approvals.resolveApproval(String(rows[0].approval_id), true);
+  items = await inboxItems();
+  assert.deepEqual(
+    items.filter((item) => item.kind === "approval"),
+    [],
+  );
+});

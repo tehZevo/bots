@@ -2759,7 +2759,13 @@ export function setBreakerLimit(limit: number): void {
 
 export interface InboxItem {
   id: string;
-  kind: "run_error" | "blocked" | "watchdog" | "breaker" | "notification";
+  kind:
+    | "run_error"
+    | "blocked"
+    | "watchdog"
+    | "breaker"
+    | "approval"
+    | "notification";
   bot_id: string | null;
   bot_name: string | null;
   title: string;
@@ -2768,6 +2774,8 @@ export interface InboxItem {
   created_at: number;
   notification_id?: string | null;
   read?: number | null;
+  /** Set for `approval` items so the inbox can decide the call inline. */
+  approval_id?: string | null;
 }
 
 function inboxDetail(
@@ -2781,6 +2789,39 @@ function inboxDetail(
 
 export function listInboxItems(): InboxItem[] {
   const itemsByBot = new Map<string, InboxItem>();
+
+  // specs/tools/approvals.md — a waiting call is the most actionable thing a
+  // bot can have, so it claims the bot's row ahead of run problems.
+  const pendingApprovals = db
+    .prepare(
+      `SELECT a.id, a.bot_id, a.created_at, a.tool_name, a.args_summary,
+              b.name AS bot_name
+         FROM approvals a JOIN bots b ON b.id = a.bot_id
+        WHERE a.status = 'pending' AND b.archived = 0
+        ORDER BY a.created_at DESC`,
+    )
+    .all() as {
+    id: string;
+    bot_id: string;
+    created_at: number;
+    tool_name: string;
+    args_summary: string | null;
+    bot_name: string;
+  }[];
+
+  for (const row of pendingApprovals) {
+    itemsByBot.set(row.bot_id, {
+      id: `approval:${row.id}`,
+      kind: "approval",
+      bot_id: row.bot_id,
+      bot_name: row.bot_name,
+      title: `${row.bot_name}: approve ${row.tool_name}?`,
+      detail: inboxDetail(row.args_summary, `${row.tool_name} is waiting.`),
+      target_path: `/bots?bot=${encodeURIComponent(row.bot_id)}`,
+      created_at: row.created_at,
+      approval_id: row.id,
+    });
+  }
 
   const erroredRuns = db
     .prepare(
@@ -2802,6 +2843,7 @@ export function listInboxItems(): InboxItem[] {
   }[];
 
   for (const row of erroredRuns) {
+    if (itemsByBot.has(row.bot_id)) continue;
     itemsByBot.set(row.bot_id, {
       id: `run-error:${row.run_id}`,
       kind: "run_error",
@@ -2907,6 +2949,7 @@ export function listInboxItems(): InboxItem[] {
     .all() as (NotificationRow & { bot_name: string | null })[];
 
   for (const notification of unreadNotifications) {
+    if (notification.kind === "approval") continue;
     const sourceKind =
       notification.kind === "run_error" ||
       notification.kind === "watchdog" ||

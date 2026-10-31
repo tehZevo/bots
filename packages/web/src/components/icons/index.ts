@@ -1,3 +1,4 @@
+export { ApprovalIcon } from "./ApprovalIcon.tsx";
 export { BellIcon } from "./BellIcon.tsx";
 export { BookIcon } from "./BookIcon.tsx";
 export { BotIcon } from "./BotIcon.tsx";
