@@ -310,6 +310,7 @@ export function App() {
     unreadCount: unreadNotifications,
     markOne: markOneNotification,
     markAll: markAllRead,
+    refresh: refreshNotifications,
   } = useNotifications({
     getSound: (botId) =>
       botsRef.current.find((b) => b.id === botId)?.sound ?? "default",
@@ -617,6 +618,24 @@ export function App() {
     setInbox((rows) => rows.filter((row) => !row.notification_id));
   }
 
+  // specs/tools/approvals.md — decide a waiting tool call straight from the inbox.
+  async function decideInboxApproval(
+    id: string,
+    approve: boolean,
+  ): Promise<void> {
+    try {
+      await api(`/api/approvals/${id}/decide`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ approve }),
+      });
+    } catch {
+      /* decided elsewhere already — the refresh below settles the row */
+    }
+    setInbox((rows) => rows.filter((row) => row.approval_id !== id));
+    await refreshNotifications();
+  }
+
   function openInboxItem(item: InboxItem): void {
     const target = item.target_path;
     if (!target) {
@@ -694,6 +713,9 @@ export function App() {
                 onOpenItem={openInboxItem}
                 onMarkRead={(id) => void markInboxRead(id)}
                 onMarkAllRead={() => void markAllAndSync()}
+                onDecideApproval={(id, approve) =>
+                  void decideInboxApproval(id, approve)
+                }
               />
             )}
             {tab === "bots" && (

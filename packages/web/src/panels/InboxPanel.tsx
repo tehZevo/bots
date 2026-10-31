@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ApprovalIcon } from "../components/icons/ApprovalIcon.tsx";
 import { BellIcon } from "../components/icons/BellIcon.tsx";
 import { toggleIn } from "../lib/filterBots.ts";
 import {
@@ -34,6 +35,7 @@ function InboxKindIcon({ kind }: { kind: InboxKind }) {
         <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
       </svg>
     );
+  if (kind === "approval") return <ApprovalIcon size={18} />;
   if (kind === "notification") return <BellIcon size={18} />;
   return (
     <svg {...shared}>
@@ -51,6 +53,7 @@ export function InboxPanel({
   onOpenItem,
   onMarkRead,
   onMarkAllRead,
+  onDecideApproval,
 }: {
   items: InboxItem[];
   unreadCount: number;
@@ -58,6 +61,7 @@ export function InboxPanel({
   onOpenItem: (item: InboxItem) => void;
   onMarkRead: (id: string) => void;
   onMarkAllRead: () => void;
+  onDecideApproval: (id: string, approve: boolean) => void;
 }) {
   const [kindSel, setKindSel] = useState<InboxKind[]>([]);
   const [botSel, setBotSel] = useState<string[]>([]);
@@ -163,14 +167,37 @@ export function InboxPanel({
                     {inboxTimeLabel(item.created_at)}
                   </time>
                 </button>
-                {unread && (
+                {(unread || item.approval_id) && (
                   <div className="notifactions">
-                    <button
-                      type="button"
-                      onClick={() => onMarkRead(item.notification_id ?? "")}
-                    >
-                      Mark read
-                    </button>
+                    {item.approval_id && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onDecideApproval(item.approval_id as string, false)
+                          }
+                        >
+                          Deny
+                        </button>
+                        <button
+                          type="button"
+                          className="primary"
+                          onClick={() =>
+                            onDecideApproval(item.approval_id as string, true)
+                          }
+                        >
+                          Approve
+                        </button>
+                      </>
+                    )}
+                    {unread && (
+                      <button
+                        type="button"
+                        onClick={() => onMarkRead(item.notification_id ?? "")}
+                      >
+                        Mark read
+                      </button>
+                    )}
                   </div>
                 )}
               </li>
