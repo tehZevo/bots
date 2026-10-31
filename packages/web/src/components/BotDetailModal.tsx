@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { api } from "../lib/api.ts";
 import { fmt, relTime, titleCase } from "../lib/format.ts";
+import { HEALTH_LABEL } from "../lib/health.ts";
 import type { Bot, Run } from "../types.ts";
-import { Avatar } from "./Avatar.tsx";
+import { Avatar, StatusDot } from "./Avatar.tsx";
 import { AvatarPicker } from "./AvatarPicker.tsx";
 import { BotFiles } from "./botTabs/BotFiles.tsx";
 import { BotGeneral } from "./botTabs/BotGeneral.tsx";
@@ -83,6 +84,14 @@ export function BotDetailModal({
         {bot.archived ? (
           <span className="archivebadge detailarchive">Archived</span>
         ) : null}
+        <p className="statusline detailhealth">
+          <StatusDot
+            id={bot.id}
+            health={bot.health}
+            active={bot.run_state === "running"}
+          />{" "}
+          {HEALTH_LABEL[bot.health]}
+        </p>
         {bot.current_task && !bot.status && (
           <p className="taskline">
             {bot.current_task}
