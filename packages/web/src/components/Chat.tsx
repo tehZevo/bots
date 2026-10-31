@@ -205,18 +205,29 @@ export function Chat({
     () => mergeOptimisticChatTurns(history, pendingMessages),
     [history, pendingMessages],
   );
-  const bottomRef = useRef<HTMLDivElement | null>(null);
-  const _scrollRevision = turns.reduce((total, turn) => {
-    let sum =
-      total + turns.length + turn.text.length + (turn.thinking?.length ?? 0);
-    for (const call of turn.tool_calls ?? []) {
-      sum += call.name.length + (call.output?.length ?? 0);
-    }
-    return sum;
-  }, 0);
+  const logRef = useRef<HTMLDivElement | null>(null);
+  // Following is re-armed on open and whenever the reader returns to the
+  // bottom, so scrolling up to read history is never yanked away (spec).
+  const stickToBottom = useRef(true);
+  const openedFor = useRef<string | null>(null);
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: "end" });
-  }, []);
+    const log = logRef.current;
+    if (!log) return;
+    if (openedFor.current !== botId) {
+      if (turns.length === 0) return;
+      openedFor.current = botId;
+      stickToBottom.current = true;
+    }
+    if (stickToBottom.current) log.scrollTop = log.scrollHeight;
+  }, [turns, botId]);
+
+  const trackStick = () => {
+    const log = logRef.current;
+    if (!log) return;
+    stickToBottom.current =
+      log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+  };
 
   const send = async () => {
     const text = draft.trim();
@@ -248,7 +259,7 @@ export function Chat({
   return (
     <section className="chat">
       <ApprovalStrip botId={botId} />
-      <div className="chat-log">
+      <div className="chat-log" ref={logRef} onScroll={trackStick}>
         {turns.length === 0 && <p>No conversation yet. Say something below.</p>}
         {turns.map((t, i) =>
           t.injected ? (
@@ -257,7 +268,6 @@ export function Chat({
             <ChatTurnView key={i} turn={t} botName={botName} />
           ),
         )}
-        <div ref={bottomRef} />
       </div>
       {botIsWorking && (
         <div className="chat-working" aria-label="bot is working">
