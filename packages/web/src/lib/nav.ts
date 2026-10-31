@@ -30,14 +30,14 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
-  { label: "Operate", ids: ["inbox", "bots", "teams", "activity"] },
+  { label: "Operate", ids: ["inbox", "bots", "teams"] },
   {
     label: "Library",
     ids: ["roles", "skills", "templates", "projects", "tags"],
   },
   {
     label: "Admin",
-    ids: ["machines", "integrations", "secrets", "settings"],
+    ids: ["machines", "integrations", "secrets", "activity", "settings"],
   },
 ]
   .map((group) => ({
