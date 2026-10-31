@@ -139,6 +139,9 @@ export function publishAppEvent(type: AppEventType, data: unknown): void {
 }
 
 mkdirSync(dirname(config.databasePath), { recursive: true });
+
+import { logAudit } from "./audit.ts";
+
 const db = new Database(config.databasePath);
 db.pragma("journal_mode = WAL");
 
@@ -333,6 +336,21 @@ db.exec(`
     cache_read INTEGER NOT NULL DEFAULT 0,
     cache_write INTEGER NOT NULL DEFAULT 0
   );
+
+  CREATE TABLE IF NOT EXISTS audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at INTEGER NOT NULL,
+    actor_kind TEXT NOT NULL,
+    actor_id TEXT,
+    actor_name TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target_kind TEXT NOT NULL,
+    target_id TEXT,
+    target_name TEXT,
+    summary TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_audit_created ON audit (created_at DESC);
 
   CREATE INDEX IF NOT EXISTS idx_messages_bot ON messages (bot_id, id);
   CREATE INDEX IF NOT EXISTS idx_runs_bot ON runs (bot_id, started_at DESC);
@@ -1694,6 +1712,19 @@ export function removePushSubscriptionOwned(
   );
 }
 
+function auditRunStart(run: RunRow): void {
+  const bot = getBot(run.bot_id);
+  logAudit({
+    actor: bot
+      ? { kind: "bot", id: bot.id, name: bot.name }
+      : { kind: "system" },
+    action: "run.start",
+    targetKind: "run",
+    targetId: run.id,
+    summary: `trigger=${run.trigger ?? "manual"} bot=${bot?.name ?? run.bot_id}`,
+  });
+}
+
 export function finishRun(
   id: string,
   status: "ok" | "error",
@@ -1752,6 +1783,31 @@ export function finishRun(
     });
   }
   if (info?.bot_id) armContinuousTriggers(info.bot_id);
+  {
+    const info = db
+      .prepare(
+        `SELECT r.bot_id, r.trigger, b.name FROM runs r
+         LEFT JOIN bots b ON b.id = r.bot_id WHERE r.id = ?`,
+      )
+      .get(id) as
+      | { bot_id: string; trigger: string | null; name: string | null }
+      | undefined;
+    const action =
+      status === "ok"
+        ? "run.finish"
+        : error && /interrupt/i.test(error)
+          ? "run.interrupt"
+          : "run.error";
+    logAudit({
+      actor: info
+        ? { kind: "bot", id: info.bot_id, name: info.name ?? info.bot_id }
+        : { kind: "system" },
+      action,
+      targetKind: "run",
+      targetId: id,
+      summary: error ?? output?.slice(0, 160) ?? status,
+    });
+  }
 }
 
 export function tripWatchdog(
@@ -1762,6 +1818,14 @@ export function tripWatchdog(
 ): void {
   const runId = randomUUID();
   const message = `watchdog: no completed run in ${hours}h`;
+  logAudit({
+    actor: { kind: "system" },
+    action: "watchdog.trip",
+    targetKind: "bot",
+    targetId: botId,
+    targetName: name,
+    summary: message,
+  });
   insertRun({
     id: runId,
     bot_id: botId,
@@ -2678,13 +2742,20 @@ export function checkSpendBreaker(): boolean {
   const wasArmed = isBreakerArmed();
   setBreakerArmed(true);
   setPaused(true);
-  if (!wasArmed)
+  if (!wasArmed) {
+    logAudit({
+      actor: { kind: "system" },
+      action: "breaker.trip",
+      targetKind: "global",
+      summary: `trailing-30d spend ${state.tokens_30d} passed cap ${state.limit_tokens}; all bots paused`,
+    });
     createNotification({
       kind: "breaker",
       title: "Spend circuit breaker tripped",
       body: `Trailing 30-day usage of ${state.tokens_30d.toLocaleString()} tokens passed the cap of ${state.limit_tokens.toLocaleString()}. All bots are paused; raise or clear the cap to resume.`,
       dedupeKey: `breaker:${Date.now()}`,
     });
+  }
   return true;
 }
 
@@ -3243,4 +3314,92 @@ export function deleteSessionsForUser(
       "DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?",
     ).run(userId, keepTokenHash);
   else db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId);
+}
+
+export interface AuditRow {
+  id: number;
+  created_at: number;
+  actor_kind: string;
+  actor_id: string | null;
+  actor_name: string;
+  action: string;
+  target_kind: string;
+  target_id: string | null;
+  target_name: string | null;
+  summary: string | null;
+}
+
+export function insertAuditRow(row: {
+  created_at: number;
+  actor_kind: string;
+  actor_id?: string | null;
+  actor_name: string;
+  action: string;
+  target_kind: string;
+  target_id?: string | null;
+  target_name?: string | null;
+  summary?: string | null;
+}): void {
+  db.prepare(
+    `INSERT INTO audit (created_at, actor_kind, actor_id, actor_name, action, target_kind, target_id, target_name, summary)
+     VALUES (@created_at, @actor_kind, @actor_id, @actor_name, @action, @target_kind, @target_id, @target_name, @summary)`,
+  ).run({
+    created_at: row.created_at,
+    actor_kind: row.actor_kind,
+    actor_id: row.actor_id ?? null,
+    actor_name: row.actor_name,
+    action: row.action,
+    target_kind: row.target_kind,
+    target_id: row.target_id ?? null,
+    target_name: row.target_name ?? null,
+    summary: (row.summary ?? "").slice(0, 200),
+  });
+}
+
+export interface AuditQuery {
+  actor?: string;
+  type?: string;
+  q?: string;
+  since?: number;
+  until?: number;
+  limit?: number;
+}
+
+export function queryAuditRows(query: AuditQuery): AuditRow[] {
+  const where: string[] = [];
+  const params: Record<string, unknown> = {};
+  if (query.actor) {
+    where.push("actor_kind = @actor");
+    params.actor = query.actor;
+  }
+  if (query.type) {
+    where.push("action LIKE @type || '.%'");
+    params.type = query.type;
+  }
+  if (query.q) {
+    where.push(
+      "(target_name LIKE '%' || @q || '%' OR target_id = @q OR summary LIKE '%' || @q || '%')",
+    );
+    params.q = query.q;
+  }
+  if (typeof query.since === "number") {
+    where.push("created_at >= @since");
+    params.since = query.since;
+  }
+  if (typeof query.until === "number") {
+    where.push("created_at <= @until");
+    params.until = query.until;
+  }
+  const limit = Math.min(Math.max(query.limit ?? 200, 1), 1000);
+  params.limit = limit;
+  return db
+    .prepare(
+      `SELECT * FROM audit ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY id DESC LIMIT @limit`,
+    )
+    .all(params) as AuditRow[];
+}
+
+export function purgeAuditBefore(ts: number): number {
+  const res = db.prepare("DELETE FROM audit WHERE created_at < ?").run(ts);
+  return Number(res.changes ?? 0);
 }

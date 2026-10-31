@@ -81,6 +81,7 @@ import {
 } from "./lib/runStates.ts";
 import { playSound, SOUND_LIBRARY } from "./lib/sound.ts";
 import { renderMarkdown } from "./markdown.ts";
+import { ActivityPanel } from "./panels/ActivityPanel.tsx";
 import { BotsPanel } from "./panels/BotsPanel.tsx";
 import { IntegrationsPanel } from "./panels/IntegrationsPanel.tsx";
 import { MachinesPanel } from "./panels/MachinesPanel.tsx";
@@ -743,6 +744,7 @@ export function App() {
               />
             )}
             {tab === "secrets" && <SecretsPanel />}
+            {tab === "activity" && <ActivityPanel />}
             {tab === "settings" && <SettingsPanel />}
           </main>
           {chatBotRow && (

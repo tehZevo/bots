@@ -1,4 +1,5 @@
 import type { ReactElement } from "react";
+import { ActivityIcon } from "../components/icons/ActivityIcon.tsx";
 import { BookIcon } from "../components/icons/BookIcon.tsx";
 import { BotIcon } from "../components/icons/BotIcon.tsx";
 import { GearIcon } from "../components/icons/GearIcon.tsx";
@@ -14,6 +15,7 @@ import { TemplateIcon } from "../components/icons/TemplateIcon.tsx";
 const NAV_ITEMS: NavItem[] = [
   { id: "bots", label: "Bots", Icon: BotIcon },
   { id: "teams", label: "Teams", Icon: TeamIcon },
+  { id: "activity", label: "Activity", Icon: ActivityIcon },
   { id: "roles", label: "Roles", Icon: RoleIcon },
   { id: "skills", label: "Skills", Icon: BookIcon },
   { id: "templates", label: "Templates", Icon: TemplateIcon },
@@ -26,7 +28,7 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
-  { label: "Operate", ids: ["bots", "teams"] },
+  { label: "Operate", ids: ["bots", "teams", "activity"] },
   {
     label: "Library",
     ids: ["roles", "skills", "templates", "projects", "tags"],

@@ -278,6 +278,33 @@ export function openApiDoc(): Json {
     },
   );
   add(
+    "/api/audit",
+    "get",
+    "Global audit log, newest first (specs/audit/log.md)",
+    {
+      params: ["actor", "type", "q", "since", "until", "limit"],
+
+      res: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "integer" },
+            created_at: { type: "integer" },
+            actor_kind: { type: "string" },
+            actor_id: { type: ["string", "null"] },
+            actor_name: { type: "string" },
+            action: { type: "string" },
+            target_kind: { type: "string" },
+            target_id: { type: ["string", "null"] },
+            target_name: { type: ["string", "null"] },
+            summary: { type: ["string", "null"] },
+          },
+        },
+      },
+    },
+  );
+  add(
     "/api/breaker",
     "get",
     "Read the spend circuit breaker cap, trailing-30-day usage and exceeded flag",

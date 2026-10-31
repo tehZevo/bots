@@ -3204,6 +3204,45 @@ main.scr-active,
   margin-top: 0.5rem;
 }
 
+/* specs/audit/log.md — Activity feed */
+.auditlist {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.auditlist li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.auditlist time {
+  min-width: 90px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.auditactor {
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: color-mix(in oklab, var(--muted) 15%, transparent);
+}
+.auditactor-user {
+  background: color-mix(in oklab, var(--info) 18%, transparent);
+}
+.auditactor-bot {
+  background: color-mix(in oklab, var(--ok) 18%, transparent);
+}
+.auditactor-trigger {
+  background: color-mix(in oklab, var(--warn) 18%, transparent);
+}
+
 .botgeneral {
   display: flex;
   flex-direction: column;
@@ -3651,3 +3690,4 @@ button:not(.sidetabs button):not(.card) {
     font-size: 1.25rem;
   }
 }
+

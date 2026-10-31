@@ -10,6 +10,7 @@ import type { Tab } from "../types.ts";
 export const TAB_PATHS: Record<Tab, string> = {
   bots: "/bots",
   teams: "/teams",
+  activity: "/activity",
   roles: "/roles",
   machines: "/machines",
   integrations: "/integrations",
