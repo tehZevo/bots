@@ -2,7 +2,7 @@
 
 The UI and API are login-protected. The sign-in screen offers **Sign in**, plus **Create account** while registration is enabled — enable it through [runtime configuration](/operations#runtime-configuration) to create the first account. Every signed-in user has equal access to all bots and settings; there is no admin tier.
 
-A sign-in lasts seven days on that browser, then you sign in again — there is no "remember me" choice. Settings → **General** holds self-service password change: fill in **Current password** and **New password** (at least eight characters) and press **Change password**; every other session is logged out, this one stays signed in. Settings → **System** shows the signed-in account and offers **Logout**.
+A sign-in lasts seven days on that browser, then you sign in again — there is no "remember me" choice. Signing in works over plain HTTP as well as HTTPS, so a LAN or Tailscale hostname such as `http://hostname:8075` is fine; the session cookie only carries the `Secure` flag when the connection is actually encrypted. Settings → **General** holds self-service password change: fill in **Current password** and **New password** (at least eight characters) and press **Change password**; every other session is logged out, this one stays signed in. Settings → **System** shows the signed-in account and offers **Logout**.
 
 ## API keys
 

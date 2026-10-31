@@ -64,13 +64,33 @@ test("signup is gated by ALLOW_REGISTRATION", async () => {
   assert.ok(rawCookie.startsWith(`${SESSION_COOKIE}=`));
   assert.match(rawCookie, /HttpOnly/i);
   assert.match(rawCookie, /SameSite=Lax/i);
-  assert.match(rawCookie, /Secure/i);
+  assert.ok(
+    !/Secure/i.test(rawCookie),
+    "plain HTTP must not mark the session cookie Secure",
+  );
 
   const dupe = await post("/api/auth/signup", {
     email: "A@Example.com",
     password: "longenough1",
   });
   assert.equal(dupe.status, 409);
+});
+
+test("session cookie stays Secure behind https", async () => {
+  process.env.ALLOW_REGISTRATION = "true";
+  const res = await app.request("/api/auth/signup", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-forwarded-proto": "https",
+    },
+    body: JSON.stringify({
+      email: "tls@example.com",
+      password: "longenough1",
+    }),
+  });
+  assert.equal(res.status, 201);
+  assert.match(res.headers.get("set-cookie") ?? "", /Secure/i);
 });
 
 test("login verifies credentials and issues a session", async () => {

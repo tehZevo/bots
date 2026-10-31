@@ -1,6 +1,6 @@
 # Multi-user accounts and sessions
 
-- The API and UI are protected by login sessions: email + password credentials, cookie-based session after sign-in, a `Logout` action in Settings; unauthenticated API calls return 401.
+- The API and UI are protected by login sessions: email + password credentials, cookie-based session after sign-in, a `Logout` action in Settings; unauthenticated API calls return 401. The session cookie is `HttpOnly`, `SameSite=Lax` and `Secure` only when the request arrived over HTTPS — directly or through a proxy's forwarded proto — so signing in over plain HTTP on a LAN or Tailscale hostname works.
 - Registration is controlled by the container env var `ALLOW_REGISTRATION` (`true`/`false`, default `false` when unset): with it on anyone may create an account; with it off the sign-up screen hides.
 - There is no admin tier: every authenticated user sees and edits all bots, triggers, runs, messages, settings, roles and skills equally.
 - A fresh install with registration disabled is bootstrapped by temporarily setting `ALLOW_REGISTRATION=true`, creating the first account, then disabling it again.
