@@ -2704,9 +2704,18 @@ button.danger.ghost {
 }
 
 .warnline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 0.25rem 0;
   color: var(--err);
   font-size: 0.85rem;
+}
+
+/* specs/ui/visual-style.md — settings-style forms keep a readable column */
+.botgeneral,
+.settingstab {
+  max-width: 560px;
 }
 
 .themegroup {

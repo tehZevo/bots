@@ -6,6 +6,7 @@ import {
   useState,
 } from "react";
 import { CloseIcon } from "../components/icons/CloseIcon.tsx";
+import { WarnIcon } from "../components/icons/WarnIcon.tsx";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog.tsx";
 import { UnsavedNote, useDiscardGuard } from "../components/ui/discard.tsx";
 import { ModalForm } from "../components/ui/Modal.tsx";
@@ -127,7 +128,9 @@ export function TemplateEditorModal({
         onChange={(e) => setInstructions(e.target.value)}
       />
       {missing.length > 0 && (
-        <p className="warnline">⚠ referenced {missing.join(" and ")} deleted</p>
+        <p className="warnline">
+          <WarnIcon size={14} /> referenced {missing.join(" and ")} deleted
+        </p>
       )}
       <p className="rolepick">
         Role{" "}
