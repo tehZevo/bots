@@ -1,7 +1,7 @@
 # Bot card quick menu
 
 - Every bot card carries a small horizontal "⋯" icon button in its header immediately left of the status circle (`dashboard.md`) — no pill, border or raised container around it, with its own keyboard focus, replacing the separate Run now button; clicking opens a menu anchored to the button and never opens the chat (`../chat/sidebar.md`).
-- The menu lists common actions for that bot: Open chat, Run now, Stop, Settings, Clear memory and Delete.
+- The menu lists common actions for that bot: Open chat, Run now, Stop, Settings, Clear memory and Delete. It stays compact — roughly the card's width, small type and tight rows — so it reads as a menu attached to the card rather than a dialog that dwarfs it.
 - Stop calls `POST /api/bots/:id/interrupt` and is listed only while the bot is running (`interrupt.md`); Run now calls `POST /api/bots/:id/run` (`run-now.md`).
 - Clear memory and Delete ask for confirmation first (`../ui/confirm.md`); the other actions apply immediately.
 - The menu closes on selection, on outside click and on Escape, and is reachable and dismissible by keyboard alone.
