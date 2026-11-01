@@ -277,6 +277,20 @@ function workDisabled(bot: BotRow): boolean {
 
 export const SESSION_COOKIE = "bots_session";
 const SESSION_TTL_S = 7 * 24 * 60 * 60;
+
+// A `Secure` cookie is dropped by the browser over plain HTTP, which would make
+// logins silently fail on a LAN or Tailscale hostname. Secure therefore follows
+// the protocol the request actually arrived on, proxy headers included.
+function requestIsSecure(c: Context): boolean {
+  const forwarded = c.req.header("x-forwarded-proto");
+  if (forwarded) return forwarded.split(",")[0]?.trim() === "https";
+  const rfc = c.req.header("forwarded");
+  if (rfc) {
+    const proto = /proto=(https?)/.exec(rfc);
+    if (proto) return proto[1] === "https";
+  }
+  return new URL(c.req.url).protocol === "https:";
+}
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 function allowRegistration(): boolean {
@@ -732,13 +746,13 @@ export function createApp() {
     return c.json({ groups });
   });
 
-  const cookieOpts = {
+  const cookieOpts = (c: Context) => ({
     httpOnly: true,
     sameSite: "Lax" as const,
-    secure: true,
+    secure: requestIsSecure(c),
     path: "/",
     maxAge: SESSION_TTL_S,
-  };
+  });
 
   app.get("/api/auth/config", (c) =>
     c.json({
@@ -785,7 +799,7 @@ export function createApp() {
       created_at: Date.now(),
     });
     const { token } = createSession(id, Date.now() + SESSION_TTL_S * 1000);
-    setCookie(c, SESSION_COOKIE, token, cookieOpts);
+    setCookie(c, SESSION_COOKIE, token, cookieOpts(c));
     clearFailedAuth(ip);
     logAudit({
       actor: { kind: "user", id, name: creds.email },
@@ -813,7 +827,7 @@ export function createApp() {
     }
 
     const { token } = createSession(user.id, Date.now() + SESSION_TTL_S * 1000);
-    setCookie(c, SESSION_COOKIE, token, cookieOpts);
+    setCookie(c, SESSION_COOKIE, token, cookieOpts(c));
     clearFailedAuth(ip);
     logAudit({
       actor: { kind: "user", id: user.id || null, name: user.email },
