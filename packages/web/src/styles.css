@@ -849,6 +849,7 @@ mark {
 
 .notiftoggle,
 .notifwrap > button[aria-label^="Notifications"] {
+  position: relative;
   min-width: 36px;
   padding-inline: 0.5rem;
   border-color: transparent;
@@ -864,8 +865,8 @@ mark {
 
 .notifbadge {
   position: absolute;
-  top: -4px;
-  right: -5px;
+  top: -6px;
+  right: -6px;
   display: grid;
   place-items: center;
   min-width: 18px;
