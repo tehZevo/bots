@@ -61,7 +61,13 @@ import {
   isFakeModel,
   queueFakeInput,
 } from "./fake-llm.ts";
-import { type ResolvedLlm, resolveDefault } from "./llm.ts";
+import {
+  describeConnectionFailure,
+  describeLlmError,
+  isCollapsedConnectionError,
+  type ResolvedLlm,
+  resolveDefault,
+} from "./llm.ts";
 import type { McpSession } from "./mcp.ts";
 import { BOTS_PROVIDER_ID } from "./pi-provider.ts";
 import {
@@ -116,6 +122,13 @@ function report(err: unknown): void {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function providerTarget(llm: ResolvedLlm): {
+  providerName: string;
+  baseUrl: string;
+} {
+  return { providerName: llm.providerName, baseUrl: llm.baseUrl };
 }
 
 function numeric(value: unknown): number {
@@ -463,15 +476,21 @@ async function projectAndOutput(active: ActiveRun): Promise<string | null> {
 async function settleRun(
   active: ActiveRun,
   settled: SettledSubmissionRecord,
+  llm: ResolvedLlm,
 ): Promise<void> {
   const output = await projectAndOutput(active);
   if (active.stopped) finishRun(active.runId, "error", output, "interrupted");
   else if (settled.status === "unanswered") {
+    const detail = settledMessage(settled);
     finishRun(
       active.runId,
       "error",
       output,
-      active.budgetHit ? "token budget exhausted" : settledMessage(settled),
+      active.budgetHit
+        ? "token budget exhausted"
+        : isCollapsedConnectionError(detail)
+          ? await describeConnectionFailure(providerTarget(llm))
+          : detail,
     );
   } else if (active.budgetHit) {
     finishRun(active.runId, "error", output, "token budget exhausted");
@@ -480,7 +499,11 @@ async function settleRun(
   }
 }
 
-async function failActiveRun(active: ActiveRun, err: unknown): Promise<void> {
+async function failActiveRun(
+  active: ActiveRun,
+  err: unknown,
+  llm: ResolvedLlm,
+): Promise<void> {
   const output = await projectAndOutput(active);
   finishRun(
     active.runId,
@@ -490,7 +513,7 @@ async function failActiveRun(active: ActiveRun, err: unknown): Promise<void> {
       ? "token budget exhausted"
       : active.stopped
         ? "interrupted"
-        : errorMessage(err),
+        : describeLlmError(err, providerTarget(llm)),
   );
 }
 
@@ -585,10 +608,16 @@ async function runDurableTurn(
     const settled = await submission.wait(BACKGROUND_CONTEXT);
     active.entryFloor = submissionFloor(settled);
     await waitForSettled(harness, prepared.conversation);
-    await settleRun(active, settled);
+    await settleRun(active, settled, llm);
   } catch (err) {
-    if (active) await failActiveRun(active, err);
-    else finishRun(runId, "error", null, errorMessage(err));
+    if (active) await failActiveRun(active, err, llm);
+    else
+      finishRun(
+        runId,
+        "error",
+        null,
+        describeLlmError(err, providerTarget(llm)),
+      );
   } finally {
     await cleanupActiveRun(bot, runId, active);
   }
@@ -685,7 +714,7 @@ export function injectMessage(
   setCurrentRunForBot(bot.id, runId);
   void runDurableTurn(bot, runId, content, llm).catch((err) => {
     console.error(`durable run startup failed for ${runId}:`, err);
-    finishRun(runId, "error", null, errorMessage(err));
+    finishRun(runId, "error", null, describeLlmError(err, providerTarget(llm)));
     clearFakePlansForBot(bot.id);
     if (getCurrentRunForBot(bot.id) === runId)
       setCurrentRunForBot(bot.id, null);
@@ -825,11 +854,17 @@ async function resumeDurableSubmission(
     const settled = await submission.wait(BACKGROUND_CONTEXT);
     active.entryFloor ??= submissionFloor(settled);
     await waitForSettled(harness, prepared.conversation);
-    await settleRun(active, settled);
+    await settleRun(active, settled, llm);
   } catch (err) {
     console.error(`durable recovery failed for run ${runId}:`, err);
-    if (active) await failActiveRun(active, err);
-    else finishRun(runId, "error", null, errorMessage(err));
+    if (active) await failActiveRun(active, err, llm);
+    else
+      finishRun(
+        runId,
+        "error",
+        null,
+        describeLlmError(err, providerTarget(llm)),
+      );
   } finally {
     clearPendingRecovery(bot.id, runId);
     await cleanupActiveRun(bot, runId, active);
