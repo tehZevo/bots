@@ -248,28 +248,6 @@ export function App() {
       .finally(() => setPoking((p) => ({ ...p, [bot.id]: false })));
   };
 
-  const rerunTranscriptMessage = async (
-    botId: string,
-    message: string,
-  ): Promise<void> => {
-    const target = bots.find((b) => b.id === botId);
-    if (!target?.enabled || paused || target.run_state === "running") return;
-    try {
-      const result = await api<{ runId: string | null }>(
-        `/api/bots/${botId}/run`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ message }),
-        },
-      );
-      if (result.runId) setOptimisticRunState(botId, "running");
-      await load();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
-    }
-  };
-
   const [modalTab, setModalTab] = useState<BotModalTab>("general");
   const modalTabOverride = useRef<BotModalTab | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -825,9 +803,6 @@ export function App() {
               onChanged={load}
               onClose={requestCloseDetails}
               onStop={stopBotWork}
-              onRerun={(message) =>
-                rerunTranscriptMessage(openBotRow.id, message)
-              }
             />
           )}
           {addOpen && (
