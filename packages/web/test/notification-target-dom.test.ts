@@ -1,45 +1,10 @@
 import assert from "node:assert/strict";
-import { JSDOM } from "jsdom";
-import { it as test } from "vitest";
-
-const dom = new JSDOM(
-  '<!doctype html><html><body><div id="root"></div></body></html>',
-  { url: "http://localhost/bots" },
-);
-const { window } = dom;
-
-Object.defineProperty(globalThis, "navigator", {
-  configurable: true,
-  value: window.navigator,
-});
-Object.assign(globalThis, {
-  window,
-  document: window.document,
-  HTMLElement: window.HTMLElement,
-  HTMLInputElement: window.HTMLInputElement,
-  HTMLTextAreaElement: window.HTMLTextAreaElement,
-  HTMLSelectElement: window.HTMLSelectElement,
-  Event: window.Event,
-  MouseEvent: window.MouseEvent,
-  KeyboardEvent: window.KeyboardEvent,
-  PopStateEvent: window.PopStateEvent,
-  PointerEvent: window.MouseEvent,
-  history: window.history,
-  location: window.location,
-  localStorage: window.localStorage,
-  addEventListener: window.addEventListener.bind(window),
-  removeEventListener: window.removeEventListener.bind(window),
-  requestAnimationFrame: (cb: FrameRequestCallback) => setTimeout(cb, 0),
-  cancelAnimationFrame: (id: number) => clearTimeout(id),
-  IS_REACT_ACT_ENVIRONMENT: true,
-});
-window.HTMLElement.prototype.scrollIntoView = () => undefined;
-globalThis.alert = () => undefined;
+import { act, test, track, window } from "./dom-env.ts";
 
 const React = await import("react");
 const { createRoot } = await import("react-dom/client");
+
 const { App } = await import("../src/App.tsx");
-const act = React.act;
 
 const now = Date.now();
 const bot = {
@@ -151,7 +116,7 @@ async function mountApp(url: string): Promise<ReturnType<typeof createRoot>> {
   window.history.replaceState({}, "", url);
   const container = window.document.createElement("div");
   window.document.body.append(container);
-  const root = createRoot(container);
+  const root = track(createRoot(container));
   await act(async () => {
     root.render(React.createElement(App));
   });

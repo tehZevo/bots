@@ -1,34 +1,10 @@
 import assert from "node:assert/strict";
-import { JSDOM } from "jsdom";
-import { it as test } from "vitest";
+import { act, test, track, window } from "./dom-env.ts";
 
-const dom = new JSDOM(
-  '<!doctype html><html><body><div id="root"></div></body></html>',
-  { url: "http://localhost/bots" },
-);
-const { window } = dom;
+const React = await import("react");
+const { createRoot } = await import("react-dom/client");
 
-Object.defineProperty(globalThis, "navigator", {
-  configurable: true,
-  value: window.navigator,
-});
-Object.assign(globalThis, {
-  window,
-  document: window.document,
-  HTMLElement: window.HTMLElement,
-  HTMLInputElement: window.HTMLInputElement,
-  Event: window.Event,
-  MouseEvent: window.MouseEvent,
-  KeyboardEvent: window.KeyboardEvent,
-  history: window.history,
-  location: window.location,
-  localStorage: window.localStorage,
-  addEventListener: window.addEventListener.bind(window),
-  removeEventListener: window.removeEventListener.bind(window),
-  requestAnimationFrame: (cb: FrameRequestCallback) => setTimeout(cb, 0),
-  cancelAnimationFrame: (id: number) => clearTimeout(id),
-  IS_REACT_ACT_ENVIRONMENT: true,
-});
+const { SearchOverlay } = await import("../src/components/SearchOverlay.tsx");
 
 const now = Date.now();
 function sampleBot(
@@ -169,11 +145,6 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   return json([]);
 }) as typeof globalThis.fetch;
 
-const React = await import("react");
-const { createRoot } = await import("react-dom/client");
-const { SearchOverlay } = await import("../src/components/SearchOverlay.tsx");
-const act = React.act;
-
 async function flush(): Promise<void> {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -183,7 +154,7 @@ async function flush(): Promise<void> {
 async function mountOverlay(): Promise<ReturnType<typeof createRoot>> {
   const container = window.document.createElement("div");
   window.document.body.append(container);
-  const root = createRoot(container);
+  const root = track(createRoot(container));
   await act(async () => {
     root.render(
       React.createElement(SearchOverlay, {
