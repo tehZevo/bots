@@ -630,7 +630,7 @@ test("chat sidebar disables composer for a disabled bot", () => {
   );
   assert.match(
     html,
-    /<input[^>]+placeholder="Message the bot…"[^>]+disabled=""/,
+    /<input[^>]+placeholder="Message Alpha…"[^>]+disabled=""/,
   );
   assert.match(
     html,

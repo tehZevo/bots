@@ -290,7 +290,7 @@ export function Chat({
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="Message the bot…"
+          placeholder={`Message ${botName}…`}
           disabled={sending || !enabled}
         />
         <button type="submit" disabled={sending || !enabled || !draft.trim()}>
