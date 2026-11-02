@@ -1708,7 +1708,7 @@ test("accepted chat send flips cues immediately", async () => {
     );
 
     const input = window.document.querySelector(
-      'input[placeholder="Message the bot…"]',
+      'input[placeholder="Message Sable…"]',
     );
     await typeInto(input, "check");
     await click(button("Send"));
