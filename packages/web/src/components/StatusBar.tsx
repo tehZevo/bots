@@ -49,23 +49,19 @@ export function StatusBar({
     >,
   );
   const runningCount = bots.filter((b) => b.run_state === "running").length;
+  const screen = navItemForTab(tab);
   return (
     <header className="statusbar">
       <button type="button" className="brandlink" onClick={onBrandClick}>
         <BotIcon size={20} />
         <span>Bots</span>
       </button>
-      <span className="screentitle">
-        {(() => {
-          const screen = navItemForTab(tab);
-          return (
-            <>
-              <screen.Icon size={18} />
-              {screen.label}
-            </>
-          );
-        })()}
-      </span>
+      {screen.id !== "bots" && (
+        <span className="screentitle">
+          <screen.Icon size={18} />
+          {screen.label}
+        </span>
+      )}
       <div className="statuschips" role="status">
         {runningCount > 0 && (
           <span className="statuschip running">
