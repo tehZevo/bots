@@ -2515,6 +2515,25 @@ button.danger.ghost {
   box-shadow: var(--menu-shadow);
 }
 
+/* Filter lists can outgrow the panel; keep a visible bar so the overflow is discoverable. */
+.filterpanel {
+  scrollbar-width: thin;
+  scrollbar-color: var(--muted) transparent;
+}
+
+.filterpanel::-webkit-scrollbar {
+  width: 10px;
+}
+
+.filterpanel::-webkit-scrollbar-thumb {
+  background: var(--muted);
+  border-radius: var(--radius-pill);
+}
+
+.filterpanel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 .filterpanel label {
   display: flex;
   align-items: center;

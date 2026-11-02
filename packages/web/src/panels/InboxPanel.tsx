@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { ApprovalIcon } from "../components/icons/ApprovalIcon.tsx";
 import { BellIcon } from "../components/icons/BellIcon.tsx";
+import { useDismissOnFocusLost } from "../hooks/useDismissOnFocusLost.ts";
 import { toggleIn } from "../lib/filterBots.ts";
 import {
   filterInboxItems,
@@ -9,6 +10,33 @@ import {
   type InboxKind,
   inboxTimeLabel,
 } from "../lib/inbox.ts";
+
+function FilterDropdown({
+  label,
+  value,
+  children,
+}: {
+  label: string;
+  value: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDetailsElement>(null);
+  useDismissOnFocusLost(ref, open, () => setOpen(false));
+  return (
+    <details
+      className="filterdd"
+      ref={ref}
+      open={open}
+      onToggle={(e) => setOpen(e.currentTarget.open)}
+    >
+      <summary aria-label={`${label} filter: ${value}`}>
+        {label}: {value}
+      </summary>
+      <div className="filterpanel">{children}</div>
+    </details>
+  );
+}
 
 function InboxKindIcon({ kind }: { kind: InboxKind }) {
   const shared = {
@@ -86,43 +114,39 @@ export function InboxPanel({
         </button>
       </div>
       <div className="filterrow">
-        <details className="filterdd">
-          <summary
-            aria-label={`Kind filter: ${kindSel.length === 0 ? "All" : `${kindSel.length} selected`}`}
-          >
-            Kind:{" "}
-            {kindSel.length === 0
+        <FilterDropdown
+          label="Kind"
+          value={
+            kindSel.length === 0
               ? "All"
-              : kindSel.map((k) => INBOX_KIND_LABELS[k]).join(", ")}
-          </summary>
-          <div className="filterpanel">
-            {(Object.keys(INBOX_KIND_LABELS) as InboxKind[]).map((kind) => (
-              <label key={kind} data-name={INBOX_KIND_LABELS[kind]}>
-                <input
-                  type="checkbox"
-                  checked={kindSel.includes(kind)}
-                  onChange={() => setKindSel((v) => toggleIn(v, kind))}
-                />{" "}
-                {INBOX_KIND_LABELS[kind]}
-              </label>
-            ))}
-          </div>
-        </details>
-        <details className="filterdd">
-          <summary
-            aria-label={`Bot filter: ${botSel.length === 0 ? "All" : `${botSel.length} selected`}`}
+              : kindSel.map((k) => INBOX_KIND_LABELS[k]).join(", ")
+          }
+        >
+          {(Object.keys(INBOX_KIND_LABELS) as InboxKind[]).map((kind) => (
+            <label key={kind} data-name={INBOX_KIND_LABELS[kind]}>
+              <input
+                type="checkbox"
+                checked={kindSel.includes(kind)}
+                onChange={() => setKindSel((v) => toggleIn(v, kind))}
+              />{" "}
+              {INBOX_KIND_LABELS[kind]}
+            </label>
+          ))}
+        </FilterDropdown>
+        {inboxBots.length > 0 && (
+          <FilterDropdown
+            label="Bot"
+            value={
+              botSel.length === 0
+                ? "All"
+                : botSel
+                    .map(
+                      (id) =>
+                        inboxBots.find(([botId]) => botId === id)?.[1] ?? "?",
+                    )
+                    .join(", ")
+            }
           >
-            Bot:{" "}
-            {botSel.length === 0
-              ? "All"
-              : botSel
-                  .map(
-                    (id) =>
-                      inboxBots.find(([botId]) => botId === id)?.[1] ?? "?",
-                  )
-                  .join(", ")}
-          </summary>
-          <div className="filterpanel">
             {inboxBots.map(([id, name]) => (
               <label key={id} data-name={name}>
                 <input
@@ -133,8 +157,8 @@ export function InboxPanel({
                 {name ?? "?"}
               </label>
             ))}
-          </div>
-        </details>
+          </FilterDropdown>
+        )}
       </div>
       {visible.length === 0 ? (
         <section className="inboxempty" aria-live="polite">
