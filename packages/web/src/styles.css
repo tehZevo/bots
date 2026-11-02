@@ -1165,7 +1165,8 @@ mark {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
-  padding-bottom: 1.25rem;
+  /* The scroll container clips card shadows, so keep a gutter around them. */
+  padding: 0.6rem 1rem 1.25rem;
 }
 
 .detailhead-actions {
