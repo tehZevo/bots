@@ -1,6 +1,6 @@
 # Global audit log
 
-- The server appends one immutable row per consequential action to a global audit log: bot create/edit/archive/delete, trigger changes and firings, run start/finish/error/interrupt, chat sends, every tool call, pause/resume/stop-all, watchdog and breaker events, logins/logouts, API-key create/revoke, config backup export/restore.
+- The server appends one immutable row per consequential action to a global audit log: bot create/edit/archive/delete, trigger changes and firings, run start/finish/error/interrupt, chat sends, question posts/answers/cancellations, every tool call, pause/resume/stop-all, watchdog and breaker events, logins/logouts, API-key create/revoke, config backup export/restore.
 - Each entry carries timestamp, actor (user email, bot id + name, trigger id, or `system`), action verb, target kind + id + recorded name, and a one-line summary of at most 200 characters.
 - Entries are append-only: no edit or delete API exists; the only removal is retention (below).
 - Tool calls log one entry each — tool name plus a truncated input/output line; full transcripts stay in run drill-down (`../runs/drill-down.md`).

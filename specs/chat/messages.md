@@ -11,6 +11,7 @@
 - Tool calls and thinking attach to their assistant turn as separate collapsible sections, collapsed by default: one section for thinking, one per tool call showing tool name plus input and output; expanded content scrolls within bounds.
 - Additional messages sent while the bot is busy are queued and each steers the bot via the same path; the chat shows all queued messages.
 - Send is unavailable while the bot is disabled; API errors surface inline in the sidebar without closing it.
+- A chat send cancels the bot's pending questions (`../tools/questions.md`) — talking directly supersedes queued choices; the chat shows each pending question as a distinct marker line until it is answered or cancelled.
 - Chat turns are ordinary context: they appear in Logs and participate in compaction like any message.
 - Trigger-injected messages render in the chat as a full-width system bar spanning the conversation — source label plus humanized time (e.g. `Scheduled run · 7:00 AM`) — visually distinct from user and bot turns; the raw `[schedule …]`/`[webhook …]` prefix text never appears in any bubble.
 - Opening a chat lands on its newest turn. New turns keep the view pinned to the bottom only while the reader is already there; scrolling up to read history stops the follow until they return to the bottom.
