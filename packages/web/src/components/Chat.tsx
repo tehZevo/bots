@@ -15,6 +15,7 @@ import {
   SpinnerIcon,
 } from "../components/icons/index.ts";
 import { usePolling } from "../hooks/usePolling.ts";
+import { useSmoothedTurns } from "../hooks/useSmoothedTurns.ts";
 import { api } from "../lib/api.ts";
 import { renderMarkdown } from "../markdown.ts";
 import type { Bot, ChatTurn, OptimisticChatMessage } from "../types.ts";
@@ -201,10 +202,11 @@ export function Chat({
 
   usePolling(loadChat, botIsWorking ? 800 : 5000, { enabled: !streamActive });
 
-  const turns = useMemo(
+  const mergedTurns = useMemo(
     () => mergeOptimisticChatTurns(history, pendingMessages),
     [history, pendingMessages],
   );
+  const turns = useSmoothedTurns(mergedTurns);
   const logRef = useRef<HTMLDivElement | null>(null);
   // Following is re-armed on open and whenever the reader returns to the
   // bottom, so scrolling up to read history is never yanked away (spec).
