@@ -1,40 +1,5 @@
 import assert from "node:assert/strict";
-import { JSDOM } from "jsdom";
-import { it as test } from "vitest";
-import type { ScheduleMode } from "../src/schedule.tsx";
-
-const dom = new JSDOM(
-  '<!doctype html><html><body><div id="root"></div></body></html>',
-  { url: "http://localhost/bots" },
-);
-const { window } = dom;
-
-Object.defineProperty(globalThis, "navigator", {
-  configurable: true,
-  value: window.navigator,
-});
-Object.assign(globalThis, {
-  window,
-  document: window.document,
-  HTMLElement: window.HTMLElement,
-  HTMLInputElement: window.HTMLInputElement,
-  HTMLTextAreaElement: window.HTMLTextAreaElement,
-  HTMLSelectElement: window.HTMLSelectElement,
-  Event: window.Event,
-  MouseEvent: window.MouseEvent,
-  KeyboardEvent: window.KeyboardEvent,
-  PointerEvent: window.MouseEvent,
-  history: window.history,
-  location: window.location,
-  localStorage: window.localStorage,
-  addEventListener: window.addEventListener.bind(window),
-  removeEventListener: window.removeEventListener.bind(window),
-  requestAnimationFrame: (cb: FrameRequestCallback) => setTimeout(cb, 0),
-  cancelAnimationFrame: (id: number) => clearTimeout(id),
-  IS_REACT_ACT_ENVIRONMENT: true,
-});
-window.HTMLElement.prototype.scrollIntoView = () => undefined;
-globalThis.alert = () => undefined;
+import { test, track, window } from "./dom-env.ts";
 
 const clipboardWrites: string[] = [];
 Object.defineProperty(window.navigator, "clipboard", {
@@ -389,7 +354,7 @@ async function mount(
 ): Promise<ReturnType<typeof createRoot>> {
   const container = window.document.createElement("div");
   window.document.body.append(container);
-  const root = createRoot(container);
+  const root = track(createRoot(container));
   await act(async () => {
     root.render(element);
   });
