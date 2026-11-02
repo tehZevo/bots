@@ -2,17 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../lib/api.ts";
 import { fmtMs } from "../lib/format.ts";
 import type { Run, TranscriptStep } from "../types.ts";
-export function ReplayStep({
-  step,
-  running = false,
-  busy = false,
-  onRerun,
-}: {
-  step: TranscriptStep;
-  running?: boolean;
-  busy?: boolean;
-  onRerun?: (message: string) => Promise<void>;
-}) {
+export function ReplayStep({ step }: { step: TranscriptStep }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const clipped = step.kind === "tool_result" || step.kind === "tool_call";
@@ -43,7 +33,6 @@ export function ReplayStep({
     }
   }
 
-  const showRun = step.kind === "user" && onRerun !== undefined;
   const showCopy =
     (step.kind === "assistant" || step.kind === "tool_result") && !!step.text;
 
@@ -60,23 +49,11 @@ export function ReplayStep({
         {!!step.retry_wait_ms && (
           <span className="rretry">retry wait {fmtMs(step.retry_wait_ms)}</span>
         )}
-        {(showRun || showCopy) && (
+        {showCopy && (
           <span className="ractions">
-            {showCopy && (
-              <button type="button" onClick={() => void copyText()}>
-                {copied ? "Copied" : "Copy"}
-              </button>
-            )}
-            {showRun && (
-              <button
-                type="button"
-                disabled={running || busy}
-                title={running ? "The bot is already running" : undefined}
-                onClick={() => void onRerun(step.text ?? "")}
-              >
-                Run this
-              </button>
-            )}
+            <button type="button" onClick={() => void copyText()}>
+              {copied ? "Copied" : "Copy"}
+            </button>
           </span>
         )}
       </div>
@@ -103,22 +80,11 @@ export function ReplayStep({
   );
 }
 
-export function ReplayPanel({
-  botId,
-  run,
-  running = false,
-  onRerun,
-}: {
-  botId: string;
-  run: Run;
-  running?: boolean;
-  onRerun?: (message: string) => Promise<void>;
-}) {
+export function ReplayPanel({ botId, run }: { botId: string; run: Run }) {
   const [data, setData] = useState<{
     usage: { total: number } | null;
     steps: TranscriptStep[];
   } | null>(null);
-  const [rerunning, setRerunning] = useState(false);
   useEffect(() => {
     let on = true;
     api<{
@@ -133,16 +99,6 @@ export function ReplayPanel({
   }, [botId, run.id]);
   if (!data) return <p className="muted replay">Loading transcript…</p>;
 
-  async function rerun(message: string): Promise<void> {
-    if (!onRerun || running || rerunning) return;
-    setRerunning(true);
-    try {
-      await onRerun(message);
-    } finally {
-      setRerunning(false);
-    }
-  }
-
   return (
     <div className="replay">
       <header>
@@ -154,15 +110,7 @@ export function ReplayPanel({
         <p className="muted">transcript not recorded</p>
       ) : (
         // biome-ignore lint/suspicious/noArrayIndexKey: transcript steps are append-only, position is their identity
-        data.steps.map((s, i) => (
-          <ReplayStep
-            key={i}
-            step={s}
-            running={running}
-            busy={rerunning}
-            onRerun={onRerun ? rerun : undefined}
-          />
-        ))
+        data.steps.map((s, i) => <ReplayStep key={i} step={s} />)
       )}
     </div>
   );

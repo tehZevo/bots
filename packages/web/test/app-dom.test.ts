@@ -1329,7 +1329,7 @@ test("logs rows expand inline into the run transcript replay", async () => {
   }
 });
 
-test("transcript user steps rerun the exact message and copy other steps", async () => {
+test("transcript steps offer copy only, with no rerun action", async () => {
   requests.length = 0;
   runBodies.length = 0;
   clipboardWrites.length = 0;
@@ -1343,8 +1343,9 @@ test("transcript user steps rerun the exact message and copy other steps", async
       [...window.document.querySelectorAll(".ractions button")].map((item) =>
         item.textContent?.trim(),
       ),
-      ["Run this", "Copy", "Copy"],
+      ["Copy", "Copy"],
     );
+    assert.equal(button("Run this"), null);
 
     const copies = [
       ...window.document.querySelectorAll(".ractions button"),
@@ -1355,39 +1356,9 @@ test("transcript user steps rerun the exact message and copy other steps", async
 
     await click(copies[1]);
     assert.equal(clipboardWrites.at(-1), "exit 0\n/dev/root 92%");
-
-    const runButton = button("Run this");
-    assert.ok(runButton);
-    await click(runButton);
-    assert.ok(requests.includes("POST /api/bots/b1/run"));
-    assert.deepEqual(runBodies, [{ message: "check disk" }]);
-  } finally {
-    pausedFlag = previousPaused;
-    await act(async () => {
-      root.unmount();
-    });
-  }
-});
-
-test("transcript rerun is disabled while the bot is running", async () => {
-  requests.length = 0;
-  runBodies.length = 0;
-  const previousPaused = pausedFlag;
-  pausedFlag = false;
-  const previousState = bot.run_state;
-  bot.run_state = "running";
-  const root = await mount(React.createElement(App));
-  try {
-    await expandTranscript();
-    const runButton = button("Run this");
-    assert.ok(runButton);
-    assert.ok(runButton.hasAttribute("disabled"));
-
-    await click(runButton);
     assert.equal(requests.filter((item) => item.endsWith("/run")).length, 0);
   } finally {
     pausedFlag = previousPaused;
-    bot.run_state = previousState;
     await act(async () => {
       root.unmount();
     });

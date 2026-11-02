@@ -27,7 +27,6 @@ export function BotDetailModal({
   onChanged,
   onClose,
   onStop,
-  onRerun,
 }: {
   bot: Bot;
   openBotId: string;
@@ -40,7 +39,6 @@ export function BotDetailModal({
   onChanged: () => Promise<unknown> | void;
   onClose: () => void;
   onStop: (botId: string) => Promise<unknown>;
-  onRerun: (message: string) => Promise<void>;
 }) {
   const [headerBusy, setHeaderBusy] = useState(false);
   const [avatarMenu, setAvatarMenu] = useState(false);
@@ -195,12 +193,7 @@ export function BotDetailModal({
                 {run.output && <pre>{run.output}</pre>}
                 {run.error && <pre className="error">{run.error}</pre>}
                 {replayRun === run.id && (
-                  <ReplayPanel
-                    botId={openBotId}
-                    run={run}
-                    running={bot.run_state === "running"}
-                    onRerun={onRerun}
-                  />
+                  <ReplayPanel botId={openBotId} run={run} />
                 )}
               </article>
             ))}
