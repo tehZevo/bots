@@ -461,12 +461,10 @@ test("team config modal renders dual multiselects with leaders pre-checked", () 
     }),
   );
   assert.match(html, /Configure team ops/);
-  assert.match(html, /Members of ops/);
-  assert.match(html, /Leaders of ops/);
-  assert.match(html, /Alpha/);
-  assert.match(html, /checked=""/);
+  assert.match(html, /aria-label="Members of ops filter: /);
+  assert.match(html, /aria-label="Leaders of ops filter: /);
   assert.doesNotMatch(html, /teammembers/);
-  assert.match(html, /Gamma/);
+  assert.doesNotMatch(html, /Gamma/);
   assert.match(html, /website/);
   assert.match(html, /Delete/);
 });
@@ -484,12 +482,12 @@ test("team create modal renders name and dual multiselects", () => {
     }),
   );
   assert.match(html, /Create team/);
-  assert.match(html, /Members of new team/);
-  assert.match(html, /Leaders of new team/);
-  assert.match(html, /Alpha/);
+  assert.match(html, /aria-label="Members of new team filter: All"/);
+  assert.match(html, /aria-label="Leaders of new team filter: All"/);
+  assert.doesNotMatch(html, /Alpha/);
 });
 
-test("multiselect filters options by typed query", () => {
+test("multiselect renders a closed dropdown summarising the selection", () => {
   const html = renderToStaticMarkup(
     React.createElement(Multiselect, {
       label: "Filter teams by bots",
@@ -501,10 +499,9 @@ test("multiselect filters options by typed query", () => {
       onChange: () => undefined,
     }),
   );
-  assert.match(html, /Filter teams by bots/);
-  assert.match(html, /1 selected/);
-  assert.match(html, /Alpha/);
-  assert.match(html, /Beta/);
+  assert.match(html, /aria-label="Filter teams by bots filter: Alpha"/);
+  assert.match(html, /aria-expanded="false"/);
+  assert.doesNotMatch(html, /Beta/);
 });
 
 test("teamHealth ranks worst member health", () => {
@@ -628,10 +625,7 @@ test("chat sidebar disables composer for a disabled bot", () => {
       onClose: () => undefined,
     }),
   );
-  assert.match(
-    html,
-    /<input[^>]+placeholder="Message Alpha…"[^>]+disabled=""/,
-  );
+  assert.match(html, /<input[^>]+placeholder="Message Alpha…"[^>]+disabled=""/);
   assert.match(
     html,
     /<button[^>]*type="submit"[^>]+disabled="">[\s\S]*?<span class="sr-only">Send<\/span><\/button>/,

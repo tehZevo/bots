@@ -13,10 +13,15 @@ export function useDismissOnFocusLost(
     if (!open) return;
     const el = ref.current;
     if (!el) return;
+    // Unmounting an open dropdown moves focus out of it, which fires focusout
+    // with no relatedTarget. Ignoring detached nodes keeps that teardown event
+    // from calling back into a component that is already gone.
     const onPointerDown = (e: PointerEvent) => {
+      if (!el.isConnected) return;
       if (!el.contains(e.target as Node)) onClose();
     };
     const onFocusOut = (e: FocusEvent) => {
+      if (!el.isConnected) return;
       const next = e.relatedTarget as Node | null;
       if (!next || !el.contains(next)) onClose();
     };
