@@ -23,6 +23,25 @@ By default the CLI prompts for your email and a hidden password, exchanges the s
 
 `bots auth status` checks configuration without exposing credentials. `bots auth logout` removes the local config and, by default, tries to revoke its stored key first; pass `--keep-key` to retain it for another install. Because key management needs a browser session, revocation can be refused — the CLI then says so and still deletes the local file.
 
+## Command groups
+
+| Group | Verbs |
+| --- | --- |
+| `bot` | `list` `get` `create` `update` `delete` `restart-machine` `teams` |
+| `run` | `now` `list` `show` `logs` `interrupt` |
+| `message` | `list` `send` `clear` |
+| `trigger` | `list` `create` `update` `delete` `rotate-secret` `fire` |
+| `team` | `list` `get` `create` `update` `delete` + `member set` / `member remove` |
+| `machine` | `list` `get` `create` `update` `delete` `rebuild` `repull` |
+| `project` `role` `skill` `template` | `list` `get` `create` `update` `delete` (+ `template apply`) |
+| `mcp` | `list` `get` `create` `update` `delete` `test` |
+| `provider` | `list` `get` `create` `update` `delete` `detect` |
+| `setting` | `get` `set` |
+| `key` | `list` `create` `revoke` |
+| `notification` | `list` `read` `read-all` |
+
+`bots status` shows the server url, health, account and key name; `bots openapi` prints the server's OpenAPI document.
+
 ## Common commands
 
 Most resources accept either an exact id or a unique case-insensitive name; triggers, runs, messages and API keys are referenced by id:
