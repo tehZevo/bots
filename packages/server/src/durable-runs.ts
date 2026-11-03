@@ -17,6 +17,7 @@ import { denyPendingForBot } from "./approvals.ts";
 import {
   type BotRow,
   checkSpendBreaker,
+  clearEnvNotifications,
   createNotification,
   deletePendingInjections,
   finishRun,
@@ -27,9 +28,11 @@ import {
   isPaused,
   latestRunningRunForBot,
   listCurrentDurableRuns,
+  listEnvNotifications,
   listPendingInjections,
   loadMessages,
   pendingBotIds,
+  queueEnvNotification,
   recordRunUsage,
   runningLoopBotIds,
   setCurrentRunForBot,
@@ -605,6 +608,7 @@ async function runDurableTurn(
       { type: "input", content, whenBusy: "steer", requestId: runId },
       BACKGROUND_CONTEXT,
     );
+    drainEnvNotifications(bot.id, prepared.conversation);
     const settled = await submission.wait(BACKGROUND_CONTEXT);
     active.entryFloor = submissionFloor(settled);
     await waitForSettled(harness, prepared.conversation);
@@ -752,6 +756,33 @@ export function stopAllLoops(): number {
     if (interruptBot(botId)) stopped++;
   }
   return stopped;
+}
+
+// specs/context/environment-notifications.md — an environment change is queued,
+// never a wake source. It rides the next model-request boundary: a live loop
+// takes it through steering, a run that starts later drains it at start-up.
+export function notifyEnvChange(
+  botId: string,
+  source: string,
+  detail: string,
+): void {
+  queueEnvNotification(botId, source, detail);
+  const live = activeRuns.get(botId);
+  if (isLive(live)) drainEnvNotifications(botId, live.conversation);
+}
+
+export function drainEnvNotifications(
+  botId: string,
+  conversation: Conversation,
+): void {
+  const rows = listEnvNotifications(botId);
+  if (rows.length === 0) return;
+  clearEnvNotifications(rows.map((row) => row.id));
+  for (const row of rows)
+    submitInput(
+      conversation,
+      `[notify ${new Date(row.created_at).toISOString()}]\n${row.detail}`,
+    );
 }
 
 export function resumePendingInjections(): void {
