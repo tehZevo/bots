@@ -11,6 +11,7 @@ import type { AgentEventStream } from "@earendil-works/pi-durable";
 import { watchEvents } from "@earendil-works/pi-durable";
 import { serveStatic } from "@hono/node-server/serve-static";
 import type { Context } from "hono";
+import type { WebhookDeliveryOutcome } from "./db.ts";
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import {
@@ -125,7 +126,9 @@ import {
   listProviders,
   listRoleApprovals,
   listRoles,
+  insertWebhookDelivery,
   listRuns,
+  listWebhookDeliveries,
   listSecret,
   listSkills,
   listTags,
@@ -3240,11 +3243,58 @@ export function createApp() {
     return c.json({ secret });
   });
 
+  app.get("/api/triggers/:triggerId/deliveries", (c) => {
+    const trigger = getTrigger(c.req.param("triggerId"));
+    if (!trigger) return c.json({ error: "not found" }, 404);
+    if (trigger.kind !== "webhook")
+      return c.json({ error: "not a webhook trigger" }, 400);
+    return c.json(
+      listWebhookDeliveries(trigger.id).map((row) => ({
+        id: row.id,
+        created_at: row.created_at,
+        status: row.status,
+        outcome: row.outcome,
+        duration_ms: row.duration_ms,
+        preview: row.preview,
+      })),
+    );
+  });
+
   app.post("/api/webhooks/:triggerId", async (c) => {
     const triggerId = c.req.param("triggerId");
-    const body = await c.req.text();
-    if (body.length > 64 * 1024)
+    const startedAt = Date.now();
+    let body = "";
+    try {
+      body = await c.req.text();
+    } catch {
+      recordDelivery(triggerId, 400, "bad_request", startedAt, "");
+      return c.json({ error: "unreadable body" }, 400);
+    }
+    const preview = body.slice(0, 2048);
+    function recordDelivery(
+      id: string,
+      status: number,
+      outcome: WebhookDeliveryOutcome,
+      started: number,
+      raw: string,
+      secret?: string,
+    ): void {
+      try {
+        insertWebhookDelivery({
+          triggerId: id,
+          status,
+          outcome,
+          durationMs: Date.now() - started,
+          preview: secret ? raw.split(secret).join("[redacted]") : raw,
+        });
+      } catch (err) {
+        console.error("webhook delivery log failed:", err);
+      }
+    }
+    if (body.length > 64 * 1024) {
+      recordDelivery(triggerId, 413, "too_large", startedAt, preview);
       return c.json({ error: "payload too large" }, 413);
+    }
 
     const overGlobal = consumeRate("webhook-global", "all", WEBHOOK_GLOBAL_MAX);
     const overTrigger = consumeRate(
@@ -3256,7 +3306,10 @@ export function createApp() {
       return c.json({ error: "rate_limited" }, 429);
 
     const trigger = getTrigger(triggerId);
-    if (trigger?.kind !== "webhook") return c.json({ error: "not found" }, 404);
+    if (trigger?.kind !== "webhook") {
+      recordDelivery(triggerId, 404, "not_found", startedAt, preview);
+      return c.json({ error: "not found" }, 404);
+    }
     const auth = c.req.header("authorization") ?? "";
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
     const secret = trigger.secret ?? "";
@@ -3265,20 +3318,31 @@ export function createApp() {
       !secret ||
       token.length !== secret.length ||
       !timingSafeEqual(Buffer.from(token, "utf8"), Buffer.from(secret, "utf8"))
-    )
+    ) {
+      recordDelivery(triggerId, 401, "unauthorized", startedAt, preview, secret);
       return c.json({ error: "unauthorized" }, 401);
-    if (!trigger.enabled) return c.json({ error: "trigger is disabled" }, 409);
+    }
+    if (!trigger.enabled) {
+      recordDelivery(triggerId, 409, "disabled", startedAt, preview, secret);
+      return c.json({ error: "trigger is disabled" }, 409);
+    }
     const bot = getBot(trigger.bot_id);
-    if (!bot?.enabled || bot.archived)
+    if (!bot?.enabled || bot.archived) {
+      recordDelivery(triggerId, 409, "disabled", startedAt, preview, secret);
       return c.json(
         { error: bot?.archived ? "bot is archived" : "bot is disabled" },
         409,
       );
-    if (isPaused()) return c.json({ error: "bots are paused" }, 409);
+    }
+    if (isPaused()) {
+      recordDelivery(triggerId, 409, "disabled", startedAt, preview, secret);
+      return c.json({ error: "bots are paused" }, 409);
+    }
     const text = body.trim()
       ? `${trigger.message}\n\nEvent payload:\n${body}`
       : trigger.message;
     const { runId } = injectMessage(bot, text, "webhook");
+    recordDelivery(triggerId, 200, "accepted", startedAt, preview, secret);
     return c.json({ ok: true, runId });
   });
 

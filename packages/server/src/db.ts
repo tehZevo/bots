@@ -327,6 +327,18 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS webhook_deliveries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trigger_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    status INTEGER NOT NULL,
+    outcome TEXT NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    preview TEXT NOT NULL DEFAULT ''
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_webhook_deliveries ON webhook_deliveries (trigger_id, id);
+
   CREATE TABLE IF NOT EXISTS run_usage (
     run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
     bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
@@ -1579,7 +1591,67 @@ export function setTriggerSecret(triggerId: string, secret: string): void {
   );
 }
 
+// specs/triggers/webhook-deliveries.md — one row per POST attempt, newest
+// first, capped per trigger the way run history is capped per bot. Recording is
+// best-effort: callers swallow failures and never let them affect the response.
+export const WEBHOOK_DELIVERY_PAGE = 100;
+
+export type WebhookDeliveryOutcome =
+  | "accepted"
+  | "unauthorized"
+  | "not_found"
+  | "disabled"
+  | "too_large"
+  | "bad_request";
+
+export function insertWebhookDelivery(row: {
+  triggerId: string;
+  status: number;
+  outcome: WebhookDeliveryOutcome;
+  durationMs: number;
+  preview: string;
+}): void {
+  db.prepare(
+    `INSERT INTO webhook_deliveries (trigger_id, created_at, status, outcome, duration_ms, preview)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(
+    row.triggerId,
+    Date.now(),
+    row.status,
+    row.outcome,
+    row.durationMs,
+    row.preview,
+  );
+  db.prepare(
+    `DELETE FROM webhook_deliveries WHERE trigger_id = ? AND id <=
+      (SELECT MAX(id) - ? FROM webhook_deliveries WHERE trigger_id = ?)`,
+  ).run(row.triggerId, WEBHOOK_DELIVERY_PAGE, row.triggerId);
+}
+
+export interface WebhookDeliveryRow {
+  id: number;
+  trigger_id: string;
+  created_at: number;
+  status: number;
+  outcome: WebhookDeliveryOutcome;
+  duration_ms: number;
+  preview: string;
+}
+
+export function listWebhookDeliveries(
+  triggerId: string,
+  limit = WEBHOOK_DELIVERY_PAGE,
+): WebhookDeliveryRow[] {
+  return db
+    .prepare(
+      `SELECT * FROM webhook_deliveries WHERE trigger_id = ?
+       ORDER BY id DESC LIMIT ?`,
+    )
+    .all(triggerId, limit) as WebhookDeliveryRow[];
+}
+
 export function deleteTrigger(id: string): void {
+  db.prepare("DELETE FROM webhook_deliveries WHERE trigger_id = ?").run(id);
   db.prepare("DELETE FROM triggers WHERE id = ?").run(id);
 }
 

@@ -14,6 +14,8 @@ A live **Next fires** preview lists five upcoming server-local occurrences. An i
 
 Each webhook gets a URL (`POST /api/webhooks/<id>`) and a bearer secret shown once at creation/rotation; rotating is destructive and requires confirmation. Accepted bodies are appended to the trigger message as `Event payload:`. Size limits, rate budgets and their status codes are in the [API reference](/api#webhooks).
 
+Every call to a webhook URL is logged, whether it succeeded or was rejected: time, HTTP status, outcome (`accepted`, `unauthorized`, `not_found`, `disabled`, `too_large`, `bad_request`), how long it took, and the first 2 KB of the body as a preview. The trigger editor's webhook pane lists the last 100 newest-first — click a row to see its preview — and `GET /api/triggers/<id>/deliveries` returns the same page to API-key callers. Previews never contain the bearer secret, rotating a secret keeps its history, and deleting the trigger deletes its log.
+
 ## Continuous triggers
 
 A continuous trigger fires an interval (`@every 30m`, minimum 1 minute) after the bot's run **finishes** — a self-paced worker that keeps re-reading its own results instead of running on a fixed clock. Every completed run (ok or error) re-arms all enabled continuous triggers on that bot for one shot; if the bot is Blocked or disabled when the shot comes due, that fire is skipped and it re-arms after the next finished run. A new continuous trigger waits until the first run completes before its timer starts.

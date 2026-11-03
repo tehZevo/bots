@@ -6,6 +6,7 @@ import { api } from "../lib/api.ts";
 import { fmt } from "../lib/format.ts";
 import { ScheduleEditor } from "../schedule.tsx";
 import { Run, type Trigger } from "../types.ts";
+import { TriggerDeliveries } from "./TriggerDeliveries.tsx";
 export function Triggers({ botId }: { botId: string }) {
   const [triggers, setTriggers] = useState<Trigger[]>([]);
   const [sel, setSel] = useState<string | null>(null);
@@ -330,6 +331,9 @@ export function TriggerEditor({
           value={schedule}
           onChange={(e) => setSchedule(e.target.value)}
         />
+      )}
+      {trigger.kind === "webhook" && (
+        <TriggerDeliveries triggerId={trigger.id} />
       )}
       <div className="actions">
         <button
