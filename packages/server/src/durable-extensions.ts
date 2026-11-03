@@ -18,6 +18,7 @@ import {
 } from "./durable-tools.ts";
 import { connectRoleTools, type McpSession } from "./mcp.ts";
 import { effectiveSystemPrompt } from "./prompt.ts";
+import { postQuestion } from "./questions.ts";
 import { grantedSkills } from "./skillfiles.ts";
 
 export function botExtensionName(botId: string): string {
@@ -52,12 +53,27 @@ export function installBotExtension(
   registry: Registry<ToolRegistration>,
   bot: BotRow,
   deliverDm?: (recipientBotId: string, text: string) => string,
+  askUser?: (
+    question: string,
+    options: string[],
+    allowOther: boolean,
+  ) => string,
 ): Extension<ToolRegistration> {
   const dm =
     deliverDm ??
     (teammatesOf(bot.id).length > 0
       ? () => "not delivered: runtime"
       : undefined);
+  const ask =
+    askUser ??
+    ((question, options, allowOther) => {
+      const row = postQuestion(bot.id, {
+        question,
+        options,
+        allowOther,
+      });
+      return `question ${row.id} posted; the answer arrives later as a user turn`;
+    });
   const extension: Extension<ToolRegistration> = {
     name: botExtensionName(bot.id),
     tools: baseHarnessTools(
@@ -65,6 +81,7 @@ export function installBotExtension(
       dm,
       grantedSkills(bot),
       approvalGateFor(bot),
+      ask,
     ),
     hooks: toolRedactionHooks(bot.id),
     sections: [

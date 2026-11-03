@@ -5,6 +5,7 @@ const INJECT_LABELS: Record<string, string> = {
   schedule: "schedule",
   manual: "manual run",
   webhook: "webhook",
+  question: "answer",
   notify: "environment",
 };
 

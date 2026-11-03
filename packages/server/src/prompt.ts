@@ -5,6 +5,7 @@ import {
   projectsInheritedByBot,
   teammatesOf,
 } from "./db.ts";
+import { pendingNote } from "./questions.ts";
 import {
   grantedSkills,
   SKILLS_SANDBOX_ROOT,
@@ -86,6 +87,7 @@ export function effectiveSystemPrompt(bot: BotRow): string {
     skillSection,
     ...projectParts,
     teamSection,
+    pendingNote(bot.id),
   ].filter(Boolean);
   return parts.join("\n\n");
 }

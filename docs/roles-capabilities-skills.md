@@ -26,6 +26,12 @@ Imported cards show their latest update check; **Check all** in the Skills heade
 
 When an update is available, **Update** replaces the skill's metadata, instructions, and bundled files while preserving its id and grants. Editing an imported skill marks it as having local changes; updating asks before replacing those edits. **Detach** keeps the current content as a hand-written skill and stops future checks. An unreachable source records `Source unavailable` without deleting the installed bundle.
 
+## Questions
+
+Every bot gets an `ask_user` tool. When a decision or a missing input blocks its task, the bot calls it with a question and 2-6 options (optionally allowing a free-text answer) and gets a question id back immediately — asking never pauses the run. While a question is open it is listed in the bot's system prompt, so the bot holds only the work that depends on the answer and keeps unrelated work moving.
+
+Answers arrive later as ordinary user messages through the same steering path as chat: a live loop is steered, an idle bot wakes a run. Answer from the [Inbox](/notifications) row or the bot's chat. Paused bots hold answers like any other input, and questions never expire. Any direct chat message to the bot cancels its pending questions; cancellations never wake a bot. Posting, answering, and cancelling are recorded in [Activity](/activity).
+
 ## Capabilities (MCP servers)
 
 Anything beyond the baseline tools comes from [MCP integrations](/integrations-mcp). Granted servers' tools appear to the agent namespaced as `<server>_<tool>`; if one server is unreachable at loop start it's skipped without breaking the run, and failing tool calls return an error string instead of killing the loop. `web_fetch` accepts only absolute http(s) URLs and refuses hosts that resolve to loopback, private or link-local ranges (including cloud metadata); every redirect hop is revalidated under the same guard, up to five hops.
