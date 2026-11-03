@@ -372,6 +372,16 @@ async function click(element: Element | null | undefined): Promise<void> {
   await flush();
 }
 
+function tagSearch(): Element | null {
+  return window.document.querySelector('input[aria-label="Search tags"]');
+}
+
+function tagTrigger(): Element {
+  const trigger = window.document.querySelector(".bottags .filtertrigger");
+  assert.ok(trigger, "expected the tags trigger");
+  return trigger;
+}
+
 function button(text: string): Element | null {
   return (
     [...window.document.querySelectorAll("button")].find(
@@ -1182,19 +1192,18 @@ test("quick menu destructive actions ask for confirmation first", async () => {
 test("tag picker offers + Create when nothing matches and attaches on click", async () => {
   const root = await mount(React.createElement(BotTags, { botId: "b1" }));
   try {
-    await typeInto(window.document.querySelector(".tagadd"), "stage");
+    await click(window.document.querySelector(".bottags .filtertrigger"));
+    await typeInto(tagSearch(), "stage");
     assert.ok(button('+ Create "stage"'));
     const postsBefore = requests.filter((r) => r === "POST /api/tags").length;
     await click(button('+ Create "stage"'));
+    await flush();
     assert.equal(
       requests.filter((r) => r === "POST /api/tags").length,
       postsBefore + 1,
     );
     assert.ok(requests.includes("PATCH /api/bots/b1"), "attach PATCH expected");
-    const chips = [...window.document.querySelectorAll(".chip")].map(
-      (c) => c.textContent ?? "",
-    );
-    assert.ok(chips.some((c) => c.includes("stage")));
+    assert.match(tagTrigger().textContent ?? "", /stage/);
   } finally {
     await act(async () => {
       root.unmount();
@@ -1221,10 +1230,11 @@ test("stats tab shows budget progress and editing controls", async () => {
 test("tag picker Enter attaches an exact existing tag without creating", async () => {
   const root = await mount(React.createElement(BotTags, { botId: "b1" }));
   try {
-    await typeInto(window.document.querySelector(".tagadd"), "PROD");
+    await click(window.document.querySelector(".bottags .filtertrigger"));
+    await typeInto(tagSearch(), "PROD");
     const postsBefore = requests.filter((r) => r === "POST /api/tags").length;
     await act(async () => {
-      window.document.querySelector(".tagadd")?.dispatchEvent(
+      tagSearch()?.dispatchEvent(
         new window.KeyboardEvent("keydown", {
           key: "Enter",
           bubbles: true,
@@ -1238,6 +1248,7 @@ test("tag picker Enter attaches an exact existing tag without creating", async (
       postsBefore,
     );
     assert.ok(requests.includes("PATCH /api/bots/b1"), "attach PATCH expected");
+    assert.match(tagTrigger().textContent ?? "", /prod/);
   } finally {
     await act(async () => {
       root.unmount();
@@ -1338,12 +1349,11 @@ test("a failed tag create keeps the typed text", async () => {
   };
   const root = await mount(React.createElement(BotTags, { botId: "b1" }));
   try {
-    await typeInto(window.document.querySelector(".tagadd"), "fail-tag");
+    await click(window.document.querySelector(".bottags .filtertrigger"));
+    await typeInto(tagSearch(), "fail-tag");
     await click(button('+ Create "fail-tag"'));
-    assert.equal(
-      (window.document.querySelector(".tagadd") as HTMLInputElement).value,
-      "fail-tag",
-    );
+    await flush();
+    assert.equal((tagSearch() as HTMLInputElement).value, "fail-tag");
     assert.ok(alerts.length > 0, "expected an alert on failure");
   } finally {
     globalThis.alert = prevAlert as typeof globalThis.alert;

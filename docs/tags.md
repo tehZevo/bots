@@ -4,7 +4,7 @@ Tags are plain labels for organizing bots — they carry no behavior and are nev
 
 Manage them under **Tags**: one card per tag showing how many bots carry it. Add and rename through the modal; deletion sits behind a confirm dialog and just removes the label from every bot.
 
-Attach tags to a bot in its detail **General** tab: a chip list with an autocomplete input. The dropdown lists not-yet-attached tags whose names contain what you type; when nothing matches, it offers **+ Create "&lt;name&gt;"** instead — clicking creates the tag and attaches it immediately, then clears the field (a failed create keeps your text). Enter commits like choosing: an exact existing name is attached rather than duplicated, anything else creates.
+Attach tags to a bot in its detail **General** tab with the same dropdown multiselect used across the app: the button reads `Tags: All` until you pick something, then lists the attached tags by name. Open it and every tag is a checkbox — tick to attach, untick to detach, immediately. A text field on top narrows the list as you type; when what you type matches no existing tag, the list offers **+ Create "&lt;name&gt;"** instead, which creates the tag and attaches it in one step (a failed create keeps your text so you can fix it). Pressing `Enter` in the filter commits what you typed: a name matching exactly one tag attaches it rather than creating a duplicate, anything else creates.
 
 The Bots dashboard can filter by tag alongside status and role; the filter's exact behavior lives in [Bots](/bots#cards-and-filters).
 

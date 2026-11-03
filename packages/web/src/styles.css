@@ -2483,7 +2483,8 @@ button.danger.ghost {
   position: relative;
 }
 
-.filterdd > summary {
+.filterdd > summary,
+.filtertrigger {
   list-style: none;
   cursor: pointer;
   padding: 0.4rem 0.75rem;
@@ -2494,6 +2495,9 @@ button.danger.ghost {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font: inherit;
+  color: inherit;
+  text-align: left;
 }
 
 .filterdd > summary::-webkit-details-marker {
@@ -2973,41 +2977,23 @@ button.danger.ghost {
 }
 .multiselect {
   position: relative;
-  flex: 1;
-  min-width: 220px;
 }
-.mschosen {
-  margin-left: 0.4rem;
-  color: var(--muted);
-  font-size: 0.85em;
-}
-.msopts {
-  display: none;
-  list-style: none;
-  flex-wrap: wrap;
-  gap: 0.35rem 0.75rem;
-  max-height: 160px;
-  position: absolute;
-  z-index: 30;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  margin: 0;
-  padding: 0.5rem 0.7rem;
-  overflow: auto;
-  border: 1px solid var(--border);
+.mscreate {
+  text-align: left;
+  border: 1px dashed var(--border);
   border-radius: var(--radius-field);
   background: var(--panel);
-  box-shadow: var(--menu-shadow);
+  color: var(--text);
+  padding: 6px 10px;
+  cursor: pointer;
 }
-.multiselect:focus-within .msopts,
-.multiselect.open .msopts {
-  display: flex;
+.mscreate:hover {
+  background: var(--hover);
 }
-.msopts label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
+.msempty {
+  color: var(--muted);
+  font-size: 0.85em;
+  padding: 2px 0;
 }
 .projectbody {
   font-family: ui-monospace, monospace;
@@ -3112,56 +3098,7 @@ main.scr-active,
   flex-direction: column;
   gap: 6px;
   margin: 10px 0;
-}
-.tagchips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  padding: 2px 8px;
-  font-size: 12px;
-}
-.chip button {
-  border: none;
-  background: none;
-  color: var(--muted);
-  cursor: pointer;
-  padding: 0;
-  min-width: auto;
-  font-size: 13px;
-  line-height: 1;
-}
-.chip button:hover {
-  color: var(--err);
-}
-.tagsuggest {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--input-border);
-  border-radius: var(--radius-field);
-  overflow: hidden;
-}
-.tagsuggest button {
-  text-align: left;
-  border: none;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
-  background: var(--panel);
-  color: var(--text);
-  padding: 6px 10px;
-  cursor: pointer;
-}
-.tagsuggest button:last-child {
-  border-bottom: none;
-}
-.tagsuggest button:hover {
-  background: var(--hover);
+  align-items: flex-start;
 }
 
 .srcbadge {
@@ -3721,8 +3658,7 @@ button:not(.sidetabs button):not(.card) {
 .searchrow,
 .runhead,
 .notifbody,
-.msopts label,
-.tagsuggest button {
+.filtertrigger {
   border-color: transparent;
   background: transparent;
 }
@@ -3731,7 +3667,6 @@ button:not(.sidetabs button):not(.card) {
 .quickpanel,
 .filterpanel,
 .avatarmenu,
-.msopts,
 .notifpanel,
 .searchpanel {
   border: none;
@@ -3843,7 +3778,7 @@ button:not(.sidetabs button):not(.card) {
 }
 
 .filterdd > summary,
-.tagsuggest,
+.filtertrigger,
 .srclist li,
 .grantrow {
   border-color: transparent;

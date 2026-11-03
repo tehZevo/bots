@@ -1,8 +1,7 @@
-import { type ReactNode, useRef, useState } from "react";
+import { useState } from "react";
 import { ApprovalIcon } from "../components/icons/ApprovalIcon.tsx";
 import { BellIcon } from "../components/icons/BellIcon.tsx";
-import { useDismissOnFocusLost } from "../hooks/useDismissOnFocusLost.ts";
-import { toggleIn } from "../lib/filterBots.ts";
+import { Multiselect } from "../components/Multiselect.tsx";
 import {
   filterInboxItems,
   INBOX_KIND_LABELS,
@@ -10,33 +9,6 @@ import {
   type InboxKind,
   inboxTimeLabel,
 } from "../lib/inbox.ts";
-
-function FilterDropdown({
-  label,
-  value,
-  children,
-}: {
-  label: string;
-  value: string;
-  children: ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDetailsElement>(null);
-  useDismissOnFocusLost(ref, open, () => setOpen(false));
-  return (
-    <details
-      className="filterdd"
-      ref={ref}
-      open={open}
-      onToggle={(e) => setOpen(e.currentTarget.open)}
-    >
-      <summary aria-label={`${label} filter: ${value}`}>
-        {label}: {value}
-      </summary>
-      <div className="filterpanel">{children}</div>
-    </details>
-  );
-}
 
 function InboxKindIcon({ kind }: { kind: InboxKind }) {
   const shared = {
@@ -114,50 +86,27 @@ export function InboxPanel({
         </button>
       </div>
       <div className="filterrow">
-        <FilterDropdown
+        <Multiselect
           label="Kind"
-          value={
-            kindSel.length === 0
-              ? "All"
-              : kindSel.map((k) => INBOX_KIND_LABELS[k]).join(", ")
-          }
-        >
-          {(Object.keys(INBOX_KIND_LABELS) as InboxKind[]).map((kind) => (
-            <label key={kind} data-name={INBOX_KIND_LABELS[kind]}>
-              <input
-                type="checkbox"
-                checked={kindSel.includes(kind)}
-                onChange={() => setKindSel((v) => toggleIn(v, kind))}
-              />{" "}
-              {INBOX_KIND_LABELS[kind]}
-            </label>
-          ))}
-        </FilterDropdown>
+          options={(Object.keys(INBOX_KIND_LABELS) as InboxKind[]).map((k) => ({
+            id: k,
+            name: INBOX_KIND_LABELS[k],
+          }))}
+          selected={kindSel}
+          onChange={setKindSel}
+          filterable={false}
+        />
         {inboxBots.length > 0 && (
-          <FilterDropdown
+          <Multiselect
             label="Bot"
-            value={
-              botSel.length === 0
-                ? "All"
-                : botSel
-                    .map(
-                      (id) =>
-                        inboxBots.find(([botId]) => botId === id)?.[1] ?? "?",
-                    )
-                    .join(", ")
-            }
-          >
-            {inboxBots.map(([id, name]) => (
-              <label key={id} data-name={name}>
-                <input
-                  type="checkbox"
-                  checked={botSel.includes(id)}
-                  onChange={() => setBotSel((v) => toggleIn(v, id))}
-                />{" "}
-                {name ?? "?"}
-              </label>
-            ))}
-          </FilterDropdown>
+            options={inboxBots.map(([id, name]) => ({
+              id,
+              name: name ?? "?",
+            }))}
+            selected={botSel}
+            onChange={setBotSel}
+            placeholder="Search bots"
+          />
         )}
       </div>
       {visible.length === 0 ? (

@@ -108,19 +108,24 @@ test("kind filter narrows rows through the dropdown checkboxes", async () => {
       item({ id: "b", kind: "breaker" }),
     ],
   });
-  const boxes = window.document.querySelectorAll(
-    ".filterdd:first-of-type input[type=checkbox]",
-  );
-  assert.ok(boxes.length >= 4);
-  await act(async () => {
-    (boxes[0] as HTMLInputElement).click();
-  });
-  const kinds: string[] = [];
-  window.document.querySelectorAll(".inboxrow .inboxicon").forEach((el) => {
-    kinds.push(el.className.replace("inboxicon ", ""));
-  });
-  assert.deepEqual(kinds, ["run_error"]);
-  await act(async () => root.unmount());
+  try {
+    const kind = window.document.querySelector(".filterdd");
+    await act(async () => {
+      kind?.querySelector(".filtertrigger")?.click();
+    });
+    const boxes = kind?.querySelectorAll('input[type="checkbox"]') ?? [];
+    assert.ok(boxes.length >= 4);
+    await act(async () => {
+      (boxes[0] as HTMLInputElement).click();
+    });
+    const kinds: string[] = [];
+    window.document.querySelectorAll(".inboxrow .inboxicon").forEach((el) => {
+      kinds.push(el.className.replace("inboxicon ", ""));
+    });
+    assert.deepEqual(kinds, ["run_error"]);
+  } finally {
+    await act(async () => root.unmount());
+  }
 });
 
 test("approval rows decide inline", async () => {
@@ -173,38 +178,52 @@ test("bot filter is hidden when no inbox item belongs to a bot", async () => {
   const root = await render({
     items: [item({ bot_id: null, bot_name: null })],
   });
-  const labels = [...window.document.querySelectorAll(".filterdd summary")].map(
-    (s) => s.getAttribute("aria-label"),
-  );
-  assert.deepEqual(labels, ["Kind filter: All"]);
-  await act(async () => root.unmount());
+  try {
+    const labels = [...window.document.querySelectorAll(".filtertrigger")].map(
+      (b) => b.getAttribute("aria-label"),
+    );
+    assert.deepEqual(labels, ["Kind filter: All"]);
+  } finally {
+    await act(async () => root.unmount());
+  }
 });
 
 test("bot filter lists the bots present in the inbox", async () => {
   const root = await render({
     items: [item({ bot_id: "b1", bot_name: "Sable" })],
   });
-  const bot = window.document.querySelectorAll(".filterdd")[1];
-  assert.match(bot.querySelector("summary")?.textContent ?? "", /^Bot:/);
-  assert.equal(bot.querySelectorAll(".filterpanel label").length, 1);
-  await act(async () => root.unmount());
+  try {
+    const bot = window.document.querySelectorAll(".filterdd")[1];
+    assert.match(
+      bot.querySelector(".filtertrigger")?.textContent ?? "",
+      /^Bot: All$/,
+    );
+    await act(async () => {
+      bot.querySelector(".filtertrigger")?.click();
+    });
+    assert.equal(bot.querySelectorAll(".filterpanel label").length, 1);
+  } finally {
+    await act(async () => root.unmount());
+  }
 });
 
 async function openFilter(index: number) {
-  const dd = window.document.querySelectorAll(".filterdd")[
-    index
-  ] as HTMLDetailsElement;
+  const dd = window.document.querySelectorAll(".filterdd")[index];
   await act(async () => {
-    dd.open = true;
-    dd.dispatchEvent(new window.Event("toggle"));
+    dd.querySelector(".filtertrigger")?.click();
   });
+  assert.ok(dd.querySelector(".filterpanel"), "expected an open panel");
   return dd;
+}
+
+function isOpen(dd: Element) {
+  return dd.querySelector(".filterpanel") !== null;
 }
 
 test("an open filter closes when focus moves outside it", async () => {
   const root = await render({ items: [item({})] });
   const dd = await openFilter(0);
-  assert.equal(dd.open, true);
+  assert.ok(isOpen(dd));
   const outside = window.document.querySelector(".mainhead h2");
   assert.ok(outside);
   await act(async () => {
@@ -215,7 +234,7 @@ test("an open filter closes when focus moves outside it", async () => {
       }),
     );
   });
-  assert.equal(dd.open, false);
+  assert.ok(!isOpen(dd));
   await act(async () => root.unmount());
 });
 
@@ -227,20 +246,23 @@ test("an open filter closes on a click outside it", async () => {
       new window.MouseEvent("pointerdown", { bubbles: true }),
     );
   });
-  assert.equal(dd.open, false);
+  assert.ok(!isOpen(dd));
   await act(async () => root.unmount());
 });
 
 test("an open filter stays open when focus moves within it", async () => {
   const root = await render({ items: [item({})] });
   const dd = await openFilter(0);
-  const box = dd.querySelector("input");
+  const box = dd.querySelector('input[type="checkbox"]');
   assert.ok(box);
   await act(async () => {
     dd.dispatchEvent(
       new window.FocusEvent("focusout", { bubbles: true, relatedTarget: box }),
     );
   });
-  assert.equal(dd.open, true);
+  assert.ok(isOpen(dd));
+  await act(async () => {
+    dd.querySelector(".filtertrigger")?.click();
+  });
   await act(async () => root.unmount());
 });

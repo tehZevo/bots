@@ -82,51 +82,100 @@ async function typeInto(element: Element | null, value: string): Promise<void> {
   });
 }
 
+async function click(element: Element | null | undefined): Promise<void> {
+  assert.ok(element, "expected element");
+  await act(async () => {
+    element.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  });
+}
+
 test("query input is controlled through props", async () => {
   const captured: Captured = {};
   const probe = mount(captured);
   await probe.render();
-  const search = probe.container.querySelector(
-    'input[placeholder="Search bots by name"]',
-  );
-  await typeInto(search, "alpha");
-  assert.equal(captured.query, "alpha");
-  await probe.unmount();
+  try {
+    const search = probe.container.querySelector(
+      'input[placeholder="Search bots by name"]',
+    );
+    await typeInto(search, "alpha");
+    assert.equal(captured.query, "alpha");
+  } finally {
+    await probe.unmount();
+  }
 });
 
-test("role search filters options through state, not DOM walking", async () => {
+test("role search filters the open dropdown through state, not DOM walking", async () => {
   const captured: Captured = {};
   const probe = mount(captured);
   await probe.render();
-  const rolePanel = [...probe.container.querySelectorAll(".filterdd")][1];
-  assert.ok(rolePanel?.textContent?.includes("Alpha Ops"));
-  assert.ok(rolePanel?.textContent?.includes("Beta Research"));
-
-  const search = rolePanel?.querySelector('input[placeholder="Search roles"]');
-  await typeInto(search, "beta");
-  assert.ok(!rolePanel?.textContent?.includes("Alpha Ops"));
-  assert.ok(rolePanel?.textContent?.includes("Beta Research"));
-  assert.ok(!rolePanel?.textContent?.includes("(no role)"));
-
-  await typeInto(search, "");
-  assert.ok(rolePanel?.textContent?.includes("Alpha Ops"));
-  assert.ok(rolePanel?.textContent?.includes("(no role)"));
-  await probe.unmount();
+  try {
+    const roleDd = [...probe.container.querySelectorAll(".filterdd")][1];
+    await click(roleDd.querySelector(".filtertrigger"));
+    const panel = roleDd.querySelector(".filterpanel");
+    assert.ok(panel?.textContent?.includes("Alpha Ops"));
+    assert.ok(panel?.textContent?.includes("Beta Research"));
+  
+    const search = panel?.querySelector('input[placeholder="Search roles"]');
+    await typeInto(search, "beta");
+    assert.ok(!panel?.textContent?.includes("Alpha Ops"));
+    assert.ok(panel?.textContent?.includes("Beta Research"));
+    assert.ok(!panel?.textContent?.includes("(no role)"));
+  
+    await typeInto(search, "");
+    assert.ok(panel?.textContent?.includes("Alpha Ops"));
+    assert.ok(panel?.textContent?.includes("(no role)"));
+    await click(roleDd.querySelector(".filtertrigger"));
+  } finally {
+    await probe.unmount();
+  }
 });
 
 test("checking a role reports the toggled selection", async () => {
   const captured: Captured = {};
   const probe = mount(captured);
   await probe.render();
-  const rolePanel = [...probe.container.querySelectorAll(".filterdd")][1];
-  const alphaCheck = [
-    ...(rolePanel?.querySelectorAll('input[type="checkbox"]') ?? []),
-  ][1];
-  await act(async () => {
-    alphaCheck?.dispatchEvent(
-      new window.MouseEvent("click", { bubbles: true }),
+  try {
+    const roleDd = [...probe.container.querySelectorAll(".filterdd")][1];
+    await click(roleDd.querySelector(".filtertrigger"));
+    const alphaCheck = [
+      ...(roleDd.querySelectorAll('.filterpanel input[type="checkbox"]') ?? []),
+    ][1];
+    await act(async () => {
+      alphaCheck?.dispatchEvent(
+        new window.MouseEvent("click", { bubbles: true }),
+      );
+    });
+    assert.deepEqual(captured.roleIds, ["r-1"]);
+    await click(roleDd.querySelector(".filtertrigger"));
+  } finally {
+    await probe.unmount();
+  }
+});
+
+test("a closed dropdown shows no options until its trigger is clicked", async () => {
+  const captured: Captured = {};
+  const probe = mount(captured);
+  await probe.render();
+  try {
+    const statusDd = probe.container.querySelector(".filterdd");
+    assert.equal(statusDd?.querySelector(".filterpanel"), null);
+    assert.equal(
+      statusDd?.querySelector(".filtertrigger")?.textContent,
+      "Status: All",
     );
-  });
-  assert.deepEqual(captured.roleIds, ["r-1"]);
-  await probe.unmount();
+    await click(statusDd?.querySelector(".filtertrigger"));
+    assert.ok(statusDd?.querySelector(".filterpanel"));
+    assert.equal(
+      statusDd?.querySelector('.filterpanel input:not([type="checkbox"])'),
+      null,
+    );
+    assert.equal(
+      statusDd?.querySelectorAll('.filterpanel input[type="checkbox"]').length,
+      5,
+    );
+    await click(statusDd?.querySelector(".filtertrigger"));
+    assert.equal(statusDd?.querySelector(".filterpanel"), null);
+  } finally {
+    await probe.unmount();
+  }
 });

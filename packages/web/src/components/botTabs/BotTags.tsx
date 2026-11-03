@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { CloseIcon } from "../../components/icons/index.ts";
 import { api } from "../../lib/api.ts";
 import type { Tag } from "../../types.ts";
+import { Multiselect } from "../Multiselect.tsx";
+
 export function BotTags({ botId }: { botId: string }) {
   const [all, setAll] = useState<Tag[]>([]);
   const [attached, setAttached] = useState<string[]>([]);
-  const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -29,20 +29,8 @@ export function BotTags({ botId }: { botId: string }) {
       .finally(() => setBusy(false));
   };
 
-  const q = text.trim().toLowerCase();
-  const suggestions = all.filter(
-    (t) => !attached.includes(t.id) && t.name.toLowerCase().includes(q),
-  );
-
-  const commit = async () => {
-    const name = text.trim();
-    if (!name || busy) return;
-    const existing = all.find((t) => t.name.toLowerCase() === q);
-    if (existing) {
-      if (!attached.includes(existing.id)) save([...attached, existing.id]);
-      setText("");
-      return;
-    }
+  const create = async (name: string) => {
+    if (busy) return false;
     setBusy(true);
     try {
       const created = await api<Tag>("/api/tags", {
@@ -52,69 +40,26 @@ export function BotTags({ botId }: { botId: string }) {
       });
       setAll((list) => [...list, created]);
       save([...attached, created.id]);
-      setText("");
+      return true;
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e));
       setBusy(false);
+      return false;
     }
   };
 
   return (
     <div className="bottags">
       <span>Tags</span>
-      <div className="tagchips">
-        {attached.map((id) => {
-          const t = all.find((x) => x.id === id);
-          if (!t) return null;
-          return (
-            <span key={id} className="chip">
-              {t.name}
-              <button
-                type="button"
-                aria-label={`Remove ${t.name}`}
-                disabled={busy}
-                onClick={() => save(attached.filter((x) => x !== id))}
-              >
-                <CloseIcon size={18} />
-              </button>
-            </span>
-          );
-        })}
-      </div>
-      <input
-        className="tagadd"
-        placeholder="Add tag — Enter attaches or creates"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            void commit();
-          }
-        }}
+      <Multiselect
+        label="Tags"
+        options={all.map((t) => ({ id: t.id, name: t.name }))}
+        selected={attached}
+        onChange={save}
+        busy={busy}
+        placeholder="Search tags"
+        onCreate={(name) => create(name)}
       />
-      {q !== "" && (
-        <div className="tagsuggest">
-          {suggestions.slice(0, 8).map((t) => (
-            <button
-              type="button"
-              key={t.id}
-              disabled={busy}
-              onClick={() => {
-                save([...attached, t.id]);
-                setText("");
-              }}
-            >
-              {t.name}
-            </button>
-          ))}
-          {suggestions.length === 0 && (
-            <button type="button" disabled={busy} onClick={() => void commit()}>
-              {`+ Create "${text.trim()}"`}
-            </button>
-          )}
-        </div>
-      )}
     </div>
   );
 }
