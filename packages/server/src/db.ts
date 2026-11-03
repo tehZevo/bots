@@ -341,6 +341,15 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_questions_bot ON questions (bot_id, status, created_at);
+  CREATE TABLE IF NOT EXISTS env_notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    source TEXT NOT NULL,
+    detail TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_env_notifications ON env_notifications (bot_id, id);
 
   CREATE TABLE IF NOT EXISTS run_usage (
     run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
@@ -2640,6 +2649,100 @@ export function listPendingInjections(botId: string): PendingInjectionRow[] {
       "SELECT id, bot_id, kind, text, created_at FROM pending_injections WHERE bot_id = ? ORDER BY id",
     )
     .all(botId) as PendingInjectionRow[];
+}
+
+// specs/context/environment-notifications.md — one pending row per source: a
+// burst of edits to the same project collapses to the newest event, and the
+// queue is capped by construction. It never wakes a bot; a drain empties it.
+export function queueEnvNotification(
+  botId: string,
+  source: string,
+  detail: string,
+): void {
+  db.prepare(
+    "DELETE FROM env_notifications WHERE bot_id = ? AND source = ?",
+  ).run(botId, source);
+  db.prepare(
+    "INSERT INTO env_notifications (bot_id, source, detail, created_at) VALUES (?, ?, ?, ?)",
+  ).run(botId, source, detail, Date.now());
+}
+
+export interface EnvNotificationRow {
+  id: number;
+  bot_id: string;
+  source: string;
+  detail: string;
+  created_at: number;
+}
+
+export function listEnvNotifications(botId: string): EnvNotificationRow[] {
+  return db
+    .prepare(
+      "SELECT id, bot_id, source, detail, created_at FROM env_notifications WHERE bot_id = ? ORDER BY id",
+    )
+    .all(botId) as EnvNotificationRow[];
+}
+
+export function botsWithProject(projectId: string): string[] {
+  return (
+    db
+      .prepare(
+        `SELECT b.id FROM bots b
+         JOIN bot_projects bp ON bp.bot_id = b.id
+         WHERE bp.project_id = ?`,
+      )
+      .all(projectId) as { id: string }[]
+  ).map((row) => row.id);
+}
+
+export function botsWithRole(roleId: string): string[] {
+  return (
+    db.prepare("SELECT id FROM bots WHERE role_id = ?").all(roleId) as {
+      id: string;
+    }[]
+  ).map((row) => row.id);
+}
+
+// Skills are granted through roles, so a skill change reaches every bot whose
+// role lists it.
+export function botsWithSkill(skillId: string): string[] {
+  return (
+    db
+      .prepare(
+        `SELECT b.id FROM bots b JOIN roles r ON r.id = b.role_id
+         WHERE EXISTS (SELECT 1 FROM json_each(r.skill_ids) WHERE value = ?)`,
+      )
+      .all(skillId) as { id: string }[]
+  ).map((row) => row.id);
+}
+
+// A secret reaches its own bots plus every bot on a team holding it; the value
+// is never part of the notification, only the name.
+export function botsWithSecret(secretId: string): string[] {
+  return (
+    db
+      .prepare(
+        `SELECT bot_id AS id FROM bot_secret WHERE secret_id = ?
+         UNION SELECT tm.bot_id FROM team_secret ts
+           JOIN team_members tm ON tm.team_id = ts.team_id
+          WHERE ts.secret_id = ?`,
+      )
+      .all(secretId, secretId) as { id: string }[]
+  ).map((row) => row.id);
+}
+
+export function teamMemberBotIds(teamId: string): string[] {
+  return (
+    db
+      .prepare("SELECT bot_id AS id FROM team_members WHERE team_id = ?")
+      .all(teamId) as { id: string }[]
+  ).map((row) => row.id);
+}
+
+export function clearEnvNotifications(ids: number[]): void {
+  if (ids.length === 0) return;
+  const del = db.prepare("DELETE FROM env_notifications WHERE id = ?");
+  for (const id of ids) del.run(id);
 }
 
 export function pendingBotIds(): string[] {

@@ -74,9 +74,9 @@ export function chatTurnsFromMessages(
 
     const raw = textOf(blocks);
     const injectedSource =
-      /^\[(schedule|manual|webhook|question) [^\]]*\]\n/.exec(raw);
+      /^\[(schedule|manual|webhook|question|notify) [^\]]*\]\n/.exec(raw);
     const text = raw.replace(
-      /^\[(schedule|manual|chat|webhook|question) [^\]]*\]\n/,
+      /^\[(schedule|manual|chat|webhook|question|notify) [^\]]*\]\n/,
       "",
     );
     if (!text.trim()) continue;

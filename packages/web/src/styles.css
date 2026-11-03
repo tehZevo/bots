@@ -1814,6 +1814,12 @@ aside.rail .brand {
   border-radius: var(--radius-field);
   background: var(--input-well);
 }
+.chat-bar.notify {
+  border-style: solid;
+}
+.chat-bar.queued {
+  opacity: 0.75;
+}
 .chat-bar .who {
   font-size: 11px;
   opacity: 0.7;
