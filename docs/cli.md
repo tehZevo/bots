@@ -19,9 +19,9 @@ URLs must be absolute. HTTPS is required except for `localhost`, `127.0.0.1` and
 bots auth login --url https://bots.example.com
 ```
 
-The CLI requests an eight-character code, opens the browser approval page when possible, waits for approval and stores the returned API key — [Accounts & access](/authentication#sign-in-from-a-terminal-device-login) describes what you see in the browser. Use `--web` explicitly for the browser flow or `--no-browser` to force print-only mode; terminal password login and a pasted `--api-key` are mutually exclusive with device login.
+By default the CLI prompts for your email and a hidden password, exchanges the session for a fresh API key named `bots-cli <host> <date>`, and stores it. Pass `--password-stdin` to script the password, or `--api-key` / `--api-key-stdin` to store a key you already have. `--web` uses the browser device flow instead: the CLI prints an eight-character code, opens the approval page when a browser is available (`--no-browser` forces print-only), and waits for approval — [Accounts & access](/authentication#sign-in-from-a-terminal-device-login) describes what you see in the browser. `--web`, password login and `--api-key` are mutually exclusive.
 
-`bots auth status` checks configuration without exposing credentials. `bots auth logout` removes the local config and, by default, revokes its stored key first; pass `--keep-key` to retain it for another install.
+`bots auth status` checks configuration without exposing credentials. `bots auth logout` removes the local config and, by default, tries to revoke its stored key first; pass `--keep-key` to retain it for another install. Because key management needs a browser session, revocation can be refused — the CLI then says so and still deletes the local file.
 
 ## Common commands
 
