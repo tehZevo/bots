@@ -61,11 +61,28 @@ export const sendMessageSchema = Type.Object({
   message: Type.String({ description: "Message text to deliver" }),
 });
 
+export const askUserSchema = Type.Object({
+  question: Type.String({ description: "The question to ask a human" }),
+  options: Type.Array(Type.String(), {
+    description: "Two to six distinct choices the human can pick",
+  }),
+  allow_other: Type.Optional(
+    Type.Boolean({
+      description: "Allow a free-text answer in addition to the options",
+    }),
+  ),
+});
+
 // biome-ignore lint/suspicious/noExplicitAny: pi types its tool arrays as AgentTool<any>[]
 export function buildTools(
   botId: string,
   deliverDm?: (recipientBotId: string, text: string) => string,
   grantedSkills: SkillRow[] = [],
+  askUser?: (
+    question: string,
+    options: string[],
+    allowOther: boolean,
+  ) => string,
 ): AgentTool<any>[] {
   const cwd = workspaceDir(botId);
 
@@ -200,6 +217,30 @@ export function buildTools(
       }),
     };
     tools.push(sendMessage);
+  }
+
+  if (askUser) {
+    const ask: AgentTool<typeof askUserSchema> = {
+      name: "ask_user",
+      label: "Ask user",
+      description:
+        "Ask the human a question with 2-6 options and get a question id back immediately. Asking never pauses your run: the answer arrives later as a normal user turn, and until then the pending question is listed in your system prompt, so hold only the work that depends on it. Use it when a decision or missing input blocks the task, not for progress updates.",
+      parameters: askUserSchema,
+      execute: async (_id, params) => ({
+        content: [
+          {
+            type: "text" as const,
+            text: askUser(
+              params.question,
+              params.options,
+              params.allow_other === true,
+            ),
+          },
+        ],
+        details: {},
+      }),
+    };
+    tools.push(ask);
   }
 
   return tools;

@@ -6,6 +6,7 @@ export type InboxKind =
   | "watchdog"
   | "breaker"
   | "approval"
+  | "question"
   | "notification";
 
 export interface InboxItem {
@@ -20,6 +21,9 @@ export interface InboxItem {
   notification_id?: string | null;
   read?: number | null;
   approval_id?: string | null;
+  question_id?: string | null;
+  question_options?: string[];
+  question_allow_other?: boolean;
 }
 
 export const INBOX_KIND_LABELS: Record<InboxKind, string> = {
@@ -28,6 +32,7 @@ export const INBOX_KIND_LABELS: Record<InboxKind, string> = {
   watchdog: "Watchdog",
   breaker: "Spend cap",
   approval: "Approval",
+  question: "Question",
   notification: "Notification",
 };
 

@@ -129,6 +129,7 @@ import {
   listNotifications,
   listProjects,
   listProviders,
+  listQuestions,
   listRoleApprovals,
   listRoles,
   insertWebhookDelivery,
@@ -196,6 +197,7 @@ import { HOOK_EVENT_TYPES, sendHookTest } from "./hooks.ts";
 import { testMcpConnection } from "./mcp.ts";
 import { openApiDoc } from "./openapi.ts";
 import { vapidPublicKey } from "./push.ts";
+import { answerQuestion, cancelPending } from "./questions.ts";
 import {
   consumeRate,
   isRateLimitReached,
@@ -2848,6 +2850,31 @@ export function createApp() {
     return c.json({ runId, steered }, 202);
   });
 
+  app.get("/api/bots/:id/questions", (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    return c.json(listQuestions(bot.id));
+  });
+
+  app.post("/api/questions/:id/answer", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      answer?: unknown;
+    } | null;
+    const answer = typeof body?.answer === "string" ? body.answer.trim() : "";
+    if (!answer) return c.json({ error: "answer is required" }, 400);
+    const result = answerQuestion(c.req.param("id"), answer, {
+      kind: "user",
+      id: c.get("user")?.id ?? null,
+      name: (c.get("user") as { email?: string } | undefined)?.email,
+    });
+    if (!result.ok)
+      return c.json(
+        { error: result.error },
+        result.error === "not found" ? 404 : 409,
+      );
+    return c.json(result.row);
+  });
+
   app.get("/api/bots/:id/notifications", (c) => {
     const bot = getBot(c.req.param("id"));
     if (!bot) return c.json({ error: "not found" }, 404);
@@ -3075,6 +3102,11 @@ export function createApp() {
     const text = typeof body?.text === "string" ? body.text.trim() : "";
     if (!text) return c.json({ error: "text is required" }, 400);
     const { runId, steered, held } = injectMessage(bot, text, "chat");
+    cancelPending(bot.id, {
+      kind: "user",
+      id: c.get("user")?.id ?? null,
+      name: (c.get("user") as { email?: string } | undefined)?.email,
+    });
     logAudit({
       actor: auditActor(c),
       action: "chat.send",

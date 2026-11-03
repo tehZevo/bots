@@ -67,6 +67,7 @@ export interface RunRow {
     | "chat"
     | "webhook"
     | "dm"
+    | "question"
     | "continuous"
     | "watchdog";
   started_at: number;
@@ -338,6 +339,19 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_webhook_deliveries ON webhook_deliveries (trigger_id, id);
+  CREATE TABLE IF NOT EXISTS questions (
+    id TEXT PRIMARY KEY,
+    bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    question TEXT NOT NULL,
+    options TEXT NOT NULL,
+    allow_other INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'pending',
+    answer TEXT,
+    created_at INTEGER NOT NULL,
+    answered_at INTEGER
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_questions_bot ON questions (bot_id, status, created_at);
   CREATE TABLE IF NOT EXISTS env_notifications (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
@@ -2939,6 +2953,7 @@ export interface InboxItem {
     | "blocked"
     | "watchdog"
     | "breaker"
+    | "question"
     | "approval"
     | "notification";
   bot_id: string | null;
@@ -2951,6 +2966,9 @@ export interface InboxItem {
   read?: number | null;
   /** Set for `approval` items so the inbox can decide the call inline. */
   approval_id?: string | null;
+  question_id?: string | null;
+  question_options?: string[];
+  question_allow_other?: boolean;
 }
 
 function inboxDetail(
@@ -2960,6 +2978,103 @@ function inboxDetail(
   const text = value?.replace(/\s+/g, " ").trim() ?? "";
   if (!text) return fallback;
   return text.length > 220 ? `${text.slice(0, 219)}…` : text;
+}
+
+export interface QuestionRow {
+  id: string;
+  bot_id: string;
+  question: string;
+  options: string[];
+  allow_other: boolean;
+  status: "pending" | "answered" | "cancelled";
+  answer: string | null;
+  created_at: number;
+  answered_at: number | null;
+}
+
+interface RawQuestionRow extends Omit<QuestionRow, "options" | "allow_other"> {
+  options: string;
+  allow_other: number;
+}
+
+function toQuestion(row: RawQuestionRow): QuestionRow {
+  return {
+    ...row,
+    options: JSON.parse(row.options) as string[],
+    allow_other: row.allow_other === 1,
+  };
+}
+
+export function insertQuestion(row: {
+  id: string;
+  bot_id: string;
+  question: string;
+  options: string[];
+  allow_other: boolean;
+}): void {
+  db.prepare(
+    `INSERT INTO questions (id, bot_id, question, options, allow_other, status, created_at)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+  ).run(
+    row.id,
+    row.bot_id,
+    row.question,
+    JSON.stringify(row.options),
+    row.allow_other ? 1 : 0,
+    Date.now(),
+  );
+}
+
+export function getQuestion(id: string): QuestionRow | undefined {
+  const row = db.prepare("SELECT * FROM questions WHERE id = ?").get(id) as
+    | RawQuestionRow
+    | undefined;
+  return row && toQuestion(row);
+}
+
+export function listPendingQuestions(botId: string): QuestionRow[] {
+  return (
+    db
+      .prepare(
+        "SELECT * FROM questions WHERE bot_id = ? AND status = 'pending' ORDER BY created_at ASC",
+      )
+      .all(botId) as RawQuestionRow[]
+  ).map(toQuestion);
+}
+
+export function listQuestions(botId: string, limit = 50): QuestionRow[] {
+  return (
+    db
+      .prepare(
+        "SELECT * FROM questions WHERE bot_id = ? ORDER BY created_at DESC LIMIT ?",
+      )
+      .all(botId, limit) as RawQuestionRow[]
+  ).map(toQuestion);
+}
+
+export function answerQuestion(id: string, answer: string): boolean {
+  const res = db
+    .prepare(
+      "UPDATE questions SET status = 'answered', answer = ?, answered_at = ? WHERE id = ? AND status = 'pending'",
+    )
+    .run(answer, Date.now(), id);
+  return res.changes > 0;
+}
+
+// specs/tools/questions.md — a direct chat message supersedes queued choices.
+export function cancelPendingQuestions(botId: string): QuestionRow[] {
+  const pending = listPendingQuestions(botId);
+  if (pending.length === 0) return [];
+  const now = Date.now();
+  const mark = db.prepare(
+    "UPDATE questions SET status = 'cancelled', answered_at = ? WHERE id = ?",
+  );
+  for (const row of pending) {
+    mark.run(now, row.id);
+    row.status = "cancelled";
+    row.answered_at = now;
+  }
+  return pending;
 }
 
 export function listInboxItems(): InboxItem[] {
@@ -2995,6 +3110,45 @@ export function listInboxItems(): InboxItem[] {
       target_path: `/bots?bot=${encodeURIComponent(row.bot_id)}`,
       created_at: row.created_at,
       approval_id: row.id,
+    });
+  }
+
+  // specs/tools/questions.md — a pending question is the second most
+  // actionable thing a bot can have.
+  const pendingQuestions = db
+    .prepare(
+      `SELECT q.id, q.bot_id, q.question, q.options, q.allow_other, q.created_at,
+              b.name AS bot_name
+         FROM questions q JOIN bots b ON b.id = q.bot_id
+        WHERE q.status = 'pending' AND b.archived = 0
+        ORDER BY q.created_at DESC`,
+    )
+    .all() as {
+    id: string;
+    bot_id: string;
+    question: string;
+    options: string;
+    allow_other: number;
+    created_at: number;
+    bot_name: string;
+  }[];
+
+  for (const row of pendingQuestions) {
+    if (itemsByBot.has(row.bot_id)) continue;
+    itemsByBot.set(row.bot_id, {
+      id: `question:${row.id}`,
+      kind: "question",
+      bot_id: row.bot_id,
+      bot_name: row.bot_name,
+      title: `${row.bot_name}: ${row.question}`,
+      detail:
+        (JSON.parse(row.options) as string[]).join(" / ") ||
+        "Waiting for an answer.",
+      target_path: `/bots?bot=${encodeURIComponent(row.bot_id)}`,
+      created_at: row.created_at,
+      question_id: row.id,
+      question_options: JSON.parse(row.options) as string[],
+      question_allow_other: row.allow_other === 1,
     });
   }
 

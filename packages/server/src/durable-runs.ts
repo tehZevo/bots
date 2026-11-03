@@ -630,7 +630,14 @@ async function runDurableTurn(
 function errorWithoutModel(
   bot: BotRow,
   runId: string,
-  kind: "schedule" | "manual" | "chat" | "webhook" | "dm" | "continuous",
+  kind:
+    | "schedule"
+    | "manual"
+    | "chat"
+    | "webhook"
+    | "dm"
+    | "question"
+    | "continuous",
   error: string,
 ): void {
   insertRun({
@@ -656,7 +663,14 @@ function errorWithoutModel(
 export function injectMessage(
   bot: BotRow,
   text: string,
-  kind: "schedule" | "manual" | "chat" | "webhook" | "dm" | "continuous",
+  kind:
+    | "schedule"
+    | "manual"
+    | "chat"
+    | "webhook"
+    | "dm"
+    | "question"
+    | "continuous",
 ): InjectResult {
   if (isPaused()) {
     insertPendingInjection(bot.id, kind, text);
@@ -796,7 +810,13 @@ export function resumePendingInjections(): void {
       injectMessage(
         bot,
         row.text,
-        row.kind as "schedule" | "manual" | "chat" | "webhook" | "dm",
+        row.kind as
+          | "schedule"
+          | "manual"
+          | "chat"
+          | "webhook"
+          | "dm"
+          | "question",
       );
   }
 }

@@ -3900,3 +3900,17 @@ button:not(.sidetabs button):not(.card) {
     font-size: 1.25rem;
   }
 }
+
+/* specs/tools/questions.md — inline answering from the inbox */
+.questionactions {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.questionother {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.chat-bar.question {
+  border-left-color: var(--accent, #6c8cff);
+}
