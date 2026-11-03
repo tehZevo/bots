@@ -62,3 +62,9 @@
 Dev conveniences (never for production): `DEV_SEED_AUTH=1` idempotently seeds `dev@example.com`/`devpassword`; when it creates the API key named `dev`, its full value is logged once (`specs/auth/dev-credentials.md`). `DEV_FAKE_LLM=1` adds the keyless scripted Fake provider (`specs/llm/fake-provider.md`). Use both instead of hand-editing `data.db`.
 
 Smoke test manually: start server with `.env`, then authenticate every request. Reuse a personal key from **Settings → API keys**, or temporarily set `ALLOW_REGISTRATION=true`, call `POST /api/auth/signup`, and mint one with `POST /api/api-keys` (`{"name":"smoke"}`). Export its returned value as `BOTS_API_KEY` (never commit it) and send `Authorization: Bearer $BOTS_API_KEY`. Then `POST /api/bots` (name only), use the nested create `/api/bots/:id/triggers` with message "Reply with exactly PONG" and `@every 1m` (or just `POST /api/bots/:id/run` with that message), then poll `GET /api/bots/:id/runs` for `status: ok`.
+
+## Running DOM tests without OOMing
+
+- Debug one file at a time with `--reporter=verbose`; the last line names the hang.
+- Cap virtual memory (`ulimit -v 8000000`): `--max-old-space-size` bounds only the V8 heap, and jsdom grows straight past it.
+- Unmount in `finally` — the file that OOMs is rarely the one that leaked the mounted tree.
