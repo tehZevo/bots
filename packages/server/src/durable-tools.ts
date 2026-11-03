@@ -146,8 +146,16 @@ export function baseHarnessTools(
   deliverDm?: (recipientBotId: string, text: string) => string,
   grantedSkills: SkillRow[] = [],
   gate?: ApprovalGate,
+  askUser?: (
+    question: string,
+    options: string[],
+    allowOther: boolean,
+  ) => string,
 ): ToolRegistration[] {
-  return wrapLegacyTools(buildTools(botId, deliverDm, grantedSkills), gate);
+  return wrapLegacyTools(
+    buildTools(botId, deliverDm, grantedSkills, askUser),
+    gate,
+  );
 }
 
 /**

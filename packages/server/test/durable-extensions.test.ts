@@ -50,6 +50,7 @@ test("durable bot extension installs prompt, base tools, and MCP selection", asy
 
     let agent = await conversation.agent(chord.BACKGROUND_CONTEXT);
     assert.deepEqual(agent.tools.map((tool) => tool.name).sort(), [
+      "ask_user",
       "set_current_task",
       "set_status",
       "shell",
@@ -83,6 +84,7 @@ test("durable bot extension installs prompt, base tools, and MCP selection", asy
     );
     agent = await conversation.agent(chord.BACKGROUND_CONTEXT);
     assert.deepEqual(agent.tools.map((tool) => tool.name).sort(), [
+      "ask_user",
       "set_current_task",
       "set_status",
       "shell",

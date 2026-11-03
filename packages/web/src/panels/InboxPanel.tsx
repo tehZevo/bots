@@ -36,6 +36,14 @@ function InboxKindIcon({ kind }: { kind: InboxKind }) {
       </svg>
     );
   if (kind === "approval") return <ApprovalIcon size={18} />;
+  if (kind === "question")
+    return (
+      <svg {...shared} aria-hidden>
+        <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z" />
+        <path d="M9.6 9.4a2.5 2.5 0 0 1 4.8.8c0 1.7-2.4 2.1-2.4 3.3" />
+        <circle cx="12" cy="16.8" r=".8" fill="currentColor" stroke="none" />
+      </svg>
+    );
   if (kind === "notification") return <BellIcon size={18} />;
   return (
     <svg {...shared}>
@@ -43,6 +51,62 @@ function InboxKindIcon({ kind }: { kind: InboxKind }) {
       <path d="M10.37 3.65 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.63 3.65a2 2 0 0 0-3.26 0Z" />
       <circle cx="12" cy="16.5" r=".8" fill="currentColor" stroke="none" />
     </svg>
+  );
+}
+
+function QuestionActions({
+  item,
+  onAnswer,
+  onOpenChat,
+}: {
+  item: InboxItem;
+  onAnswer: (id: string, answer: string) => void;
+  onOpenChat: (botId: string) => void;
+}) {
+  const [other, setOther] = useState(false);
+  const [text, setText] = useState("");
+  const id = item.question_id as string;
+  return (
+    <div className="notifactions questionactions">
+      {(item.question_options ?? []).map((option) => (
+        <button key={option} type="button" onClick={() => onAnswer(id, option)}>
+          {option}
+        </button>
+      ))}
+      {item.question_allow_other && !other && (
+        <button type="button" onClick={() => setOther(true)}>
+          Other…
+        </button>
+      )}
+      {item.question_allow_other && other && (
+        <form
+          className="questionother"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (text.trim()) onAnswer(id, text.trim());
+          }}
+        >
+          <input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Type an answer"
+            aria-label="Other answer"
+          />
+          <button type="submit" disabled={!text.trim()}>
+            Send
+          </button>
+        </form>
+      )}
+      {item.bot_id && (
+        <button
+          type="button"
+          className="questionchat"
+          onClick={() => onOpenChat(item.bot_id as string)}
+        >
+          Chat
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -54,6 +118,8 @@ export function InboxPanel({
   onMarkRead,
   onMarkAllRead,
   onDecideApproval,
+  onAnswerQuestion,
+  onOpenChat,
 }: {
   items: InboxItem[];
   unreadCount: number;
@@ -62,6 +128,8 @@ export function InboxPanel({
   onMarkRead: (id: string) => void;
   onMarkAllRead: () => void;
   onDecideApproval: (id: string, approve: boolean) => void;
+  onAnswerQuestion: (id: string, answer: string) => void;
+  onOpenChat: (botId: string) => void;
 }) {
   const [kindSel, setKindSel] = useState<InboxKind[]>([]);
   const [botSel, setBotSel] = useState<string[]>([]);
@@ -140,6 +208,13 @@ export function InboxPanel({
                     {inboxTimeLabel(item.created_at)}
                   </time>
                 </button>
+                {item.question_id && (
+                  <QuestionActions
+                    item={item}
+                    onAnswer={onAnswerQuestion}
+                    onOpenChat={onOpenChat}
+                  />
+                )}
                 {(unread || item.approval_id) && (
                   <div className="notifactions">
                     {item.approval_id && (

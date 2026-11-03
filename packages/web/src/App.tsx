@@ -614,6 +614,30 @@ export function App() {
     await refreshNotifications();
   }
 
+  // specs/tools/questions.md — answering from the inbox posts a user turn.
+  async function answerInboxQuestion(
+    id: string,
+    answer: string,
+  ): Promise<void> {
+    try {
+      await api(`/api/questions/${id}/answer`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ answer }),
+      });
+    } catch {
+      /* answered elsewhere already — the refresh below settles the row */
+    }
+    setInbox((rows) => rows.filter((row) => row.question_id !== id));
+    await refreshNotifications();
+  }
+
+  function openInboxChat(botId: string): void {
+    discardGuard(() =>
+      applyNotificationPath(`/bots?bot=${encodeURIComponent(botId)}`),
+    );
+  }
+
   function openInboxItem(item: InboxItem): void {
     const target = item.target_path;
     if (!target) {
@@ -694,6 +718,10 @@ export function App() {
                 onDecideApproval={(id, approve) =>
                   void decideInboxApproval(id, approve)
                 }
+                onAnswerQuestion={(id, answer) =>
+                  void answerInboxQuestion(id, answer)
+                }
+                onOpenChat={(botId) => openInboxChat(botId)}
               />
             )}
             {tab === "bots" && (
