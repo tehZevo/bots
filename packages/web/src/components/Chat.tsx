@@ -5,7 +5,42 @@ const INJECT_LABELS: Record<string, string> = {
   schedule: "schedule",
   manual: "manual run",
   webhook: "webhook",
+  notify: "environment",
 };
+
+interface QueuedNotification {
+  id: number;
+  source: string;
+  detail: string;
+  created_at: number;
+  status: string;
+}
+
+export function QueuedNotifications({ botId }: { botId: string }) {
+  const [rows, setRows] = useState<QueuedNotification[]>([]);
+  const load = useCallback(async () => {
+    try {
+      const data = await api<{ notifications: QueuedNotification[] }>(
+        `/api/bots/${botId}/notifications`,
+      );
+      setRows(data.notifications ?? []);
+    } catch {
+      /* keep the last known queue */
+    }
+  }, [botId]);
+  usePolling(load, 5000);
+  if (rows.length === 0) return null;
+  return (
+    <>
+      {rows.map((row) => (
+        <div className="chat-bar notify queued" key={row.id}>
+          <span className="who">environment · queued</span>
+          <pre>{row.detail}</pre>
+        </div>
+      ))}
+    </>
+  );
+}
 
 import { Avatar } from "../components/Avatar.tsx";
 import {
@@ -263,6 +298,7 @@ export function Chat({
       <ApprovalStrip botId={botId} />
       <div className="chat-log" ref={logRef} onScroll={trackStick}>
         {turns.length === 0 && <p>No conversation yet. Say something below.</p>}
+        <QueuedNotifications botId={botId} />
         {turns.map((t, i) =>
           t.injected ? (
             <ChatBar key={i} turn={t} />
