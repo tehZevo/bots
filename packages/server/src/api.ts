@@ -36,6 +36,10 @@ import {
   type BotRow,
   botSecretIds,
   botsUsingMachine,
+  botsWithProject,
+  botsWithRole,
+  botsWithSecret,
+  botsWithSkill,
   botUsageTotals,
   breakerState,
   checkSpendBreaker,
@@ -114,6 +118,7 @@ import {
   listApiKeys,
   listApprovals,
   listBots,
+  listEnvNotifications,
   listHookDeliveries,
   listHookDestinations,
   listInboxItems,
@@ -162,6 +167,7 @@ import {
   tagByName,
   tagIdsByBot,
   tagsForBot,
+  teamMemberBotIds,
   teamSecretIds,
   touchApiKey,
   touchDeviceGrantPoll,
@@ -181,6 +187,7 @@ import {
   verifyPassword,
 } from "./db.ts";
 import { loadBotConversationState } from "./durable-conversations.ts";
+import { notifyEnvChange } from "./durable-runs.ts";
 import { FAKE_PROVIDER_ID, fakeProviderResponse } from "./fake-llm.ts";
 import { HOOK_EVENT_TYPES, sendHookTest } from "./hooks.ts";
 import { testMcpConnection } from "./mcp.ts";
@@ -2197,6 +2204,12 @@ export function createApp() {
     }
     try {
       updateSecret(found.id, patch);
+      for (const id of botsWithSecret(found.id))
+        notifyEnvChange(
+          id,
+          `secret:${found.id}`,
+          `secret "${patch.name ?? found.name}" was updated`,
+        );
     } catch (err) {
       const failed = encryptionConfigError(c, err);
       if (failed) return failed;
@@ -2326,6 +2339,15 @@ export function createApp() {
       patch.body = body.body;
     }
     updateProject(project.id, patch);
+    if (patch.body !== undefined || patch.name !== undefined) {
+      const fresh = getProject(project.id);
+      for (const id of botsWithProject(project.id))
+        notifyEnvChange(
+          id,
+          `project:${project.id}`,
+          `project "${fresh?.name}" was updated`,
+        );
+    }
     return c.json(getProject(project.id));
   });
 
@@ -2408,6 +2430,21 @@ export function createApp() {
     const { approvals, ...roleFields } = payload;
     updateRole(role.id, roleFields);
     setRoleApprovals(role.id, approvals);
+    const freshRole = getRole(role.id);
+    if (freshRole && freshRole.instructions !== role.instructions)
+      for (const id of botsWithRole(role.id))
+        notifyEnvChange(
+          id,
+          `role:${role.id}`,
+          `your role "${freshRole.name}" instructions were updated`,
+        );
+    if (freshRole && freshRole.skill_ids.join(",") !== role.skill_ids.join(","))
+      for (const id of botsWithRole(role.id))
+        notifyEnvChange(
+          id,
+          `role:${role.id}`,
+          `your role "${freshRole.name}" skills were updated`,
+        );
     const fresh = getRole(role.id);
     if (!fresh) return c.json({ error: "not found" }, 404);
     return c.json({ ...fresh, approvals });
@@ -2476,6 +2513,8 @@ export function createApp() {
     if (name) renameTeam(team.id, name);
     const updated = getTeam(team.id);
     if (!updated) return c.json({ error: "not found" }, 404);
+    for (const id of teamMemberBotIds(team.id))
+      notifyEnvChange(id, `team:${team.id}`, `team "${team.name}" changed`);
     return c.json({
       ...updated,
       secret_ids: teamSecretIds(team.id),
@@ -2496,12 +2535,24 @@ export function createApp() {
     const bot = body.bot_id ? getBot(body.bot_id) : undefined;
     if (!bot) return c.json({ error: "unknown bot" }, 400);
     setTeamMember(team.id, bot.id, body.leader === true);
+    for (const id of teamMemberBotIds(team.id))
+      notifyEnvChange(
+        id,
+        `team:${team.id}`,
+        `team "${team.name}" membership changed`,
+      );
     return c.json(getTeam(team.id));
   });
 
   app.delete("/api/teams/:teamId/members/:botId", (c) => {
     const team = getTeam(c.req.param("teamId"));
     if (!team) return c.json({ error: "not found" }, 404);
+    for (const id of teamMemberBotIds(team.id))
+      notifyEnvChange(
+        id,
+        `team:${team.id}`,
+        `team "${team.name}" membership changed`,
+      );
     removeTeamMember(team.id, c.req.param("botId"));
     return c.json(getTeam(team.id));
   });
@@ -2637,7 +2688,13 @@ export function createApp() {
     >();
     const payload = toBotPayload({ ...bot, ...input });
     if ("error" in payload) return c.json({ error: payload.error }, 400);
+    const beforeProjects = projectsForBot(bot.id);
+    const beforeSecrets = botSecretIds(bot.id);
     updateBot(bot.id, payload);
+    if ("machine_id" in payload && payload.machine_id !== bot.machine_id)
+      notifyEnvChange(bot.id, "machine", "this bot's machine was switched");
+    if ("role_id" in payload && payload.role_id !== bot.role_id)
+      notifyEnvChange(bot.id, "role", "this bot's role was changed");
     if (input.project_ids !== undefined) {
       if (!Array.isArray(input.project_ids))
         return c.json({ error: "project_ids must be an array" }, 400);
@@ -2652,6 +2709,21 @@ export function createApp() {
           400,
         );
       }
+      const after = projectsForBot(bot.id);
+      const wasAttached = new Set(beforeProjects.map((p) => p.id));
+      const nowAttached = new Set(after.map((p) => p.id));
+      for (const p of after.filter((x) => !wasAttached.has(x.id)))
+        notifyEnvChange(
+          bot.id,
+          `project:${p.id}`,
+          `project "${p.name}" was attached to this bot`,
+        );
+      for (const p of beforeProjects.filter((x) => !nowAttached.has(x.id)))
+        notifyEnvChange(
+          bot.id,
+          `project:${p.id}`,
+          `project "${p.name}" was detached from this bot`,
+        );
     }
     if (input.tag_ids !== undefined) {
       if (!Array.isArray(input.tag_ids))
@@ -2682,6 +2754,19 @@ export function createApp() {
           400,
         );
       }
+      const afterSecrets = botSecretIds(bot.id);
+      for (const id of afterSecrets.filter((x) => !beforeSecrets.includes(x)))
+        notifyEnvChange(
+          bot.id,
+          `secret:${id}`,
+          `secret "${getSecret(id)?.name ?? id}" was attached to this bot`,
+        );
+      for (const id of beforeSecrets.filter((x) => !afterSecrets.includes(x)))
+        notifyEnvChange(
+          bot.id,
+          `secret:${id}`,
+          `secret "${getSecret(id)?.name ?? id}" was detached from this bot`,
+        );
     }
 
     return c.json({
@@ -2758,6 +2843,20 @@ export function createApp() {
         : DEFAULT_MANUAL_MESSAGE;
     const { runId, steered } = injectMessage(bot, text, "manual");
     return c.json({ runId, steered }, 202);
+  });
+
+  app.get("/api/bots/:id/notifications", (c) => {
+    const bot = getBot(c.req.param("id"));
+    if (!bot) return c.json({ error: "not found" }, 404);
+    return c.json({
+      notifications: listEnvNotifications(bot.id).map((row) => ({
+        id: row.id,
+        source: row.source,
+        detail: row.detail,
+        created_at: row.created_at,
+        status: "queued",
+      })),
+    });
   });
 
   app.get("/api/bots/:id/usage", (c) => {
@@ -3324,6 +3423,12 @@ export function createApp() {
       if (current[key] !== value) changed = true;
     }
     updateSkill(id, fields);
+    for (const botId of botsWithSkill(id))
+      notifyEnvChange(
+        botId,
+        `skill:${id}`,
+        `skill "${fields.name ?? current.name}" was updated`,
+      );
     const updated = getSkill(id)!;
     if (changed && current.import_info) {
       return c.json(

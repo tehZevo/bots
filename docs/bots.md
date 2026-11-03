@@ -49,3 +49,9 @@ The trigger or chat message that starts a run is the bot's assignment. Bots stay
 ## Memory
 
 Conversation context persists across runs and survives restarts; when it grows past the configured token budget, older turns are compacted into a summary automatically. Clear memory resets the loop's stored context.
+
+## Environment notifications
+
+When something in a bot's environment changes — a project it is attached to is edited, attached, or detached, its role's instructions or skills change, a skill it uses is updated, a team it belongs to changes, a secret is attached or detached, or its machine is switched — the bot is told about it. The change is queued, never pushed: an idle bot is not woken and a running bot is never interrupted. The note rides the next model request boundary and arrives as its own message tagged `environment` in Chat and Logs.
+
+Queued notes are visible before they are delivered: the Chat view shows them as "queued" bars, and `GET /api/bots/:id/notifications` lists them read-only. Repeated changes to the same source collapse into a single line carrying the newest timestamp, and a note only states that the change happened — secret values and edited text are never included.
