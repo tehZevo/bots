@@ -11,6 +11,11 @@ import {
   showStatus,
   signupAndLogin,
 } from "./auth.ts";
+import { registerAdmin } from "./commands/admin.ts";
+import { registerBots } from "./commands/bots.ts";
+import { registerContent } from "./commands/content.ts";
+import { registerTeams } from "./commands/teams.ts";
+import { registerTriggers } from "./commands/triggers.ts";
 import { configPath, resolveTarget } from "./config.ts";
 import { checkOriginPath, parseHeaders, request } from "./http.ts";
 import { CliError, EXIT, fail, out, setColorEnabled, style } from "./output.ts";
@@ -297,27 +302,29 @@ program
     await logout(configFlag(), opts.keepKey === true);
   });
 
-for (const name of [
-  "bot",
-  "run",
-  "message",
-  "trigger",
-  "template",
-  "project",
-  "role",
-  "team",
-  "skill",
-  "mcp",
-  "machine",
-  "provider",
-  "setting",
-  "key",
-  "notification",
-]) {
-  program
-    .command(name)
-    .description(`${name} commands (coming in the command surface)`);
-}
+registerBots(program, ctx);
+registerTriggers(program, ctx);
+registerTeams(program, ctx);
+registerContent(program, ctx);
+registerAdmin(program, ctx);
+
+program
+  .command("status")
+  .description("server url, health, account and key name")
+  .action(async () => {
+    const c = ctx();
+    const health = await request(c, "GET", "/api/health");
+    const me = await request(c, "GET", "/api/auth/me");
+    const email = (me.body as { email?: string })?.email ?? c.email;
+    if (c.quiet) {
+      out(String(health.status));
+      return;
+    }
+    out(`server:  ${c.url}`);
+    out(`health:  ${JSON.stringify(health.body)}`);
+    out(`account: ${email ?? "(unknown)"}`);
+    out(`key:     ${c.keyName ?? "(unnamed)"}`);
+  });
 
 process.stdout.on("error", (err: NodeJS.ErrnoException) => {
   if (err.code === "EPIPE") process.exit(0);
